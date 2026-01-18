@@ -501,47 +501,61 @@ export class PtyTerminalSession {
 		return lines;
 	}
 
-	getTailLines(options: { lines: number; ansi?: boolean; maxChars?: number }): string[] {
+	getTailLines(options: { lines: number; ansi?: boolean; maxChars?: number }): {
+		lines: string[];
+		totalLinesInBuffer: number;
+		truncatedByChars: boolean;
+	} {
 		const requested = Math.max(0, Math.trunc(options.lines));
 		const maxChars = options.maxChars !== undefined ? Math.max(0, Math.trunc(options.maxChars)) : undefined;
-		if (requested === 0) return [];
-
+		
 		const buffer = this.xterm.buffer.active;
-		const totalLines = buffer.length;
-		const start = Math.max(0, totalLines - requested);
+		const totalLinesInBuffer = buffer.length;
+		
+		if (requested === 0) {
+			return { lines: [], totalLinesInBuffer, truncatedByChars: false };
+		}
 
+		const start = Math.max(0, totalLinesInBuffer - requested);
 		const out: string[] = [];
 		let remainingChars = maxChars;
+		let truncatedByChars = false;
 
 		const useAnsi = options.ansi && this.serializer;
 		if (useAnsi) {
 			const serialized = this.serializer!.serialize();
 			const serializedLines = serialized.split(/\r?\n/);
-			if (serializedLines.length >= totalLines) {
-				for (let i = start; i < totalLines; i++) {
+			if (serializedLines.length >= totalLinesInBuffer) {
+				for (let i = start; i < totalLinesInBuffer; i++) {
 					const raw = serializedLines[i] ?? "";
 					const line = sanitizeLine(raw) + "\u001b[0m";
 					if (remainingChars !== undefined) {
-						if (remainingChars <= 0) break;
+						if (remainingChars <= 0) {
+							truncatedByChars = true;
+							break;
+						}
 						remainingChars -= line.length;
 					}
 					out.push(line);
 				}
-				return out;
+				return { lines: out, totalLinesInBuffer, truncatedByChars };
 			}
 		}
 
-		for (let i = start; i < totalLines; i++) {
+		for (let i = start; i < totalLinesInBuffer; i++) {
 			const lineObj = buffer.getLine(i);
 			const line = sanitizeLine(lineObj?.translateToString(true) ?? "");
 			if (remainingChars !== undefined) {
-				if (remainingChars <= 0) break;
+				if (remainingChars <= 0) {
+					truncatedByChars = true;
+					break;
+				}
 				remainingChars -= line.length;
 			}
 			out.push(line);
 		}
 
-		return out;
+		return { lines: out, totalLinesInBuffer, truncatedByChars };
 	}
 
 	/**
@@ -578,6 +592,7 @@ export class PtyTerminalSession {
 		slice: string;
 		totalLines: number;
 		totalChars: number;
+		sliceLineCount: number;
 	} {
 		let text = this.rawOutput;
 
@@ -587,7 +602,7 @@ export class PtyTerminalSession {
 		}
 
 		if (!text) {
-			return { slice: "", totalLines: 0, totalChars: 0 };
+			return { slice: "", totalLines: 0, totalChars: 0, sliceLineCount: 0 };
 		}
 
 		// Normalize line endings and split
@@ -618,10 +633,13 @@ export class PtyTerminalSession {
 			? start + Math.max(0, Math.floor(options.limit))
 			: undefined;
 
+		const selectedLines = lines.slice(start, end);
+
 		return {
-			slice: lines.slice(start, end).join("\n"),
+			slice: selectedLines.join("\n"),
 			totalLines,
 			totalChars,
+			sliceLineCount: selectedLines.length,
 		};
 	}
 
