@@ -1,6 +1,6 @@
 # Pi Interactive Shell
 
-Pi can run any interactive CLI in a TUI overlay - including other AI agents. Drive Claude, Gemini, Codex, Cursor directly from Pi. Watch it work, take over anytime. Real PTY, full terminal emulation, no tmux needed.
+An extension for [Pi coding agent](https://github.com/badlogic/pi-mono/) that lets Pi run any interactive CLI in a TUI overlay - including other AI agents. Drive Claude, Gemini, Codex, Cursor directly from Pi. Watch it work, take over anytime. Real PTY, full terminal emulation, no tmux needed.
 
 ```typescript
 interactive_shell({ command: 'agent "fix all the bugs"', mode: "hands-free" })
