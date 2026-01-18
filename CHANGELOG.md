@@ -2,6 +2,23 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.4.2] - 2026-01-17
+
+### Added
+- **Query rate limiting** - Queries are limited to once every 60 seconds by default. If you query too soon, the tool automatically waits until the limit expires before returning (blocking behavior). Configurable via `minQueryIntervalSeconds` in settings (range: 5-300 seconds). Note: Rate limiting does not apply to completed sessions or kills - you can always query the final result immediately.
+
+### Changed
+- **autoExitOnQuiet now defaults to true** - In hands-free mode, sessions auto-kill when output stops (~5s of quiet). Set `handsFree: { autoExitOnQuiet: false }` to disable.
+- **Smaller default overlay** - Height reduced from 90% to 45%. Configurable via `overlayHeightPercent` in settings (range: 20-90%).
+
+### Fixed
+- **Rate limit wait now interruptible** - When waiting for rate limit, the wait is interrupted immediately if the session completes (user kills, process exits, etc.). Uses Promise.race with onComplete callback instead of blocking sleep.
+- **scrollbackLines NaN handling** - Config now uses `clampInt` like other numeric fields, preventing NaN from breaking xterm scrollback.
+- **autoExitOnQuiet status mismatch** - Now sends "killed" status (not "exited") to match `finishWithKill()` behavior.
+- **hasNewOutput semantics** - Renamed to `hasOutput` since we use tail-based output, not incremental tracking.
+- **dispose() orphaned sessions** - Now kills running processes before unregistering to prevent orphaned sessions.
+- **killAll() premature ID release** - IDs now released via natural cleanup after process exit, not immediately after kill() call.
+
 ## [0.4.1] - 2026-01-17
 
 ### Changed

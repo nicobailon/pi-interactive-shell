@@ -124,6 +124,10 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private hasUnsentData = false;
 	// Non-blocking mode: track status for agent queries
 	private completionResult: InteractiveShellResult | undefined;
+	// Rate limiting for queries
+	private lastQueryTime = 0;
+	// Completion callbacks for waiters
+	private completeCallbacks: Array<() => void> = [];
 
 	constructor(
 		tui: TUI,
@@ -221,12 +225,13 @@ export class InteractiveShellOverlay implements Component, Focusable {
 				reason: options.reason,
 				write: (data) => this.session.write(data),
 				kill: () => this.killSession(),
-				getOutput: () => this.getOutputSinceLastCheck(),
+				getOutput: (skipRateLimit) => this.getOutputSinceLastCheck(skipRateLimit),
 				getStatus: () => this.getSessionStatus(),
 				getRuntime: () => this.getRuntime(),
 				getResult: () => this.getCompletionResult(),
 				setUpdateInterval: (intervalMs) => this.setUpdateInterval(intervalMs),
 				setQuietThreshold: (thresholdMs) => this.setQuietThreshold(thresholdMs),
+				onComplete: (callback) => this.registerCompleteCallback(callback),
 			});
 			this.startHandsFreeUpdates();
 		}
@@ -247,7 +252,28 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private static readonly MAX_STATUS_LINES = 20;
 
 	/** Get rendered terminal output (last N lines, truncated if too large) */
-	getOutputSinceLastCheck(): { output: string; truncated: boolean; totalBytes: number } {
+	getOutputSinceLastCheck(skipRateLimit = false): { output: string; truncated: boolean; totalBytes: number; rateLimited?: boolean; waitSeconds?: number } {
+		// Check rate limiting (unless skipped, e.g., for completed sessions)
+		if (!skipRateLimit) {
+			const now = Date.now();
+			const minIntervalMs = this.config.minQueryIntervalSeconds * 1000;
+			const elapsed = now - this.lastQueryTime;
+
+			if (this.lastQueryTime > 0 && elapsed < minIntervalMs) {
+				const waitSeconds = Math.ceil((minIntervalMs - elapsed) / 1000);
+				return {
+					output: "",
+					truncated: false,
+					totalBytes: 0,
+					rateLimited: true,
+					waitSeconds,
+				};
+			}
+
+			// Update last query time
+			this.lastQueryTime = now;
+		}
+
 		// Use rendered terminal output instead of raw stream
 		// This gives clean, readable content without TUI animation garbage
 		const lines = this.session.getTailLines({
@@ -284,6 +310,28 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	/** Get completion result (if session has ended) */
 	getCompletionResult(): InteractiveShellResult | undefined {
 		return this.completionResult;
+	}
+
+	/** Register a callback to be called when session completes */
+	registerCompleteCallback(callback: () => void): void {
+		// If already completed, call immediately
+		if (this.completionResult) {
+			callback();
+			return;
+		}
+		this.completeCallbacks.push(callback);
+	}
+
+	/** Trigger all completion callbacks */
+	private triggerCompleteCallbacks(): void {
+		for (const callback of this.completeCallbacks) {
+			try {
+				callback();
+			} catch {
+				// Ignore errors in callbacks
+			}
+		}
+		this.completeCallbacks = [];
 	}
 
 	/** Get the session ID */
@@ -358,9 +406,10 @@ export class InteractiveShellOverlay implements Component, Focusable {
 						this.hasUnsentData = false;
 					}
 					// Send completion notification and auto-close
+					// Use "killed" status since we're forcibly terminating (matches finishWithKill's cancelled=true)
 					if (this.options.onHandsFreeUpdate && this.sessionId) {
 						this.options.onHandsFreeUpdate({
-							status: "exited",
+							status: "killed",
 							sessionId: this.sessionId,
 							runtime: Date.now() - this.startTime,
 							tail: [],
@@ -631,6 +680,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			handoff,
 		};
 		this.completionResult = result;
+		this.triggerCompleteCallbacks();
 
 		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
 		// so agent can query completion result. Agent's query will unregister.
@@ -663,6 +713,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			handoff,
 		};
 		this.completionResult = result;
+		this.triggerCompleteCallbacks();
 
 		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
 		// so agent can query completion result. Agent's query will unregister.
@@ -694,6 +745,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			handoff,
 		};
 		this.completionResult = result;
+		this.triggerCompleteCallbacks();
 
 		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
 		// so agent can query completion result. Agent's query will unregister.
@@ -746,6 +798,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			handoff,
 		};
 		this.completionResult = result;
+		this.triggerCompleteCallbacks();
 
 		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
 		// so agent can query completion result. Agent's query will unregister.
@@ -970,10 +1023,16 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.stopTimeout();
 		this.stopHandsFreeUpdates();
 		// Safety cleanup in case dispose() is called without going through finishWith*
-		// In non-blocking mode with completion result, keep session so agent can query
-		if (!this.completionResult || this.options.onHandsFreeUpdate) {
+		// If session hasn't completed yet, kill it to prevent orphaned processes
+		if (!this.completionResult) {
+			this.session.kill();
+			this.session.dispose();
+			this.unregisterActiveSession();
+		} else if (this.options.onHandsFreeUpdate) {
+			// Streaming mode already delivered result, safe to unregister
 			this.unregisterActiveSession();
 		}
+		// Non-blocking mode with completion: keep registered so agent can query
 	}
 }
 

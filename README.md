@@ -146,7 +146,7 @@ Project: `<cwd>/.pi/interactive-shell.json`
   "doubleEscapeThreshold": 300,
   "exitAutoCloseDelay": 10,
   "overlayWidthPercent": 95,
-  "overlayHeightPercent": 90,
+  "overlayHeightPercent": 45,
   "scrollbackLines": 5000,
   "ansiReemit": true,
   "handoffPreviewEnabled": true,

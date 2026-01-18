@@ -319,6 +319,10 @@ QUERYING SESSION STATUS:
 IMPORTANT: Don't query too frequently! Wait 30-60 seconds between status checks.
 The user is watching the overlay in real-time - you're just checking in periodically.
 
+RATE LIMITING:
+Queries are limited to once every 60 seconds (configurable). If you query too soon,
+the tool will automatically wait until the limit expires before returning.
+
 SENDING INPUT:
 - interactive_shell({ sessionId: "calm-reef", input: "/help\\n" })
 - interactive_shell({ sessionId: "calm-reef", input: { keys: ["ctrl+c"] } })
@@ -437,7 +441,7 @@ Examples:
 					),
 					autoExitOnQuiet: Type.Optional(
 						Type.Boolean({
-							description: "Auto-kill session when output stops (after quietThreshold). Use for agents that don't exit on their own after completing a task.",
+							description: "Auto-kill session when output stops (after quietThreshold). Defaults to true in hands-free mode. Set to false to keep session alive indefinitely.",
 						}),
 					),
 				}),
@@ -516,7 +520,7 @@ Examples:
 
 				// Kill session if requested
 				if (kill) {
-					const { output, truncated, totalBytes } = session.getOutput();
+					const { output, truncated, totalBytes } = session.getOutput(true); // skipRateLimit=true for kill
 					const status = session.getStatus();
 					const runtime = session.getRuntime();
 					session.kill();
@@ -592,16 +596,17 @@ Examples:
 
 				// If only querying status (no input, no settings, no kill)
 				if (actions.length === 0) {
-					const { output, truncated, totalBytes } = session.getOutput();
 					const status = session.getStatus();
 					const runtime = session.getRuntime();
 					const result = session.getResult();
 
-					const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated to last 10KB)` : "";
-					const hasOutput = output.length > 0;
-
-					// Check if session completed
+					// If session completed, always allow query (no rate limiting)
+					// Rate limiting only applies to "checking in" on running sessions
 					if (result) {
+						const { output, truncated, totalBytes } = session.getOutput(true); // skipRateLimit=true
+						const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
+						const hasOutput = output.length > 0;
+
 						sessionManager.unregisterActive(sessionId, true);
 						return {
 							content: [
@@ -624,11 +629,138 @@ Examples:
 						};
 					}
 
+					// Session still running - check rate limiting
+					const outputResult = session.getOutput();
+
+					// If rate limited, wait until allowed then return fresh result
+					// Use Promise.race to detect if session completes during wait
+					if (outputResult.rateLimited && outputResult.waitSeconds) {
+						const waitMs = outputResult.waitSeconds * 1000;
+						
+						// Race: rate limit timeout vs session completion
+						const completedEarly = await Promise.race([
+							new Promise<false>((resolve) => setTimeout(() => resolve(false), waitMs)),
+							new Promise<true>((resolve) => session.onComplete(() => resolve(true))),
+						]);
+						
+						// If session completed during wait, return result immediately
+						if (completedEarly) {
+							const earlySession = sessionManager.getActive(sessionId);
+							if (!earlySession) {
+								return {
+									content: [{ type: "text", text: `Session ${sessionId} ended` }],
+									details: { sessionId, status: "ended" },
+								};
+							}
+							const earlyResult = earlySession.getResult();
+							const { output, truncated, totalBytes } = earlySession.getOutput(true); // skipRateLimit
+							const earlyStatus = earlySession.getStatus();
+							const earlyRuntime = earlySession.getRuntime();
+							const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
+							const hasOutput = output.length > 0;
+							
+							if (earlyResult) {
+								sessionManager.unregisterActive(sessionId, true);
+								return {
+									content: [
+										{
+											type: "text",
+											text: `Session ${sessionId} ${earlyStatus} after ${formatDurationMs(earlyRuntime)}${hasOutput ? `\n\nOutput${truncatedNote}:\n${output}` : ""}`,
+										},
+									],
+									details: {
+										sessionId,
+										status: earlyStatus,
+										runtime: earlyRuntime,
+										output,
+										outputTruncated: truncated,
+										outputTotalBytes: totalBytes,
+										exitCode: earlyResult.exitCode,
+										signal: earlyResult.signal,
+										backgroundId: earlyResult.backgroundId,
+									},
+								};
+							}
+							// Edge case: onComplete fired but no result yet (shouldn't happen)
+							// Return current status without unregistering
+							return {
+								content: [
+									{
+										type: "text",
+										text: `Session ${sessionId} ${earlyStatus} (${formatDurationMs(earlyRuntime)})${hasOutput ? `\n\nOutput${truncatedNote}:\n${output}` : ""}`,
+									},
+								],
+								details: {
+									sessionId,
+									status: earlyStatus,
+									runtime: earlyRuntime,
+									output,
+									outputTruncated: truncated,
+									outputTotalBytes: totalBytes,
+									hasOutput,
+								},
+							};
+						}
+						// Get fresh output after waiting
+						const freshOutput = session.getOutput();
+						const truncatedNote = freshOutput.truncated ? ` (${freshOutput.totalBytes} bytes total, truncated)` : "";
+						const hasOutput = freshOutput.output.length > 0;
+						const freshStatus = session.getStatus();
+						const freshRuntime = session.getRuntime();
+						const freshResult = session.getResult();
+
+						if (freshResult) {
+							sessionManager.unregisterActive(sessionId, true);
+							return {
+								content: [
+									{
+										type: "text",
+										text: `Session ${sessionId} ${freshStatus} after ${formatDurationMs(freshRuntime)}${hasOutput ? `\n\nOutput${truncatedNote}:\n${freshOutput.output}` : ""}`,
+									},
+								],
+								details: {
+									sessionId,
+									status: freshStatus,
+									runtime: freshRuntime,
+									output: freshOutput.output,
+									outputTruncated: freshOutput.truncated,
+									outputTotalBytes: freshOutput.totalBytes,
+									exitCode: freshResult.exitCode,
+									signal: freshResult.signal,
+									backgroundId: freshResult.backgroundId,
+								},
+							};
+						}
+
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Session ${sessionId} ${freshStatus} (${formatDurationMs(freshRuntime)})${hasOutput ? `\n\nOutput${truncatedNote}:\n${freshOutput.output}` : ""}`,
+								},
+							],
+							details: {
+								sessionId,
+								status: freshStatus,
+								runtime: freshRuntime,
+								output: freshOutput.output,
+								outputTruncated: freshOutput.truncated,
+								outputTotalBytes: freshOutput.totalBytes,
+								hasOutput,
+							},
+						};
+					}
+
+					const { output, truncated, totalBytes } = outputResult;
+
+					const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
+					const hasOutput = output.length > 0;
+
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Session ${sessionId} ${status} (${formatDurationMs(runtime)})${hasOutput ? `\n\nNew output${truncatedNote}:\n${output}` : "\n\n(no new output)"}`,
+								text: `Session ${sessionId} ${status} (${formatDurationMs(runtime)})${hasOutput ? `\n\nOutput${truncatedNote}:\n${output}` : ""}`,
 							},
 						],
 						details: {
@@ -638,7 +770,7 @@ Examples:
 							output,
 							outputTruncated: truncated,
 							outputTotalBytes: totalBytes,
-							hasNewOutput: hasOutput,
+							hasOutput,
 						},
 					};
 				}
@@ -699,7 +831,8 @@ Examples:
 								handsFreeQuietThreshold: handsFree?.quietThreshold,
 								handsFreeUpdateMaxChars: handsFree?.updateMaxChars,
 								handsFreeMaxTotalChars: handsFree?.maxTotalChars,
-								autoExitOnQuiet: handsFree?.autoExitOnQuiet,
+								// Default autoExitOnQuiet to true in hands-free mode
+								autoExitOnQuiet: handsFree?.autoExitOnQuiet !== false,
 								// No onHandsFreeUpdate in non-blocking mode - agent queries directly
 								handoffPreviewEnabled: handoffPreview?.enabled,
 								handoffPreviewLines: handoffPreview?.lines,

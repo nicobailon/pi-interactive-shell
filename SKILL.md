@@ -113,7 +113,7 @@ Returns:
 - `output`: Last 20 lines of rendered terminal (clean, no TUI animation noise)
 - `runtime`: Time elapsed in ms
 
-**Don't query too frequently!** Wait 30-60 seconds between checks. The user is watching the overlay in real-time - you're just checking in periodically to see progress.
+**Rate limited:** Queries are limited to once every 60 seconds. If you query too soon, the tool will automatically wait until the limit expires before returning. The user is watching the overlay in real-time - you're just checking in periodically.
 
 ### Ending a Session
 ```typescript
@@ -121,6 +121,8 @@ interactive_shell({ sessionId: "calm-reef", kill: true })
 ```
 
 Kill when you see the task is complete in the output. Returns final status and output.
+
+**Auto-exit:** In hands-free mode, sessions auto-kill when output stops (after ~5 seconds of quiet). This means when an agent finishes its task, the session closes automatically. You can disable this with `handsFree: { autoExitOnQuiet: false }`.
 
 ### Sending Input
 ```typescript

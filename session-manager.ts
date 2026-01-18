@@ -24,6 +24,9 @@ export interface OutputResult {
 	output: string;
 	truncated: boolean;
 	totalBytes: number;
+	// Rate limiting
+	rateLimited?: boolean;
+	waitSeconds?: number;
 }
 
 export interface ActiveSession {
@@ -32,12 +35,13 @@ export interface ActiveSession {
 	reason?: string;
 	write: (data: string) => void;
 	kill: () => void;
-	getOutput: () => OutputResult; // Get output since last check (truncated if large)
+	getOutput: (skipRateLimit?: boolean) => OutputResult; // Get output since last check (truncated if large)
 	getStatus: () => ActiveSessionStatus;
 	getRuntime: () => number;
 	getResult: () => ActiveSessionResult | undefined; // Available when completed
 	setUpdateInterval?: (intervalMs: number) => void;
 	setQuietThreshold?: (thresholdMs: number) => void;
+	onComplete: (callback: () => void) => void; // Register callback for when session completes
 	startedAt: Date;
 }
 
@@ -129,12 +133,13 @@ export class ShellSessionManager {
 		reason?: string;
 		write: (data: string) => void;
 		kill: () => void;
-		getOutput: () => OutputResult;
+		getOutput: (skipRateLimit?: boolean) => OutputResult;
 		getStatus: () => ActiveSessionStatus;
 		getRuntime: () => number;
 		getResult: () => ActiveSessionResult | undefined;
 		setUpdateInterval?: (intervalMs: number) => void;
 		setQuietThreshold?: (thresholdMs: number) => void;
+		onComplete: (callback: () => void) => void;
 	}): void {
 		this.activeSessions.set(session.id, {
 			...session,
@@ -259,13 +264,15 @@ export class ShellSessionManager {
 		for (const [id, session] of activeEntries) {
 			try {
 				session.kill();
+				// Only release ID if kill succeeded - let natural cleanup handle failures
+				// The session's exit handler will call unregisterActive() which releases the ID
 			} catch {
-				// Session may already be dead
+				// Session may already be dead - still safe to release since no process running
+				releaseSessionId(id);
 			}
-			// Release ID if not already released by kill()
-			releaseSessionId(id);
 		}
-		this.activeSessions.clear();
+		// Don't clear immediately - let unregisterActive() handle cleanup as sessions exit
+		// This prevents ID reuse while processes are still terminating
 	}
 }
 

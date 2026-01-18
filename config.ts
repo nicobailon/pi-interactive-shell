@@ -21,13 +21,15 @@ export interface InteractiveShellConfig {
 	handsFreeQuietThreshold: number;
 	handsFreeUpdateMaxChars: number;
 	handsFreeMaxTotalChars: number;
+	// Query rate limiting
+	minQueryIntervalSeconds: number;
 }
 
 const DEFAULT_CONFIG: InteractiveShellConfig = {
 	doubleEscapeThreshold: 300,
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
-	overlayHeightPercent: 90,
+	overlayHeightPercent: 45,
 	scrollbackLines: 5000,
 	ansiReemit: true,
 	handoffPreviewEnabled: true,
@@ -42,6 +44,8 @@ const DEFAULT_CONFIG: InteractiveShellConfig = {
 	handsFreeQuietThreshold: 5000,
 	handsFreeUpdateMaxChars: 1500,
 	handsFreeMaxTotalChars: 100000,
+	// Query rate limiting (default 60 seconds between queries)
+	minQueryIntervalSeconds: 60,
 };
 
 export function loadConfig(cwd: string): InteractiveShellConfig {
@@ -72,8 +76,9 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 	return {
 		...merged,
 		overlayWidthPercent: clampPercent(merged.overlayWidthPercent, DEFAULT_CONFIG.overlayWidthPercent),
-		overlayHeightPercent: clampPercent(merged.overlayHeightPercent, DEFAULT_CONFIG.overlayHeightPercent),
-		scrollbackLines: Math.max(200, merged.scrollbackLines ?? DEFAULT_CONFIG.scrollbackLines),
+		// Height: 20-90% range (default 45%)
+		overlayHeightPercent: clampInt(merged.overlayHeightPercent, DEFAULT_CONFIG.overlayHeightPercent, 20, 90),
+		scrollbackLines: clampInt(merged.scrollbackLines, DEFAULT_CONFIG.scrollbackLines, 200, 50000),
 		ansiReemit: merged.ansiReemit !== false,
 		handoffPreviewEnabled: merged.handoffPreviewEnabled !== false,
 		handoffPreviewLines: clampInt(merged.handoffPreviewLines, DEFAULT_CONFIG.handoffPreviewLines, 0, 500),
@@ -116,6 +121,13 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 			DEFAULT_CONFIG.handsFreeMaxTotalChars,
 			10000,
 			1000000,
+		),
+		// Query rate limiting (min 5 seconds, max 300 seconds)
+		minQueryIntervalSeconds: clampInt(
+			merged.minQueryIntervalSeconds,
+			DEFAULT_CONFIG.minQueryIntervalSeconds,
+			5,
+			300,
 		),
 	};
 }
