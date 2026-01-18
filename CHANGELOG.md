@@ -2,6 +2,11 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.3.3] - 2026-01-17
+
+### Fixed
+- Handoff preview now uses raw output stream instead of xterm buffer. TUI apps using alternate screen buffer (like Codex, Claude, etc.) would show misleading/stale content in the preview.
+
 ## [0.3.0] - 2026-01-17
 
 ### Added

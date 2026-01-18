@@ -438,11 +438,20 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const maxChars = this.options.handoffPreviewMaxChars ?? this.config.handoffPreviewMaxChars;
 		if (lines <= 0 || maxChars <= 0) return undefined;
 
-		const tail = this.session.getTailLines({
-			lines,
-			ansi: false,
-			maxChars,
-		});
+		// Use raw output stream instead of xterm buffer - TUI apps using alternate
+		// screen buffer can have misleading content in getTailLines()
+		const rawOutput = this.session.getRawStream({ stripAnsi: true });
+		const outputLines = rawOutput.split("\n");
+
+		// Get last N lines, respecting maxChars
+		let tail: string[] = [];
+		let charCount = 0;
+		for (let i = outputLines.length - 1; i >= 0 && tail.length < lines; i--) {
+			const line = outputLines[i];
+			if (charCount + line.length > maxChars && tail.length > 0) break;
+			tail.unshift(line);
+			charCount += line.length + 1; // +1 for newline
+		}
 
 		return { type: "tail", when, lines: tail };
 	}
@@ -907,11 +916,20 @@ export class ReattachOverlay implements Component, Focusable {
 		const maxChars = this.config.handoffPreviewMaxChars;
 		if (lines <= 0 || maxChars <= 0) return undefined;
 
-		const tail = this.session.getTailLines({
-			lines,
-			ansi: false,
-			maxChars,
-		});
+		// Use raw output stream instead of xterm buffer - TUI apps using alternate
+		// screen buffer can have misleading content in getTailLines()
+		const rawOutput = this.session.getRawStream({ stripAnsi: true });
+		const outputLines = rawOutput.split("\n");
+
+		// Get last N lines, respecting maxChars
+		let tail: string[] = [];
+		let charCount = 0;
+		for (let i = outputLines.length - 1; i >= 0 && tail.length < lines; i--) {
+			const line = outputLines[i];
+			if (charCount + line.length > maxChars && tail.length > 0) break;
+			tail.unshift(line);
+			charCount += line.length + 1; // +1 for newline
+		}
 
 		return { type: "tail", when, lines: tail };
 	}
