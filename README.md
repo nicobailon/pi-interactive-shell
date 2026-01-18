@@ -37,6 +37,29 @@ Installs to `~/.pi/agent/extensions/interactive-shell/`.
 
 **Requires:** Node.js, build tools for `node-pty` (Xcode CLI tools on macOS).
 
+### Skills
+
+The extension includes two skills that teach the agent how to use it effectively:
+
+| Skill | Purpose |
+|-------|---------|
+| `interactive-shell` | Core usage: hands-free mode, input injection, status polling |
+| `foreground-chains` | Multi-agent workflows with auto-continue support |
+
+**Install skills** (symlink to your skills directory):
+
+```bash
+# Interactive Shell skill (core)
+mkdir -p ~/.pi/agent/skills/interactive-shell
+ln -sf ~/.pi/agent/extensions/interactive-shell/SKILL.md ~/.pi/agent/skills/interactive-shell/SKILL.md
+
+# Foreground Chains skill (multi-agent orchestration)
+mkdir -p ~/.pi/agent/skills/foreground-chains
+ln -sf ~/.pi/agent/extensions/interactive-shell/skills/foreground-chains/SKILL.md ~/.pi/agent/skills/foreground-chains/SKILL.md
+```
+
+After installing, restart pi to pick up the new skills.
+
 ## Quick Start
 
 ### Hands-Free (Agent-to-Agent)

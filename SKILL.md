@@ -97,8 +97,8 @@ const result = interactive_shell({
   command: 'codex "Review this codebase"',
   mode: "hands-free"
 })
-// result.sessionId = "calm-reef"
-// result.status = "running"
+// result.details.sessionId = "calm-reef"
+// result.details.status = "running"
 ```
 
 The user sees the overlay immediately. You get control back to continue working.
@@ -345,6 +345,20 @@ The process is killed after timeout and captured output is returned in the hando
 - Any TUI command where you need quick output without user interaction
 
 For pi CLI documentation, you can also read directly: `/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/README.md`
+
+## Multi-Agent Foreground Chains
+
+For orchestrating multi-step workflows with different agents (scout, planner, worker, reviewer), including auto-continue support for agents that pause mid-task, see the dedicated skill:
+
+**Skill**: `foreground-chains`
+
+Covers:
+- Agent role assignments (cursor-agent, pi, codex with specific models)
+- File-based handoff through chain directories
+- Auto-continue loop for codex's "Should I..." prompts
+- Complete chain orchestration examples
+
+Load the skill: Read `~/.pi/agent/skills/foreground-chains/SKILL.md`
 
 ## Quick Reference
 
