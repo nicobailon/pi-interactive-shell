@@ -346,20 +346,6 @@ The process is killed after timeout and captured output is returned in the hando
 
 For pi CLI documentation, you can also read directly: `/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/README.md`
 
-## Multi-Agent Foreground Chains
-
-For orchestrating multi-step workflows with different agents (scout, planner, worker, reviewer), including auto-continue support for agents that pause mid-task, see the dedicated skill:
-
-**Skill**: `foreground-chains`
-
-Covers:
-- Agent role assignments (cursor-agent, pi, codex with specific models)
-- File-based handoff through chain directories
-- Auto-continue loop for codex's "Should I..." prompts
-- Complete chain orchestration examples
-
-Load the skill: Read `~/.pi/agent/skills/foreground-chains/SKILL.md`
-
 ## Quick Reference
 
 **Start foreground subagent (hands-free, default to pi):**
