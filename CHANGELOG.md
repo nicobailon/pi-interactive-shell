@@ -2,9 +2,29 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
-## [0.3.3] - 2026-01-17
+## [0.4.0] - 2026-01-17
+
+### Added
+- **Non-blocking hands-free mode** - Major change: `mode: "hands-free"` now returns immediately with a sessionId. The overlay opens for the user but the agent gets control back right away. Use `interactive_shell({ sessionId })` to query status/output and `interactive_shell({ sessionId, kill: true })` to end the session when done.
+- **Session status queries** - Query active session with just `sessionId` to get current status and any new output since last check.
+- **Kill option** - `interactive_shell({ sessionId, kill: true })` to programmatically end a session.
+- **autoExitOnQuiet** option - Auto-kill session when output stops (after quietThreshold). Use `handsFree: { autoExitOnQuiet: true }` for sessions that should end when the nested agent goes quiet.
+- **Output truncation** - Status queries now truncate output to 10KB (keeping the most recent content) to prevent overwhelming agent context. Truncation is indicated in the response.
 
 ### Fixed
+- **Non-blocking mode session lifecycle** - Sessions now stay registered after completion so agent can query final status. Previously, sessions were unregistered before agent could query completion result.
+- **User takeover in non-blocking mode** - Agent can now see "user-takeover" status when querying. Previously, session was immediately unregistered when user took over.
+- **Type mismatch in registerActive** - Fixed `getOutput` return type to match `OutputResult` interface.
+- **Agent output position after buffer trim** - Fixed `agentOutputPosition` becoming stale when raw buffer is trimmed. When the 1MB buffer limit is exceeded and old content discarded, the agent query position is now clamped to prevent returning empty output or missing data.
+- **killAll() map iteration** - Fixed modifying maps during iteration in `killAll()`. Now collects IDs/entries first to avoid unpredictable behavior when killing sessions triggers unregistration callbacks.
+- **ActiveSessionResult type** - Fixed type mismatch where `output` field was required but never populated. Updated interface to match actual return type from `getResult()`.
+- **Unbounded raw output growth** - rawOutput buffer now capped at 1MB, trimming old content to prevent memory growth in long-running sessions
+- **Session ID reuse** - IDs are only released when session fully terminates, preventing reuse while session still running after takeover
+- **DSR cursor responses** - Fixed stale cursor position when DSR appears mid-chunk; now processes chunks in order, writing to xterm before responding
+- **Active sessions on shutdown** - Hands-free sessions are now killed on `session_shutdown`, preventing orphan processes
+- **Quiet threshold timer** - Changing threshold now restarts any active quiet timer with the new value
+- **Empty string input** - Now shows "(empty)" instead of blank in success message
+- **Hands-free auto-close on exit** - Overlay now closes immediately when process exits in hands-free mode, returning control to the agent instead of waiting for countdown
 - Handoff preview now uses raw output stream instead of xterm buffer. TUI apps using alternate screen buffer (like Codex, Claude, etc.) would show misleading/stale content in the preview.
 
 ## [0.3.0] - 2026-01-17

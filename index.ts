@@ -294,31 +294,31 @@ The user will see the process in an overlay. They can:
 - Detach (double-Escape) to kill or run in background
 - In hands-free mode: type anything to take over control
 
-HANDS-FREE MODE:
-When mode="hands-free", you get updates when output stops (default: 5s of quiet).
-Updates only include NEW output since the last update, not the full tail.
-The user sees the overlay but you control the session. If user types anything,
-they automatically take over and you'll be notified.
+HANDS-FREE MODE (NON-BLOCKING):
+When mode="hands-free", the tool returns IMMEDIATELY with a sessionId.
+The overlay opens for the user to watch, but you (the agent) get control back right away.
 
-UPDATE MODES:
-- on-quiet (default): Emit update after 5s of no output. Perfect for agent-to-agent delegation.
-- interval: Emit on fixed schedule (every 60s). Use when continuous output is expected.
+Workflow:
+1. Start session: interactive_shell({ command: 'pi "Fix bugs"', mode: "hands-free" })
+   -> Returns immediately with sessionId
+2. Check status/output: interactive_shell({ sessionId: "calm-reef" })
+   -> Returns current status and any new output since last check
+3. When task is done: interactive_shell({ sessionId: "calm-reef", kill: true })
+   -> Kills session and returns final output
 
-Max interval (60s) acts as fallback in on-quiet mode for long continuous output.
+The user sees the overlay and can:
+- Watch output in real-time
+- Take over by typing (you'll see "user-takeover" status on next query)
+- Kill/background via double-Escape
 
-CONTEXT BUDGET:
-Updates have a total budget (default: 100KB). Once exhausted, updates still arrive
-but without content. You can adjust via handsFree.maxTotalChars.
+QUERYING SESSION STATUS:
+- interactive_shell({ sessionId: "calm-reef" }) - get status + new output
+- interactive_shell({ sessionId: "calm-reef", kill: true }) - end session
+- interactive_shell({ sessionId: "calm-reef", input: "..." }) - send input
 
-Use hands-free when you want to monitor a long-running agent without blocking.
-
-SENDING INPUT AND CHANGING SETTINGS:
-In hands-free mode, you receive a sessionId in updates. Use this to send input:
-- interactive_shell({ sessionId: "calm-reef", input: "/model\\n" })
-- interactive_shell({ sessionId: "calm-reef", input: { text: "sonnet", keys: ["down", "enter"] } })
-
-Change update frequency dynamically:
-- interactive_shell({ sessionId: "calm-reef", settings: { updateInterval: 60000 } })
+SENDING INPUT:
+- interactive_shell({ sessionId: "calm-reef", input: "/help\\n" })
+- interactive_shell({ sessionId: "calm-reef", input: { keys: ["ctrl+c"] } })
 
 Named keys: up, down, left, right, enter, escape, tab, backspace, ctrl+c, ctrl+d, etc.
 Modifiers: ctrl+x, alt+x, shift+tab, ctrl+alt+delete (or c-x, m-x, s-tab syntax)
@@ -347,7 +347,12 @@ Examples:
 			),
 			sessionId: Type.Optional(
 				Type.String({
-					description: "Session ID to send input to an existing hands-free session",
+					description: "Session ID to interact with an existing hands-free session",
+				}),
+			),
+			kill: Type.Optional(
+				Type.Boolean({
+					description: "Kill the session (requires sessionId). Use when task appears complete.",
 				}),
 			),
 			settings: Type.Optional(
@@ -427,6 +432,11 @@ Examples:
 					maxTotalChars: Type.Optional(
 						Type.Number({ description: "Total char budget for all updates (default: 100000). Updates stop including content when exhausted." }),
 					),
+					autoExitOnQuiet: Type.Optional(
+						Type.Boolean({
+							description: "Auto-kill session when output stops (after quietThreshold). Use for agents that don't exit on their own after completing a task.",
+						}),
+					),
 				}),
 			),
 			handoffPreview: Type.Optional(
@@ -456,6 +466,7 @@ Examples:
 			const {
 				command,
 				sessionId,
+				kill,
 				settings,
 				input,
 				cwd,
@@ -469,6 +480,7 @@ Examples:
 			} = params as {
 				command?: string;
 				sessionId?: string;
+				kill?: boolean;
 				settings?: { updateInterval?: number; quietThreshold?: number };
 				input?: string | { text?: string; keys?: string[]; hex?: string[]; paste?: string };
 				cwd?: string;
@@ -481,20 +493,49 @@ Examples:
 					quietThreshold?: number;
 					updateMaxChars?: number;
 					maxTotalChars?: number;
+					autoExitOnQuiet?: boolean;
 				};
 				handoffPreview?: { enabled?: boolean; lines?: number; maxChars?: number };
 				handoffSnapshot?: { enabled?: boolean; lines?: number; maxChars?: number };
 				timeout?: number;
 			};
 
-			// Mode 1: Interact with existing session (send input and/or change settings)
-			if (sessionId && (input !== undefined || settings)) {
+			// Mode 1: Interact with existing session (query status, send input, kill, or change settings)
+			if (sessionId) {
 				const session = sessionManager.getActive(sessionId);
 				if (!session) {
 					return {
 						content: [{ type: "text", text: `Session not found or no longer active: ${sessionId}` }],
 						isError: true,
 						details: { sessionId, error: "session_not_found" },
+					};
+				}
+
+				// Kill session if requested
+				if (kill) {
+					const { output, truncated, totalBytes } = session.getOutput();
+					const status = session.getStatus();
+					const runtime = session.getRuntime();
+					session.kill();
+					sessionManager.unregisterActive(sessionId, true);
+
+					const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Session ${sessionId} killed after ${formatDurationMs(runtime)}${output ? `\n\nFinal output${truncatedNote}:\n${output}` : ""}`,
+							},
+						],
+						details: {
+							sessionId,
+							status: "killed",
+							runtime,
+							output,
+							outputTruncated: truncated,
+							outputTotalBytes: totalBytes,
+							previousStatus: status,
+						},
 					};
 				}
 
@@ -529,9 +570,11 @@ Examples:
 
 					const inputDesc =
 						typeof input === "string"
-							? input.length > 50
-								? `${input.slice(0, 50)}...`
-								: input
+							? input.length === 0
+								? "(empty)"
+								: input.length > 50
+									? `${input.slice(0, 50)}...`
+									: input
 							: [
 									input.text ?? "",
 									input.keys ? `keys:[${input.keys.join(",")}]` : "",
@@ -542,6 +585,59 @@ Examples:
 									.join(" + ") || "(empty)";
 
 					actions.push(`sent: ${inputDesc}`);
+				}
+
+				// If only querying status (no input, no settings, no kill)
+				if (actions.length === 0) {
+					const { output, truncated, totalBytes } = session.getOutput();
+					const status = session.getStatus();
+					const runtime = session.getRuntime();
+					const result = session.getResult();
+
+					const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated to last 10KB)` : "";
+					const hasOutput = output.length > 0;
+
+					// Check if session completed
+					if (result) {
+						sessionManager.unregisterActive(sessionId, true);
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Session ${sessionId} ${status} after ${formatDurationMs(runtime)}${hasOutput ? `\n\nOutput${truncatedNote}:\n${output}` : ""}`,
+								},
+							],
+							details: {
+								sessionId,
+								status,
+								runtime,
+								output,
+								outputTruncated: truncated,
+								outputTotalBytes: totalBytes,
+								exitCode: result.exitCode,
+								signal: result.signal,
+								backgroundId: result.backgroundId,
+							},
+						};
+					}
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Session ${sessionId} ${status} (${formatDurationMs(runtime)})${hasOutput ? `\n\nNew output${truncatedNote}:\n${output}` : "\n\n(no new output)"}`,
+							},
+						],
+						details: {
+							sessionId,
+							status,
+							runtime,
+							output,
+							outputTruncated: truncated,
+							outputTotalBytes: totalBytes,
+							hasNewOutput: hasOutput,
+						},
+					};
 				}
 
 				return {
@@ -556,7 +652,7 @@ Examples:
 					content: [
 						{
 							type: "text",
-							text: "Either 'command' (to start a session) or 'sessionId' + 'input' (to send input) is required",
+							text: "Either 'command' (to start a session) or 'sessionId' (to query/interact with existing session) is required",
 						},
 					],
 					isError: true,
@@ -576,16 +672,89 @@ Examples:
 			const config = loadConfig(effectiveCwd);
 			const isHandsFree = mode === "hands-free";
 
-			// Generate sessionId early so it's available in the first update
+			// Generate sessionId early so it's available immediately
 			const generatedSessionId = isHandsFree ? generateSessionId(name) : undefined;
 
+			// For hands-free mode: non-blocking - return immediately with sessionId
+			// Agent can then query status/output via sessionId and kill when done
+			if (isHandsFree && generatedSessionId) {
+				// Start overlay but don't await - it runs in background
+				const overlayPromise = ctx.ui.custom<InteractiveShellResult>(
+					(tui, theme, _kb, done) =>
+						new InteractiveShellOverlay(
+							tui,
+							theme,
+							{
+								command,
+								cwd: effectiveCwd,
+								name,
+								reason,
+								mode,
+								sessionId: generatedSessionId,
+								handsFreeUpdateMode: handsFree?.updateMode,
+								handsFreeUpdateInterval: handsFree?.updateInterval,
+								handsFreeQuietThreshold: handsFree?.quietThreshold,
+								handsFreeUpdateMaxChars: handsFree?.updateMaxChars,
+								handsFreeMaxTotalChars: handsFree?.maxTotalChars,
+								autoExitOnQuiet: handsFree?.autoExitOnQuiet,
+								// No onHandsFreeUpdate in non-blocking mode - agent queries directly
+								handoffPreviewEnabled: handoffPreview?.enabled,
+								handoffPreviewLines: handoffPreview?.lines,
+								handoffPreviewMaxChars: handoffPreview?.maxChars,
+								handoffSnapshotEnabled: handoffSnapshot?.enabled,
+								handoffSnapshotLines: handoffSnapshot?.lines,
+								handoffSnapshotMaxChars: handoffSnapshot?.maxChars,
+								timeout,
+							},
+							config,
+							done,
+						),
+					{
+						overlay: true,
+						overlayOptions: {
+							width: `${config.overlayWidthPercent}%`,
+							maxHeight: `${config.overlayHeightPercent}%`,
+							anchor: "center",
+							margin: 1,
+						},
+					},
+				);
+
+				// Handle overlay completion in background (cleanup when user closes)
+				overlayPromise.then((result) => {
+					// Session already handles cleanup via finishWith* methods
+					// This just ensures the promise doesn't cause unhandled rejection
+					if (result.userTookOver) {
+						// User took over - session continues interactively
+					}
+				}).catch(() => {
+					// Ignore errors - session cleanup handles this
+				});
+
+				// Return immediately - agent can query via sessionId
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Session started: ${generatedSessionId}\nCommand: ${command}\n\nUse interactive_shell({ sessionId: "${generatedSessionId}" }) to check status/output.\nUse interactive_shell({ sessionId: "${generatedSessionId}", kill: true }) to end when done.`,
+						},
+					],
+					details: {
+						sessionId: generatedSessionId,
+						status: "running",
+						command,
+						reason,
+					},
+				};
+			}
+
+			// Interactive mode: blocking - wait for overlay to close
 			onUpdate?.({
-				content: [{ type: "text", text: `Opening${isHandsFree ? " (hands-free)" : ""}: ${command}` }],
+				content: [{ type: "text", text: `Opening: ${command}` }],
 				details: {
 					exitCode: null,
 					backgrounded: false,
 					cancelled: false,
-					sessionId: generatedSessionId,
 				},
 			});
 
@@ -606,6 +775,7 @@ Examples:
 							handsFreeQuietThreshold: handsFree?.quietThreshold,
 							handsFreeUpdateMaxChars: handsFree?.updateMaxChars,
 							handsFreeMaxTotalChars: handsFree?.maxTotalChars,
+							autoExitOnQuiet: handsFree?.autoExitOnQuiet,
 							onHandsFreeUpdate: isHandsFree
 								? (update) => {
 										let statusText: string;

@@ -66,48 +66,64 @@ Agent starts working immediately, user supervises.
 interactive_shell({ command: 'pi "Review this codebase for security issues"' })
 ```
 
-### Hands-Free (Foreground Subagent)
-Agent works autonomously, you receive periodic updates, user can take over anytime.
+### Hands-Free (Foreground Subagent) - NON-BLOCKING
+Agent works autonomously, **returns immediately** with sessionId. You query for status/output and kill when done.
+
 ```typescript
+// 1. Start session - returns immediately
 interactive_shell({
   command: 'pi "Fix all TypeScript errors in src/"',
   mode: "hands-free",
   reason: "Fixing TS errors"
 })
+// Returns: { sessionId: "calm-reef", status: "running" }
+
+// 2. Check status and get new output
+interactive_shell({ sessionId: "calm-reef" })
+// Returns: { status: "running", output: "...", runtime: 30000 }
+
+// 3. When you see task is complete, kill session
+interactive_shell({ sessionId: "calm-reef", kill: true })
+// Returns: { status: "killed", output: "final output..." }
 ```
 
-This is the primary pattern for **foreground subagents** - you delegate to pi (or another agent if user specifies) while monitoring progress.
+This is the primary pattern for **foreground subagents** - you delegate to pi (or another agent), query for progress, and decide when the task is done.
 
-## Hands-Free Status Updates
+## Hands-Free Workflow
 
-When running in hands-free mode, `sessionId` is available immediately in the first update (before the overlay opens). Subsequent updates include:
-- `status: "running"` - update with **incremental output** (only new content since last update)
-- `status: "user-takeover"` - user typed something and took control
-- `status: "exited"` - process exited (final update before tool returns)
-
-Updates include budget tracking: `totalCharsSent` and `budgetExhausted` fields.
-
-After takeover or exit, the tool continues blocking until the session closes.
-
-### Update Modes
-
-**on-quiet (default)**: Updates emit after 5 seconds of output silence. Perfect for agent-to-agent delegation - you receive complete "thoughts" rather than fragments mid-stream.
-
-**interval**: Updates emit on a fixed schedule (every 60s). Use when continuous output is expected.
-
+### Starting a Session
 ```typescript
-// Default: on-quiet mode (recommended for agent delegation)
-interactive_shell({
-  command: 'pi "Fix all TypeScript errors"',
+const result = interactive_shell({
+  command: 'codex "Review this codebase"',
   mode: "hands-free"
 })
+// result.sessionId = "calm-reef"
+// result.status = "running"
+```
 
-// Force interval mode for continuous output
-interactive_shell({
-  command: 'tail -f /var/log/app.log',
-  mode: "hands-free",
-  handsFree: { updateMode: "interval", updateInterval: 10000 }
-})
+The user sees the overlay immediately. You get control back to continue working.
+
+### Querying Status
+```typescript
+interactive_shell({ sessionId: "calm-reef" })
+```
+
+Returns:
+- `status`: "running" | "user-takeover" | "exited" | "killed" | "backgrounded"
+- `output`: New output since last check (incremental)
+- `runtime`: Time elapsed in ms
+
+### Ending a Session
+```typescript
+interactive_shell({ sessionId: "calm-reef", kill: true })
+```
+
+Kill when you see the task is complete in the output. Returns final status and output.
+
+### Sending Input
+```typescript
+interactive_shell({ sessionId: "calm-reef", input: "/help\n" })
+interactive_shell({ sessionId: "calm-reef", input: { keys: ["ctrl+c"] } })
 ```
 
 ### Context Budget

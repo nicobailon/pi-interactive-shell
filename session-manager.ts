@@ -9,10 +9,33 @@ export interface BackgroundSession {
 	startedAt: Date;
 }
 
+export type ActiveSessionStatus = "running" | "user-takeover" | "exited" | "killed" | "backgrounded";
+
+export interface ActiveSessionResult {
+	exitCode: number | null;
+	signal?: number;
+	backgrounded?: boolean;
+	backgroundId?: string;
+	cancelled?: boolean;
+	timedOut?: boolean;
+}
+
+export interface OutputResult {
+	output: string;
+	truncated: boolean;
+	totalBytes: number;
+}
+
 export interface ActiveSession {
 	id: string;
 	command: string;
+	reason?: string;
 	write: (data: string) => void;
+	kill: () => void;
+	getOutput: () => OutputResult; // Get output since last check (truncated if large)
+	getStatus: () => ActiveSessionStatus;
+	getRuntime: () => number;
+	getResult: () => ActiveSessionResult | undefined; // Available when completed
 	setUpdateInterval?: (intervalMs: number) => void;
 	setQuietThreshold?: (thresholdMs: number) => void;
 	startedAt: Date;
@@ -100,26 +123,32 @@ export class ShellSessionManager {
 	private activeSessions = new Map<string, ActiveSession>();
 
 	// Active hands-free session management
-	registerActive(
-		id: string,
-		command: string,
-		write: (data: string) => void,
-		setUpdateInterval?: (intervalMs: number) => void,
-		setQuietThreshold?: (thresholdMs: number) => void,
-	): void {
-		this.activeSessions.set(id, {
-			id,
-			command,
-			write,
-			setUpdateInterval,
-			setQuietThreshold,
+	registerActive(session: {
+		id: string;
+		command: string;
+		reason?: string;
+		write: (data: string) => void;
+		kill: () => void;
+		getOutput: () => OutputResult;
+		getStatus: () => ActiveSessionStatus;
+		getRuntime: () => number;
+		getResult: () => ActiveSessionResult | undefined;
+		setUpdateInterval?: (intervalMs: number) => void;
+		setQuietThreshold?: (thresholdMs: number) => void;
+	}): void {
+		this.activeSessions.set(session.id, {
+			...session,
 			startedAt: new Date(),
 		});
 	}
 
-	unregisterActive(id: string): void {
+	unregisterActive(id: string, releaseId = false): void {
 		this.activeSessions.delete(id);
-		releaseSessionId(id);
+		// Only release the ID if explicitly requested (when session fully terminates)
+		// This prevents ID reuse while session is still running after takeover
+		if (releaseId) {
+			releaseSessionId(id);
+		}
 	}
 
 	getActive(id: string): ActiveSession | undefined {
@@ -217,9 +246,26 @@ export class ShellSessionManager {
 	}
 
 	killAll(): void {
-		for (const [id] of this.sessions) {
+		// Kill all background sessions
+		// Collect IDs first to avoid modifying map during iteration
+		const bgIds = Array.from(this.sessions.keys());
+		for (const id of bgIds) {
 			this.remove(id);
 		}
+
+		// Kill all active hands-free sessions
+		// Collect entries first since kill() may trigger unregisterActive()
+		const activeEntries = Array.from(this.activeSessions.entries());
+		for (const [id, session] of activeEntries) {
+			try {
+				session.kill();
+			} catch {
+				// Session may already be dead
+			}
+			// Release ID if not already released by kill()
+			releaseSessionId(id);
+		}
+		this.activeSessions.clear();
 	}
 }
 

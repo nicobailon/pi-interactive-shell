@@ -62,6 +62,8 @@ export interface InteractiveShellOptions {
 	handsFreeUpdateMaxChars?: number;
 	handsFreeMaxTotalChars?: number;
 	onHandsFreeUpdate?: (update: HandsFreeUpdate) => void;
+	// Auto-exit when output stops (for agents that don't exit on their own)
+	autoExitOnQuiet?: boolean;
 	// Auto-kill timeout
 	timeout?: number;
 }
@@ -120,6 +122,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private lastDataTime = 0;
 	private quietTimer: ReturnType<typeof setTimeout> | null = null;
 	private hasUnsentData = false;
+	// Non-blocking mode: track status and output for agent queries
+	private agentOutputPosition = 0; // Track last read position for incremental output
+	private completionResult: InteractiveShellResult | undefined;
 
 	constructor(
 		tui: TUI,
@@ -169,7 +174,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 					// Stop timeout to prevent double done() call
 					this.stopTimeout();
 
-					// Send final update with any unsent data, then "exited" notification
+					// In hands-free mode (user hasn't taken over): send exited notification and auto-close immediately
 					if (this.state === "hands-free" && this.options.onHandsFreeUpdate && this.sessionId) {
 						// Flush any pending output before sending exited notification
 						if (this.hasUnsentData || this.updateMode === "interval") {
@@ -186,8 +191,12 @@ export class InteractiveShellOverlay implements Component, Focusable {
 							totalCharsSent: this.totalCharsSent,
 							budgetExhausted: this.budgetExhausted,
 						});
-						this.unregisterActiveSession();
+						// Auto-close immediately in hands-free mode - agent should get control back
+						this.finishWithExit();
+						return;
 					}
+
+					// Interactive mode (or user took over): show exit state with countdown
 					this.stopHandsFreeUpdates();
 					this.state = "exited";
 					this.exitCountdown = this.config.exitAutoCloseDelay;
@@ -207,13 +216,19 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			this.state = "hands-free";
 			// Use provided sessionId or generate one
 			this.sessionId = options.sessionId ?? generateSessionId(options.name);
-			sessionManager.registerActive(
-				this.sessionId,
-				options.command,
-				(data) => this.session.write(data),
-				(intervalMs) => this.setUpdateInterval(intervalMs),
-				(thresholdMs) => this.setQuietThreshold(thresholdMs),
-			);
+			sessionManager.registerActive({
+				id: this.sessionId,
+				command: options.command,
+				reason: options.reason,
+				write: (data) => this.session.write(data),
+				kill: () => this.killSession(),
+				getOutput: () => this.getOutputSinceLastCheck(),
+				getStatus: () => this.getSessionStatus(),
+				getRuntime: () => this.getRuntime(),
+				getResult: () => this.getCompletionResult(),
+				setUpdateInterval: (intervalMs) => this.setUpdateInterval(intervalMs),
+				setQuietThreshold: (thresholdMs) => this.setQuietThreshold(thresholdMs),
+			});
 			this.startHandsFreeUpdates();
 		}
 
@@ -222,6 +237,72 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			this.timeoutTimer = setTimeout(() => {
 				this.finishWithTimeout();
 			}, options.timeout);
+		}
+	}
+
+	// Public methods for non-blocking mode (agent queries)
+
+	// Max output per status query (10KB) - prevents overwhelming agent context
+	private static readonly MAX_STATUS_OUTPUT = 10 * 1024;
+
+	/** Get output since last check (incremental, truncated if too large) */
+	getOutputSinceLastCheck(): { output: string; truncated: boolean; totalBytes: number } {
+		const fullOutput = this.session.getRawStream({ stripAnsi: true });
+
+		// Handle case where buffer was trimmed and our position is now past the end
+		// This happens when rawOutput exceeds 1MB and older content is discarded
+		const clampedPosition = Math.min(this.agentOutputPosition, fullOutput.length);
+		const newOutput = fullOutput.substring(clampedPosition);
+		const totalBytes = newOutput.length;
+
+		// Always advance position (even if truncated, we don't want to re-send old data)
+		this.agentOutputPosition = fullOutput.length;
+
+		// Truncate if too large (keep the END, which is most recent/relevant)
+		if (newOutput.length > InteractiveShellOverlay.MAX_STATUS_OUTPUT) {
+			const truncated = newOutput.slice(-InteractiveShellOverlay.MAX_STATUS_OUTPUT);
+			return {
+				output: `[...${totalBytes - InteractiveShellOverlay.MAX_STATUS_OUTPUT} bytes truncated...]\n${truncated}`,
+				truncated: true,
+				totalBytes,
+			};
+		}
+
+		return { output: newOutput, truncated: false, totalBytes };
+	}
+
+	/** Get current session status */
+	getSessionStatus(): "running" | "user-takeover" | "exited" | "killed" | "backgrounded" {
+		if (this.completionResult) {
+			if (this.completionResult.cancelled) return "killed";
+			if (this.completionResult.backgrounded) return "backgrounded";
+			if (this.userTookOver) return "user-takeover";
+			return "exited";
+		}
+		if (this.userTookOver) return "user-takeover";
+		if (this.state === "exited") return "exited";
+		return "running";
+	}
+
+	/** Get runtime in milliseconds */
+	getRuntime(): number {
+		return Date.now() - this.startTime;
+	}
+
+	/** Get completion result (if session has ended) */
+	getCompletionResult(): InteractiveShellResult | undefined {
+		return this.completionResult;
+	}
+
+	/** Get the session ID */
+	getSessionId(): string | null {
+		return this.sessionId;
+	}
+
+	/** Kill the session programmatically */
+	killSession(): void {
+		if (!this.finished) {
+			this.finishWithKill();
 		}
 	}
 
@@ -276,9 +357,34 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.stopQuietTimer();
 		this.quietTimer = setTimeout(() => {
 			this.quietTimer = null;
-			if (this.state === "hands-free" && this.hasUnsentData) {
-				this.emitHandsFreeUpdate();
-				this.hasUnsentData = false;
+			if (this.state === "hands-free") {
+				// Auto-exit on quiet: kill session when output stops (agent likely finished task)
+				if (this.options.autoExitOnQuiet) {
+					// Emit final update with any pending output
+					if (this.hasUnsentData) {
+						this.emitHandsFreeUpdate();
+						this.hasUnsentData = false;
+					}
+					// Send completion notification and auto-close
+					if (this.options.onHandsFreeUpdate && this.sessionId) {
+						this.options.onHandsFreeUpdate({
+							status: "exited",
+							sessionId: this.sessionId,
+							runtime: Date.now() - this.startTime,
+							tail: [],
+							tailTruncated: false,
+							totalCharsSent: this.totalCharsSent,
+							budgetExhausted: this.budgetExhausted,
+						});
+					}
+					this.finishWithKill();
+					return;
+				}
+				// Normal behavior: just emit update
+				if (this.hasUnsentData) {
+					this.emitHandsFreeUpdate();
+					this.hasUnsentData = false;
+				}
 			}
 		}, this.currentQuietThreshold);
 	}
@@ -320,6 +426,18 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const clamped = Math.max(1000, Math.min(30000, thresholdMs));
 		if (clamped === this.currentQuietThreshold) return;
 		this.currentQuietThreshold = clamped;
+
+		// If a quiet timer is active, restart it with the new threshold
+		if (this.quietTimer && this.updateMode === "on-quiet") {
+			this.stopQuietTimer();
+			this.quietTimer = setTimeout(() => {
+				this.quietTimer = null;
+				if (this.hasUnsentData && !this.budgetExhausted) {
+					this.emitHandsFreeUpdate();
+					this.hasUnsentData = false;
+				}
+			}, this.currentQuietThreshold);
+		}
 	}
 
 	private stopHandsFreeUpdates(): void {
@@ -341,9 +459,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		}
 	}
 
-	private unregisterActiveSession(): void {
+	private unregisterActiveSession(releaseId = false): void {
 		if (this.sessionId && !this.sessionUnregistered) {
-			sessionManager.unregisterActive(this.sessionId);
+			sessionManager.unregisterActive(this.sessionId, releaseId);
 			this.sessionUnregistered = true;
 		}
 	}
@@ -410,22 +528,27 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		}
 
 		this.stopHandsFreeUpdates();
-		// Unregister from active sessions since user took over
-		this.unregisterActiveSession();
 		this.state = "running";
 		this.userTookOver = true;
 
-		// Notify agent that user took over
-		this.options.onHandsFreeUpdate?.({
-			status: "user-takeover",
-			sessionId: this.sessionId,
-			runtime: Date.now() - this.startTime,
-			tail: [],
-			tailTruncated: false,
-			userTookOver: true,
-			totalCharsSent: this.totalCharsSent,
-			budgetExhausted: this.budgetExhausted,
-		});
+		// Notify agent that user took over (streaming mode)
+		// In non-blocking mode, keep session registered so agent can query status
+		if (this.options.onHandsFreeUpdate) {
+			this.options.onHandsFreeUpdate({
+				status: "user-takeover",
+				sessionId: this.sessionId,
+				runtime: Date.now() - this.startTime,
+				tail: [],
+				tailTruncated: false,
+				userTookOver: true,
+				totalCharsSent: this.totalCharsSent,
+				budgetExhausted: this.budgetExhausted,
+			});
+			// Unregister after notification in streaming mode
+			this.unregisterActiveSession();
+		}
+		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
+		// so agent can query and see "user-takeover" status
 
 		this.tui.requestRender();
 	}
@@ -501,11 +624,11 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.stopCountdown();
 		this.stopTimeout();
 		this.stopHandsFreeUpdates();
-		this.unregisterActiveSession();
+
 		const handoffPreview = this.maybeBuildHandoffPreview("exit");
 		const handoff = this.maybeWriteHandoffSnapshot("exit");
 		this.session.dispose();
-		this.done({
+		const result: InteractiveShellResult = {
 			exitCode: this.session.exitCode,
 			signal: this.session.signal,
 			backgrounded: false,
@@ -514,7 +637,17 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			userTookOver: this.userTookOver,
 			handoffPreview,
 			handoff,
-		});
+		};
+		this.completionResult = result;
+
+		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
+		// so agent can query completion result. Agent's query will unregister.
+		// In streaming mode, unregister now since agent got final update.
+		if (this.options.onHandsFreeUpdate) {
+			this.unregisterActiveSession(true);
+		}
+
+		this.done(result);
 	}
 
 	private finishWithBackground(): void {
@@ -523,11 +656,11 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.stopCountdown();
 		this.stopTimeout();
 		this.stopHandsFreeUpdates();
-		this.unregisterActiveSession();
+
 		const handoffPreview = this.maybeBuildHandoffPreview("detach");
 		const handoff = this.maybeWriteHandoffSnapshot("detach");
 		const id = sessionManager.add(this.options.command, this.session, this.options.name, this.options.reason);
-		this.done({
+		const result: InteractiveShellResult = {
 			exitCode: null,
 			backgrounded: true,
 			backgroundId: id,
@@ -536,7 +669,16 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			userTookOver: this.userTookOver,
 			handoffPreview,
 			handoff,
-		});
+		};
+		this.completionResult = result;
+
+		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
+		// so agent can query completion result. Agent's query will unregister.
+		if (this.options.onHandsFreeUpdate) {
+			this.unregisterActiveSession(true);
+		}
+
+		this.done(result);
 	}
 
 	private finishWithKill(): void {
@@ -545,12 +687,12 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.stopCountdown();
 		this.stopTimeout();
 		this.stopHandsFreeUpdates();
-		this.unregisterActiveSession();
+
 		const handoffPreview = this.maybeBuildHandoffPreview("kill");
 		const handoff = this.maybeWriteHandoffSnapshot("kill");
 		this.session.kill();
 		this.session.dispose();
-		this.done({
+		const result: InteractiveShellResult = {
 			exitCode: null,
 			backgrounded: false,
 			cancelled: true,
@@ -558,7 +700,16 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			userTookOver: this.userTookOver,
 			handoffPreview,
 			handoff,
-		});
+		};
+		this.completionResult = result;
+
+		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
+		// so agent can query completion result. Agent's query will unregister.
+		if (this.options.onHandsFreeUpdate) {
+			this.unregisterActiveSession(true);
+		}
+
+		this.done(result);
 	}
 
 	private finishWithTimeout(): void {
@@ -587,13 +738,12 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		}
 
 		this.stopHandsFreeUpdates();
-		this.unregisterActiveSession();
 		this.timedOut = true;
 		const handoffPreview = this.maybeBuildHandoffPreview("timeout");
 		const handoff = this.maybeWriteHandoffSnapshot("timeout");
 		this.session.kill();
 		this.session.dispose();
-		this.done({
+		const result: InteractiveShellResult = {
 			exitCode: null,
 			backgrounded: false,
 			cancelled: false,
@@ -602,7 +752,16 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			userTookOver: this.userTookOver,
 			handoffPreview,
 			handoff,
-		});
+		};
+		this.completionResult = result;
+
+		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
+		// so agent can query completion result. Agent's query will unregister.
+		if (this.options.onHandsFreeUpdate) {
+			this.unregisterActiveSession(true);
+		}
+
+		this.done(result);
 	}
 
 	private handleDoubleEscape(): boolean {
@@ -819,7 +978,10 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.stopTimeout();
 		this.stopHandsFreeUpdates();
 		// Safety cleanup in case dispose() is called without going through finishWith*
-		this.unregisterActiveSession();
+		// In non-blocking mode with completion result, keep session so agent can query
+		if (!this.completionResult || this.options.onHandsFreeUpdate) {
+			this.unregisterActiveSession();
+		}
 	}
 }
 

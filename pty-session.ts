@@ -22,13 +22,40 @@ const CONTROL_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1A\x1C-\x1F\x7F]/g;
 // DSR (Device Status Report) - cursor position query: ESC[6n or ESC[?6n
 const DSR_PATTERN = /\x1b\[\??6n/g;
 
-function stripDsrRequests(input: string): { cleaned: string; requests: number } {
-	let requests = 0;
-	const cleaned = input.replace(DSR_PATTERN, () => {
-		requests += 1;
-		return "";
-	});
-	return { cleaned, requests };
+// Maximum raw output buffer size (1MB) - prevents unbounded memory growth
+const MAX_RAW_OUTPUT_SIZE = 1024 * 1024;
+
+interface DsrSplit {
+	segments: Array<{ text: string; dsrAfter: boolean }>;
+	hasDsr: boolean;
+}
+
+function splitAroundDsr(input: string): DsrSplit {
+	const segments: Array<{ text: string; dsrAfter: boolean }> = [];
+	let lastIndex = 0;
+	let hasDsr = false;
+
+	// Find all DSR requests and split around them
+	const regex = new RegExp(DSR_PATTERN.source, "g");
+	let match;
+	while ((match = regex.exec(input)) !== null) {
+		hasDsr = true;
+		// Text before this DSR
+		if (match.index > lastIndex) {
+			segments.push({ text: input.slice(lastIndex, match.index), dsrAfter: true });
+		} else {
+			// DSR at start or consecutive DSRs - add empty segment to trigger response
+			segments.push({ text: "", dsrAfter: true });
+		}
+		lastIndex = match.index + match[0].length;
+	}
+
+	// Remaining text after last DSR (or entire string if no DSR)
+	if (lastIndex < input.length) {
+		segments.push({ text: input.slice(lastIndex), dsrAfter: false });
+	}
+
+	return { segments, hasDsr };
 }
 
 function buildCursorPositionResponse(row = 1, col = 1): string {
@@ -202,6 +229,17 @@ export class PtyTerminalSession {
 	private dataHandler: ((data: string) => void) | undefined;
 	private exitHandler: ((exitCode: number, signal?: number) => void) | undefined;
 
+	// Trim raw output buffer if it exceeds max size
+	private trimRawOutputIfNeeded(): void {
+		if (this.rawOutput.length > MAX_RAW_OUTPUT_SIZE) {
+			const keepSize = Math.floor(MAX_RAW_OUTPUT_SIZE / 2);
+			const trimAmount = this.rawOutput.length - keepSize;
+			this.rawOutput = this.rawOutput.substring(trimAmount);
+			// Adjust stream position to account for trimmed content
+			this.lastStreamPosition = Math.max(0, this.lastStreamPosition - trimAmount);
+		}
+	}
+
 	constructor(options: PtySessionOptions, events: PtySessionEvents = {}) {
 		const {
 			command,
@@ -245,29 +283,40 @@ export class PtyTerminalSession {
 		this.ptyProcess.onData((data) => {
 			// Handle DSR (Device Status Report) cursor position queries
 			// TUI apps send ESC[6n or ESC[?6n expecting ESC[row;colR response
-			const { cleaned, requests } = stripDsrRequests(data);
-			if (requests > 0) {
-				// Respond with cursor position (use xterm's actual cursor position)
-				const buffer = this.xterm.buffer.active;
-				const response = buildCursorPositionResponse(buffer.cursorY + 1, buffer.cursorX + 1);
-				for (let i = 0; i < requests; i++) {
-					this.ptyProcess.write(response);
+			// We must process in order: write text to xterm, THEN respond to DSR
+			const { segments, hasDsr } = splitAroundDsr(data);
+
+			if (!hasDsr) {
+				// Fast path: no DSR in data
+				this.writeQueue.enqueue(async () => {
+					this.rawOutput += data;
+					this.trimRawOutputIfNeeded();
+					await new Promise<void>((resolve) => {
+						this.xterm.write(data, () => resolve());
+					});
+					this.dataHandler?.(data);
+				});
+			} else {
+				// Process each segment in order, responding to DSR after writing preceding text
+				for (const segment of segments) {
+					this.writeQueue.enqueue(async () => {
+						if (segment.text) {
+							this.rawOutput += segment.text;
+							this.trimRawOutputIfNeeded();
+							await new Promise<void>((resolve) => {
+								this.xterm.write(segment.text, () => resolve());
+							});
+							this.dataHandler?.(segment.text);
+						}
+						// If there was a DSR after this segment, respond with current cursor position
+						if (segment.dsrAfter) {
+							const buffer = this.xterm.buffer.active;
+							const response = buildCursorPositionResponse(buffer.cursorY + 1, buffer.cursorX + 1);
+							this.ptyProcess.write(response);
+						}
+					});
 				}
 			}
-
-			// Write cleaned data to xterm (without DSR sequences)
-			const dataToProcess = requests > 0 ? cleaned : data;
-
-			// Use write queue for ordered writes
-			this.writeQueue.enqueue(async () => {
-				// Track raw output for incremental streaming
-				this.rawOutput += dataToProcess;
-
-				await new Promise<void>((resolve) => {
-					this.xterm.write(dataToProcess, () => resolve());
-				});
-				this.dataHandler?.(dataToProcess);
-			});
 		});
 
 		this.ptyProcess.onExit(({ exitCode, signal }) => {
