@@ -1,6 +1,6 @@
 # Pi Interactive Shell
 
-An extension for [Pi coding agent](https://github.com/badlogic/pi-mono/) that runs interactive CLIs in an observable TUI overlay. Full PTY emulation, real-time streaming, user takeover anytime.
+An extension for [Pi coding agent](https://github.com/badlogic/pi-mono/) that lets Pi autonomously run interactive CLIs in an observable TUI overlay. Pi controls the subprocess while you watch - take over anytime.
 
 ```typescript
 interactive_shell({ command: 'vim config.yaml' })
