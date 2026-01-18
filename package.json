@@ -1,0 +1,56 @@
+{
+  "name": "pi-interactive-shell",
+  "version": "0.3.0",
+  "description": "Run AI coding agents as foreground subagents in pi TUI overlays with hands-free monitoring",
+  "type": "module",
+  "bin": {
+    "pi-interactive-shell-install": "./scripts/install.js"
+  },
+  "files": [
+    "index.ts",
+    "config.ts",
+    "overlay-component.ts",
+    "pty-session.ts",
+    "session-manager.ts",
+    "scripts/",
+    "README.md",
+    "SKILL.md",
+    "CHANGELOG.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0",
+    "@xterm/headless": "^5.5.0",
+    "@xterm/addon-serialize": "^0.13.0"
+  },
+  "scripts": {
+    "postinstall": "node ./scripts/fix-spawn-helper.cjs"
+  },
+  "keywords": [
+    "pi",
+    "pi-coding-agent",
+    "extension",
+    "interactive",
+    "shell",
+    "terminal",
+    "tui",
+    "subagent",
+    "claude",
+    "gemini",
+    "codex"
+  ],
+  "author": "Nico Bailon",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nicobailon/pi-interactive-shell.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nicobailon/pi-interactive-shell/issues"
+  },
+  "homepage": "https://github.com/nicobailon/pi-interactive-shell#readme"
+}
