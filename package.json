@@ -1,10 +1,10 @@
 {
   "name": "pi-interactive-shell",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Run AI coding agents as foreground subagents in pi TUI overlays with hands-free monitoring",
   "type": "module",
   "bin": {
-    "pi-interactive-shell-install": "./scripts/install.js"
+    "pi-interactive-shell": "./scripts/install.js"
   },
   "files": [
     "index.ts",

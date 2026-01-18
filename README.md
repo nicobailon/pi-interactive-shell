@@ -16,7 +16,7 @@ This is distinct from **background subagents** (the `subagent` tool) which run p
 ## Install
 
 ```bash
-npx pi-interactive-shell-install
+npx pi-interactive-shell
 ```
 
 This installs the extension to `~/.pi/agent/extensions/interactive-shell/`, runs `npm install` for dependencies, and creates the skill symlink.
