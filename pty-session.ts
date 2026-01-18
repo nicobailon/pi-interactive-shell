@@ -218,6 +218,7 @@ export class PtyTerminalSession {
 	private _exitCode: number | null = null;
 	private _signal: number | undefined;
 	private scrollOffset = 0;
+	private followBottom = true; // Auto-scroll to bottom when new data arrives
 
 	// Raw output buffer for incremental streaming
 	private rawOutput = "";
@@ -458,6 +459,11 @@ export class PtyTerminalSession {
 		const lines: string[] = [];
 
 		const totalLines = buffer.length;
+		// If following bottom, reset scroll offset at render time (not on each data event)
+		// This prevents flickering from scroll position racing with buffer updates
+		if (this.followBottom) {
+			this.scrollOffset = 0;
+		}
 		const viewportStart = Math.max(0, totalLines - this.xterm.rows - this.scrollOffset);
 
 		const useAnsi = !!options.ansi;
@@ -565,14 +571,20 @@ export class PtyTerminalSession {
 		const buffer = this.xterm.buffer.active;
 		const maxScroll = Math.max(0, buffer.length - this.xterm.rows);
 		this.scrollOffset = Math.min(this.scrollOffset + lines, maxScroll);
+		this.followBottom = false; // User scrolled up, stop auto-following
 	}
 
 	scrollDown(lines: number): void {
 		this.scrollOffset = Math.max(0, this.scrollOffset - lines);
+		// If scrolled to bottom, resume auto-following
+		if (this.scrollOffset === 0) {
+			this.followBottom = true;
+		}
 	}
 
 	scrollToBottom(): void {
 		this.scrollOffset = 0;
+		this.followBottom = true;
 	}
 
 	isScrolledUp(): boolean {

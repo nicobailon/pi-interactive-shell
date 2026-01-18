@@ -55,6 +55,12 @@ This installs the extension to `~/.pi/agent/extensions/interactive-shell/`, runs
 - `sessionId` (string, required): session ID
 - `settings` (object): `{ updateInterval?, quietThreshold? }`
 
+**Query session status:**
+- `sessionId` (string, required): session ID
+- `outputLines` (number): lines to return (default: 20, max: 200)
+- `outputMaxChars` (number): max chars to return (default: 5KB, max: 50KB)
+- `kill` (boolean): kill the session and return final output
+
 ### Command: `/attach`
 
 Reattach to background sessions:

@@ -2,6 +2,23 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.4.3] - 2026-01-18
+
+### Added
+- **Configurable output limits** - New `outputLines` and `outputMaxChars` parameters when querying sessions:
+  - `outputLines`: Request more lines (default: 20, max: 200)
+  - `outputMaxChars`: Request more content (default: 5KB, max: 50KB)
+  - Example: `interactive_shell({ sessionId: "calm-reef", outputLines: 50 })`
+- **Escape hint feedback** - After pressing first Escape, shows "Press Escape again to detach..." in footer for 300ms
+
+### Fixed
+- **Escape hint not showing** - Fixed bug where `clearEscapeHint()` was immediately resetting `showEscapeHint` to false after setting it to true
+- **Negative output limits** - Added clamping to ensure `outputLines` and `outputMaxChars` are at least 1
+- **Reduced flickering during rapid output** - Three improvements:
+  1. Scroll position calculated at render time via `followBottom` flag (not on each data event)
+  2. Debounced render requests (16ms) to batch rapid updates before drawing
+  3. Explicit scroll-to-bottom after resize to prevent flash to top during dimension changes
+
 ## [0.4.2] - 2026-01-17
 
 ### Added

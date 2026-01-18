@@ -98,6 +98,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private dialogSelection: DialogChoice = "background";
 	private exitCountdown = 0;
 	private lastEscapeTime = 0;
+	private showEscapeHint = false;
+	private escapeHintTimeout: ReturnType<typeof setTimeout> | null = null;
 	private countdownInterval: ReturnType<typeof setInterval> | null = null;
 	private lastWidth = 0;
 	private lastHeight = 0;
@@ -128,6 +130,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private lastQueryTime = 0;
 	// Completion callbacks for waiters
 	private completeCallbacks: Array<() => void> = [];
+	// Simple render throttle to reduce flicker
+	private renderTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(
 		tui: TUI,
@@ -158,10 +162,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			},
 			{
 				onData: () => {
-					if (!this.session.isScrolledUp()) {
-						this.session.scrollToBottom();
-					}
-					this.tui.requestRender();
+					// Don't call scrollToBottom() here - pty-session handles auto-follow at render time
+					// Debounce render to batch rapid updates and reduce flicker
+					this.debouncedRender();
 
 					// Track activity for on-quiet mode
 					if (this.state === "hands-free" && this.updateMode === "on-quiet") {
@@ -225,7 +228,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 				reason: options.reason,
 				write: (data) => this.session.write(data),
 				kill: () => this.killSession(),
-				getOutput: (skipRateLimit) => this.getOutputSinceLastCheck(skipRateLimit),
+				getOutput: (options) => this.getOutputSinceLastCheck(options),
 				getStatus: () => this.getSessionStatus(),
 				getRuntime: () => this.getRuntime(),
 				getResult: () => this.getCompletionResult(),
@@ -246,13 +249,27 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 	// Public methods for non-blocking mode (agent queries)
 
-	// Max output per status query (5KB) - prevents overwhelming agent context
-	private static readonly MAX_STATUS_OUTPUT = 5 * 1024;
-	// Max lines to return per query - keep small, we're just checking in
-	private static readonly MAX_STATUS_LINES = 20;
+	// Default output limits per status query
+	private static readonly DEFAULT_STATUS_OUTPUT = 5 * 1024; // 5KB
+	private static readonly DEFAULT_STATUS_LINES = 20;
+	private static readonly MAX_STATUS_OUTPUT = 50 * 1024; // 50KB max
+	private static readonly MAX_STATUS_LINES = 200; // 200 lines max
 
 	/** Get rendered terminal output (last N lines, truncated if too large) */
-	getOutputSinceLastCheck(skipRateLimit = false): { output: string; truncated: boolean; totalBytes: number; rateLimited?: boolean; waitSeconds?: number } {
+	getOutputSinceLastCheck(options: { skipRateLimit?: boolean; lines?: number; maxChars?: number } | boolean = false): { output: string; truncated: boolean; totalBytes: number; rateLimited?: boolean; waitSeconds?: number } {
+		// Handle legacy boolean parameter
+		const opts = typeof options === "boolean" ? { skipRateLimit: options } : options;
+		const skipRateLimit = opts.skipRateLimit ?? false;
+		// Clamp lines and maxChars to valid ranges (1 to MAX)
+		const requestedLines = Math.max(1, Math.min(
+			opts.lines ?? InteractiveShellOverlay.DEFAULT_STATUS_LINES,
+			InteractiveShellOverlay.MAX_STATUS_LINES
+		));
+		const requestedMaxChars = Math.max(1, Math.min(
+			opts.maxChars ?? InteractiveShellOverlay.DEFAULT_STATUS_OUTPUT,
+			InteractiveShellOverlay.MAX_STATUS_OUTPUT
+		));
+
 		// Check rate limiting (unless skipped, e.g., for completed sessions)
 		if (!skipRateLimit) {
 			const now = Date.now();
@@ -277,14 +294,14 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		// Use rendered terminal output instead of raw stream
 		// This gives clean, readable content without TUI animation garbage
 		const lines = this.session.getTailLines({
-			lines: InteractiveShellOverlay.MAX_STATUS_LINES,
+			lines: requestedLines,
 			ansi: false,
-			maxChars: InteractiveShellOverlay.MAX_STATUS_OUTPUT,
+			maxChars: requestedMaxChars,
 		});
 
 		const output = lines.join("\n");
 		const totalBytes = output.length;
-		const truncated = lines.length >= InteractiveShellOverlay.MAX_STATUS_LINES;
+		const truncated = lines.length >= requestedLines;
 
 		return { output, truncated, totalBytes };
 	}
@@ -332,6 +349,18 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			}
 		}
 		this.completeCallbacks = [];
+	}
+
+	/** Debounced render - waits for data to settle before rendering */
+	private debouncedRender(): void {
+		if (this.renderTimeout) {
+			clearTimeout(this.renderTimeout);
+		}
+		// Wait 16ms for more data before rendering
+		this.renderTimeout = setTimeout(() => {
+			this.renderTimeout = null;
+			this.tui.requestRender();
+		}, 16);
 	}
 
 	/** Get the session ID */
@@ -813,10 +842,29 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const now = Date.now();
 		if (now - this.lastEscapeTime < this.config.doubleEscapeThreshold) {
 			this.lastEscapeTime = 0;
+			this.clearEscapeHint();
 			return true;
 		}
 		this.lastEscapeTime = now;
+		// Show hint after first escape - clear any existing timeout first
+		if (this.escapeHintTimeout) {
+			clearTimeout(this.escapeHintTimeout);
+		}
+		this.showEscapeHint = true;
+		this.escapeHintTimeout = setTimeout(() => {
+			this.showEscapeHint = false;
+			this.tui.requestRender();
+		}, this.config.doubleEscapeThreshold);
+		this.tui.requestRender();
 		return false;
+	}
+
+	private clearEscapeHint(): void {
+		if (this.escapeHintTimeout) {
+			clearTimeout(this.escapeHintTimeout);
+			this.escapeHintTimeout = null;
+		}
+		this.showEscapeHint = false;
 	}
 
 	handleInput(data: string): void {
@@ -953,6 +1001,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			this.session.resize(innerWidth, termRows);
 			this.lastWidth = innerWidth;
 			this.lastHeight = termRows;
+			// After resize, ensure we're at the bottom to prevent flash to top
+			this.session.scrollToBottom();
 		}
 
 		const viewportLines = this.session.getViewportLines({ ansi: this.config.ansiReemit });
@@ -998,9 +1048,17 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			footerLines.push(row(exitMsg));
 			footerLines.push(row(dim(`Closing in ${this.exitCountdown}s... (any key to close)`)));
 		} else if (this.state === "hands-free") {
-			footerLines.push(row(dim("🤖 Agent controlling • Type to take over • Shift+Up/Down scroll")));
+			if (this.showEscapeHint) {
+				footerLines.push(row(warning("Press Escape again to detach...")));
+			} else {
+				footerLines.push(row(dim("🤖 Agent controlling • Type to take over • Shift+Up/Down scroll")));
+			}
 		} else {
-			footerLines.push(row(dim("Shift+Up/Down scroll • Double-Esc detach • Ctrl+C interrupt")));
+			if (this.showEscapeHint) {
+				footerLines.push(row(warning("Press Escape again to detach...")));
+			} else {
+				footerLines.push(row(dim("Shift+Up/Down scroll • Double-Esc detach • Ctrl+C interrupt")));
+			}
 		}
 
 		while (footerLines.length < FOOTER_LINES) {
@@ -1022,6 +1080,11 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.stopCountdown();
 		this.stopTimeout();
 		this.stopHandsFreeUpdates();
+		this.clearEscapeHint();
+		if (this.renderTimeout) {
+			clearTimeout(this.renderTimeout);
+			this.renderTimeout = null;
+		}
 		// Safety cleanup in case dispose() is called without going through finishWith*
 		// If session hasn't completed yet, kill it to prevent orphaned processes
 		if (!this.completionResult) {
@@ -1368,6 +1431,8 @@ export class ReattachOverlay implements Component, Focusable {
 			this.session.resize(innerWidth, termRows);
 			this.lastWidth = innerWidth;
 			this.lastHeight = termRows;
+			// After resize, ensure we're at the bottom to prevent flash to top
+			this.session.scrollToBottom();
 		}
 
 		const viewportLines = this.session.getViewportLines({ ansi: this.config.ansiReemit });

@@ -29,13 +29,19 @@ export interface OutputResult {
 	waitSeconds?: number;
 }
 
+export interface OutputOptions {
+	skipRateLimit?: boolean;
+	lines?: number; // Override default 20 lines
+	maxChars?: number; // Override default 5KB
+}
+
 export interface ActiveSession {
 	id: string;
 	command: string;
 	reason?: string;
 	write: (data: string) => void;
 	kill: () => void;
-	getOutput: (skipRateLimit?: boolean) => OutputResult; // Get output since last check (truncated if large)
+	getOutput: (options?: OutputOptions | boolean) => OutputResult; // Get output since last check (truncated if large)
 	getStatus: () => ActiveSessionStatus;
 	getRuntime: () => number;
 	getResult: () => ActiveSessionResult | undefined; // Available when completed

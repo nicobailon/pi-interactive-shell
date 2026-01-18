@@ -312,7 +312,9 @@ The user sees the overlay and can:
 - Kill/background via double-Escape
 
 QUERYING SESSION STATUS:
-- interactive_shell({ sessionId: "calm-reef" }) - get status + rendered terminal output (last 20 lines)
+- interactive_shell({ sessionId: "calm-reef" }) - get status + rendered terminal output (default: 20 lines, 5KB)
+- interactive_shell({ sessionId: "calm-reef", outputLines: 50 }) - get more lines (max: 200)
+- interactive_shell({ sessionId: "calm-reef", outputMaxChars: 20000 }) - get more content (max: 50KB)
 - interactive_shell({ sessionId: "calm-reef", kill: true }) - end session
 - interactive_shell({ sessionId: "calm-reef", input: "..." }) - send input
 
@@ -360,6 +362,16 @@ Examples:
 			kill: Type.Optional(
 				Type.Boolean({
 					description: "Kill the session (requires sessionId). Use when task appears complete.",
+				}),
+			),
+			outputLines: Type.Optional(
+				Type.Number({
+					description: "Number of lines to return when querying (default: 20, max: 200)",
+				}),
+			),
+			outputMaxChars: Type.Optional(
+				Type.Number({
+					description: "Max chars to return when querying (default: 5KB, max: 50KB)",
 				}),
 			),
 			settings: Type.Optional(
@@ -474,6 +486,8 @@ Examples:
 				command,
 				sessionId,
 				kill,
+				outputLines,
+				outputMaxChars,
 				settings,
 				input,
 				cwd,
@@ -488,6 +502,8 @@ Examples:
 				command?: string;
 				sessionId?: string;
 				kill?: boolean;
+				outputLines?: number;
+				outputMaxChars?: number;
 				settings?: { updateInterval?: number; quietThreshold?: number };
 				input?: string | { text?: string; keys?: string[]; hex?: string[]; paste?: string };
 				cwd?: string;
@@ -520,7 +536,7 @@ Examples:
 
 				// Kill session if requested
 				if (kill) {
-					const { output, truncated, totalBytes } = session.getOutput(true); // skipRateLimit=true for kill
+					const { output, truncated, totalBytes } = session.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars });
 					const status = session.getStatus();
 					const runtime = session.getRuntime();
 					session.kill();
@@ -603,7 +619,7 @@ Examples:
 					// If session completed, always allow query (no rate limiting)
 					// Rate limiting only applies to "checking in" on running sessions
 					if (result) {
-						const { output, truncated, totalBytes } = session.getOutput(true); // skipRateLimit=true
+						const { output, truncated, totalBytes } = session.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars });
 						const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
 						const hasOutput = output.length > 0;
 
@@ -630,7 +646,7 @@ Examples:
 					}
 
 					// Session still running - check rate limiting
-					const outputResult = session.getOutput();
+					const outputResult = session.getOutput({ lines: outputLines, maxChars: outputMaxChars });
 
 					// If rate limited, wait until allowed then return fresh result
 					// Use Promise.race to detect if session completes during wait
@@ -653,7 +669,7 @@ Examples:
 								};
 							}
 							const earlyResult = earlySession.getResult();
-							const { output, truncated, totalBytes } = earlySession.getOutput(true); // skipRateLimit
+							const { output, truncated, totalBytes } = earlySession.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars });
 							const earlyStatus = earlySession.getStatus();
 							const earlyRuntime = earlySession.getRuntime();
 							const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
@@ -702,7 +718,7 @@ Examples:
 							};
 						}
 						// Get fresh output after waiting
-						const freshOutput = session.getOutput();
+						const freshOutput = session.getOutput({ lines: outputLines, maxChars: outputMaxChars });
 						const truncatedNote = freshOutput.truncated ? ` (${freshOutput.totalBytes} bytes total, truncated)` : "";
 						const hasOutput = freshOutput.output.length > 0;
 						const freshStatus = session.getStatus();

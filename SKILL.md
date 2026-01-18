@@ -5,7 +5,7 @@ description: Cheat sheet + workflow for launching interactive coding-agent CLIs 
 
 # Interactive Shell (Skill)
 
-Last verified: 2026-01-17
+Last verified: 2026-01-18
 
 ## Foreground vs Background Subagents
 
@@ -122,7 +122,21 @@ interactive_shell({ sessionId: "calm-reef", kill: true })
 
 Kill when you see the task is complete in the output. Returns final status and output.
 
-**Auto-exit:** In hands-free mode, sessions auto-kill when output stops (after ~5 seconds of quiet). This means when an agent finishes its task, the session closes automatically. You can disable this with `handsFree: { autoExitOnQuiet: false }`.
+**Auto-exit (default: enabled):** In hands-free mode, sessions auto-kill when output stops (after ~5 seconds of quiet). This means when an agent finishes its task and returns to its prompt, the session closes automatically.
+
+Since sessions auto-close, **always instruct the subagent to save results to a file** so you can read them:
+
+```typescript
+interactive_shell({
+  command: 'pi "Review this codebase for security issues. Save your findings to /tmp/security-review.md"',
+  mode: "hands-free",
+  reason: "Security review"
+})
+// After session ends, read the results:
+// read("/tmp/security-review.md")
+```
+
+To disable auto-exit (for long-running tasks or when you need to review output): `handsFree: { autoExitOnQuiet: false }`
 
 ### Sending Input
 ```typescript
@@ -133,18 +147,38 @@ interactive_shell({ sessionId: "calm-reef", input: { keys: ["ctrl+c"] } })
 ### Query Output
 
 Status queries return **rendered terminal output** (what's actually on screen), not raw stream:
-- Last 20 lines of the terminal, clean and readable
+- Default: 20 lines, 5KB max per query
 - No TUI animation noise (spinners, progress bars, etc.)
-- Max 5KB per query to keep context manageable
-- Configure via `handsFree.maxTotalChars`
+- Configurable via `outputLines` (max: 200) and `outputMaxChars` (max: 50KB)
 
 ```typescript
-// Custom budget for a long task
+// Get more output when reviewing a session
+interactive_shell({ sessionId: "calm-reef", outputLines: 50 })
+
+// Get even more for detailed review
+interactive_shell({ sessionId: "calm-reef", outputLines: 100, outputMaxChars: 30000 })
+```
+
+### Reviewing Long Sessions (autoExitOnQuiet disabled)
+
+When you disable auto-exit for long-running tasks, progressively review more output as needed:
+
+```typescript
+// Start a long session without auto-exit
 interactive_shell({
   command: 'pi "Refactor entire codebase"',
   mode: "hands-free",
-  handsFree: { maxTotalChars: 200000 }  // 200KB budget
+  handsFree: { autoExitOnQuiet: false }
 })
+
+// Query returns last 20 lines by default
+interactive_shell({ sessionId: "calm-reef" })
+
+// Get more lines when you need more context
+interactive_shell({ sessionId: "calm-reef", outputLines: 50 })
+
+// Get even more for detailed review
+interactive_shell({ sessionId: "calm-reef", outputLines: 100, outputMaxChars: 30000 })
 ```
 
 ## Sending Input to Active Sessions
@@ -244,49 +278,17 @@ interactive_shell({ sessionId: "calm-reef", settings: { quietThreshold: 3000 } }
 interactive_shell({ sessionId: "calm-reef", settings: { updateInterval: 30000, quietThreshold: 2000 } })
 ```
 
-## CLI Cheat Sheet
+## CLI Quick Reference
 
-### Claude Code (`claude`)
+| Agent | Interactive | With Prompt | Headless (bash) |
+|-------|-------------|-------------|-----------------|
+| `claude` | `claude` | `claude "prompt"` | `claude -p "prompt"` |
+| `gemini` | `gemini` | `gemini -i "prompt"` | `gemini "prompt"` |
+| `codex` | `codex` | `codex "prompt"` | `codex exec "prompt"` |
+| `agent` | `agent` | `agent "prompt"` | `agent -p "prompt"` |
+| `pi` | `pi` | `pi "prompt"` | `pi -p "prompt"` |
 
-| Mode | Command |
-|------|---------|
-| Interactive (idle) | `claude` |
-| Interactive (prompted) | `claude "Explain this project"` |
-| Headless (use bash, not overlay) | `claude -p "Explain this function"` |
-
-### Gemini CLI (`gemini`)
-
-| Mode | Command |
-|------|---------|
-| Interactive (idle) | `gemini` |
-| Interactive (prompted) | `gemini -i "Explain this codebase"` |
-| Headless (use bash, not overlay) | `gemini -p "What is fine tuning?"` |
-
-### Codex CLI (`codex`)
-
-| Mode | Command |
-|------|---------|
-| Interactive (idle) | `codex` |
-| Interactive (prompted) | `codex "Explain this codebase"` |
-| Headless (use bash, not overlay) | `codex exec "summarize the repo"` |
-
-### Cursor CLI (`cursor-agent`)
-
-| Mode | Command |
-|------|---------|
-| Interactive (idle) | `cursor-agent` |
-| Interactive (prompted) | `cursor-agent "review this repo"` |
-| Headless (use bash, not overlay) | `cursor-agent -p "find issues" --output-format text` |
-
-### Pi (`pi`)
-
-| Mode | Command |
-|------|---------|
-| Interactive (idle) | `pi` |
-| Interactive (prompted) | `pi "List all .ts files"` |
-| Headless (use bash, not overlay) | `pi -p "List all .ts files"` |
-
-Note: Delegating pi to pi is recursive - usually prefer `subagent` for pi-to-pi delegation.
+**Gemini model:** `gemini -m gemini-3-flash-preview -i "prompt"`
 
 ## Prompt Packaging Rules
 
