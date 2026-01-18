@@ -1,6 +1,6 @@
-# Interactive Shell Extension
+# Pi Interactive Shell Overlay
 
-Run AI coding agents (Claude Code, Gemini CLI, Codex, Aider, etc.) as **foreground subagents** inside a pi TUI overlay. The user sees the agent working in real-time and can take over control at any time.
+An extension for [pi-coding-agent](https://github.com/badlogic/pi-mono/) that runs AI coding agents (Claude Code, Gemini CLI, Codex, Aider, etc.) as **foreground subagents** inside a TUI overlay. The user sees the agent working in real-time and can take over control at any time.
 
 This is distinct from **background subagents** (the `subagent` tool) which run pi instances invisibly.
 
