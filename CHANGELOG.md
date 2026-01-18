@@ -2,6 +2,15 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.4.1] - 2026-01-17
+
+### Changed
+- **Rendered output for queries** - Status queries now return rendered terminal output (last 20 lines) instead of raw stream. This eliminates TUI animation noise (spinners, progress bars) and gives clean, readable content.
+- **Reduced output size** - Max 20 lines and 5KB per query (down from 100 lines and 10KB). Queries are for checking in, not dumping full output.
+
+### Fixed
+- **TUI noise in query output** - Raw stream captured all terminal animation (spinner text fragments like "Working", "orking", "rking"). Now uses xterm rendered buffer which shows clean final state.
+
 ## [0.4.0] - 2026-01-17
 
 ### Added

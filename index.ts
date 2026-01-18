@@ -312,9 +312,12 @@ The user sees the overlay and can:
 - Kill/background via double-Escape
 
 QUERYING SESSION STATUS:
-- interactive_shell({ sessionId: "calm-reef" }) - get status + new output
+- interactive_shell({ sessionId: "calm-reef" }) - get status + rendered terminal output (last 20 lines)
 - interactive_shell({ sessionId: "calm-reef", kill: true }) - end session
 - interactive_shell({ sessionId: "calm-reef", input: "..." }) - send input
+
+IMPORTANT: Don't query too frequently! Wait 30-60 seconds between status checks.
+The user is watching the overlay in real-time - you're just checking in periodically.
 
 SENDING INPUT:
 - interactive_shell({ sessionId: "calm-reef", input: "/help\\n" })

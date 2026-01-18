@@ -110,8 +110,10 @@ interactive_shell({ sessionId: "calm-reef" })
 
 Returns:
 - `status`: "running" | "user-takeover" | "exited" | "killed" | "backgrounded"
-- `output`: New output since last check (incremental)
+- `output`: Last 20 lines of rendered terminal (clean, no TUI animation noise)
 - `runtime`: Time elapsed in ms
+
+**Don't query too frequently!** Wait 30-60 seconds between checks. The user is watching the overlay in real-time - you're just checking in periodically to see progress.
 
 ### Ending a Session
 ```typescript
@@ -126,12 +128,12 @@ interactive_shell({ sessionId: "calm-reef", input: "/help\n" })
 interactive_shell({ sessionId: "calm-reef", input: { keys: ["ctrl+c"] } })
 ```
 
-### Context Budget
+### Query Output
 
-Updates have a **total character budget** (default: 100KB) to prevent overwhelming your context window:
-- Each update includes only NEW output since the last update (not full tail)
-- Default: 1500 chars max per update, 100KB total budget
-- When budget is exhausted, updates continue but without content (status-only)
+Status queries return **rendered terminal output** (what's actually on screen), not raw stream:
+- Last 20 lines of the terminal, clean and readable
+- No TUI animation noise (spinners, progress bars, etc.)
+- Max 5KB per query to keep context manageable
 - Configure via `handsFree.maxTotalChars`
 
 ```typescript

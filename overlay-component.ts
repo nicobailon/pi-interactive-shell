@@ -122,8 +122,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private lastDataTime = 0;
 	private quietTimer: ReturnType<typeof setTimeout> | null = null;
 	private hasUnsentData = false;
-	// Non-blocking mode: track status and output for agent queries
-	private agentOutputPosition = 0; // Track last read position for incremental output
+	// Non-blocking mode: track status for agent queries
 	private completionResult: InteractiveShellResult | undefined;
 
 	constructor(
@@ -242,33 +241,26 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 	// Public methods for non-blocking mode (agent queries)
 
-	// Max output per status query (10KB) - prevents overwhelming agent context
-	private static readonly MAX_STATUS_OUTPUT = 10 * 1024;
+	// Max output per status query (5KB) - prevents overwhelming agent context
+	private static readonly MAX_STATUS_OUTPUT = 5 * 1024;
+	// Max lines to return per query - keep small, we're just checking in
+	private static readonly MAX_STATUS_LINES = 20;
 
-	/** Get output since last check (incremental, truncated if too large) */
+	/** Get rendered terminal output (last N lines, truncated if too large) */
 	getOutputSinceLastCheck(): { output: string; truncated: boolean; totalBytes: number } {
-		const fullOutput = this.session.getRawStream({ stripAnsi: true });
+		// Use rendered terminal output instead of raw stream
+		// This gives clean, readable content without TUI animation garbage
+		const lines = this.session.getTailLines({
+			lines: InteractiveShellOverlay.MAX_STATUS_LINES,
+			ansi: false,
+			maxChars: InteractiveShellOverlay.MAX_STATUS_OUTPUT,
+		});
 
-		// Handle case where buffer was trimmed and our position is now past the end
-		// This happens when rawOutput exceeds 1MB and older content is discarded
-		const clampedPosition = Math.min(this.agentOutputPosition, fullOutput.length);
-		const newOutput = fullOutput.substring(clampedPosition);
-		const totalBytes = newOutput.length;
+		const output = lines.join("\n");
+		const totalBytes = output.length;
+		const truncated = lines.length >= InteractiveShellOverlay.MAX_STATUS_LINES;
 
-		// Always advance position (even if truncated, we don't want to re-send old data)
-		this.agentOutputPosition = fullOutput.length;
-
-		// Truncate if too large (keep the END, which is most recent/relevant)
-		if (newOutput.length > InteractiveShellOverlay.MAX_STATUS_OUTPUT) {
-			const truncated = newOutput.slice(-InteractiveShellOverlay.MAX_STATUS_OUTPUT);
-			return {
-				output: `[...${totalBytes - InteractiveShellOverlay.MAX_STATUS_OUTPUT} bytes truncated...]\n${truncated}`,
-				truncated: true,
-				totalBytes,
-			};
-		}
-
-		return { output: newOutput, truncated: false, totalBytes };
+		return { output, truncated, totalBytes };
 	}
 
 	/** Get current session status */
