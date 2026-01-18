@@ -159,6 +159,26 @@ interactive_shell({ sessionId: "calm-reef", outputLines: 50 })
 interactive_shell({ sessionId: "calm-reef", outputLines: 100, outputMaxChars: 30000 })
 ```
 
+### Incremental Reading
+
+Use `incremental: true` to paginate through output without re-reading:
+
+```typescript
+// First call: get first 50 lines
+interactive_shell({ sessionId: "calm-reef", outputLines: 50, incremental: true })
+// → { output: "...", hasMore: true }
+
+// Next call: get next 50 lines (server tracks position)
+interactive_shell({ sessionId: "calm-reef", outputLines: 50, incremental: true })
+// → { output: "...", hasMore: true }
+
+// Keep calling until hasMore: false
+interactive_shell({ sessionId: "calm-reef", outputLines: 50, incremental: true })
+// → { output: "...", hasMore: false }
+```
+
+The server tracks your read position - just keep calling with `incremental: true` to get the next chunk.
+
 ### Reviewing Long Sessions (autoExitOnQuiet disabled)
 
 When you disable auto-exit for long-running tasks, progressively review more output as needed:

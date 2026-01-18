@@ -309,14 +309,15 @@ Workflow:
 The user sees the overlay and can:
 - Watch output in real-time
 - Take over by typing (you'll see "user-takeover" status on next query)
-- Kill/background via double-Escape
+- Kill/background via Ctrl+Q
 
 QUERYING SESSION STATUS:
 - interactive_shell({ sessionId: "calm-reef" }) - get status + rendered terminal output (default: 20 lines, 5KB)
 - interactive_shell({ sessionId: "calm-reef", outputLines: 50 }) - get more lines (max: 200)
 - interactive_shell({ sessionId: "calm-reef", outputMaxChars: 20000 }) - get more content (max: 50KB)
 - interactive_shell({ sessionId: "calm-reef", outputOffset: 0, outputLines: 50 }) - pagination (lines 0-49)
-- interactive_shell({ sessionId: "calm-reef", drain: true }) - only NEW output since last query (token-efficient)
+- interactive_shell({ sessionId: "calm-reef", incremental: true }) - get next N unseen lines (server tracks position)
+- interactive_shell({ sessionId: "calm-reef", drain: true }) - only NEW output since last query (raw stream)
 - interactive_shell({ sessionId: "calm-reef", kill: true }) - end session
 - interactive_shell({ sessionId: "calm-reef", input: "..." }) - send input
 
@@ -383,7 +384,12 @@ Examples:
 			),
 			drain: Type.Optional(
 				Type.Boolean({
-					description: "If true, return only NEW output since last query (incremental). More token-efficient for repeated polling.",
+					description: "If true, return only NEW output since last query (raw stream). More token-efficient for repeated polling.",
+				}),
+			),
+			incremental: Type.Optional(
+				Type.Boolean({
+					description: "If true, return next N lines not yet seen. Server tracks position - just keep calling to paginate through output.",
 				}),
 			),
 			settings: Type.Optional(
@@ -502,6 +508,7 @@ Examples:
 				outputMaxChars,
 				outputOffset,
 				drain,
+				incremental,
 				settings,
 				input,
 				cwd,
@@ -520,6 +527,7 @@ Examples:
 				outputMaxChars?: number;
 				outputOffset?: number;
 				drain?: boolean;
+				incremental?: boolean;
 				settings?: { updateInterval?: number; quietThreshold?: number };
 				input?: string | { text?: string; keys?: string[]; hex?: string[]; paste?: string };
 				cwd?: string;
@@ -552,18 +560,19 @@ Examples:
 
 				// Kill session if requested
 				if (kill) {
-					const { output, truncated, totalBytes } = session.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain });
+					const { output, truncated, totalBytes, totalLines, hasMore } = session.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain, incremental });
 					const status = session.getStatus();
 					const runtime = session.getRuntime();
 					session.kill();
 					sessionManager.unregisterActive(sessionId, true);
 
 					const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
+					const hasMoreNote = hasMore === true ? " (more available)" : "";
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Session ${sessionId} killed after ${formatDurationMs(runtime)}${output ? `\n\nFinal output${truncatedNote}:\n${output}` : ""}`,
+								text: `Session ${sessionId} killed after ${formatDurationMs(runtime)}${output ? `\n\nFinal output${truncatedNote}${hasMoreNote}:\n${output}` : ""}`,
 							},
 						],
 						details: {
@@ -573,6 +582,8 @@ Examples:
 							output,
 							outputTruncated: truncated,
 							outputTotalBytes: totalBytes,
+							outputTotalLines: totalLines,
+							hasMore,
 							previousStatus: status,
 						},
 					};
@@ -635,16 +646,17 @@ Examples:
 					// If session completed, always allow query (no rate limiting)
 					// Rate limiting only applies to "checking in" on running sessions
 					if (result) {
-						const { output, truncated, totalBytes } = session.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain });
+						const { output, truncated, totalBytes, totalLines, hasMore } = session.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain, incremental });
 						const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
 						const hasOutput = output.length > 0;
+						const hasMoreNote = hasMore === true ? " (more available)" : "";
 
 						sessionManager.unregisterActive(sessionId, true);
 						return {
 							content: [
 								{
 									type: "text",
-									text: `Session ${sessionId} ${status} after ${formatDurationMs(runtime)}${hasOutput ? `\n\nOutput${truncatedNote}:\n${output}` : ""}`,
+									text: `Session ${sessionId} ${status} after ${formatDurationMs(runtime)}${hasOutput ? `\n\nOutput${truncatedNote}${hasMoreNote}:\n${output}` : ""}`,
 								},
 							],
 							details: {
@@ -654,6 +666,8 @@ Examples:
 								output,
 								outputTruncated: truncated,
 								outputTotalBytes: totalBytes,
+								outputTotalLines: totalLines,
+								hasMore,
 								exitCode: result.exitCode,
 								signal: result.signal,
 								backgroundId: result.backgroundId,
@@ -662,7 +676,7 @@ Examples:
 					}
 
 					// Session still running - check rate limiting
-					const outputResult = session.getOutput({ lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain });
+					const outputResult = session.getOutput({ lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain, incremental });
 
 					// If rate limited, wait until allowed then return fresh result
 					// Use Promise.race to detect if session completes during wait
@@ -685,11 +699,12 @@ Examples:
 								};
 							}
 							const earlyResult = earlySession.getResult();
-							const { output, truncated, totalBytes } = earlySession.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain });
+							const { output, truncated, totalBytes, totalLines, hasMore } = earlySession.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain, incremental });
 							const earlyStatus = earlySession.getStatus();
 							const earlyRuntime = earlySession.getRuntime();
 							const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
 							const hasOutput = output.length > 0;
+							const hasMoreNote = hasMore === true ? " (more available)" : "";
 							
 							if (earlyResult) {
 								sessionManager.unregisterActive(sessionId, true);
@@ -697,7 +712,7 @@ Examples:
 									content: [
 										{
 											type: "text",
-											text: `Session ${sessionId} ${earlyStatus} after ${formatDurationMs(earlyRuntime)}${hasOutput ? `\n\nOutput${truncatedNote}:\n${output}` : ""}`,
+											text: `Session ${sessionId} ${earlyStatus} after ${formatDurationMs(earlyRuntime)}${hasOutput ? `\n\nOutput${truncatedNote}${hasMoreNote}:\n${output}` : ""}`,
 										},
 									],
 									details: {
@@ -707,6 +722,8 @@ Examples:
 										output,
 										outputTruncated: truncated,
 										outputTotalBytes: totalBytes,
+										outputTotalLines: totalLines,
+										hasMore,
 										exitCode: earlyResult.exitCode,
 										signal: earlyResult.signal,
 										backgroundId: earlyResult.backgroundId,
@@ -719,7 +736,7 @@ Examples:
 								content: [
 									{
 										type: "text",
-										text: `Session ${sessionId} ${earlyStatus} (${formatDurationMs(earlyRuntime)})${hasOutput ? `\n\nOutput${truncatedNote}:\n${output}` : ""}`,
+										text: `Session ${sessionId} ${earlyStatus} (${formatDurationMs(earlyRuntime)})${hasOutput ? `\n\nOutput${truncatedNote}${hasMoreNote}:\n${output}` : ""}`,
 									},
 								],
 								details: {
@@ -729,14 +746,17 @@ Examples:
 									output,
 									outputTruncated: truncated,
 									outputTotalBytes: totalBytes,
+									outputTotalLines: totalLines,
+									hasMore,
 									hasOutput,
 								},
 							};
 						}
 						// Get fresh output after waiting
-						const freshOutput = session.getOutput({ lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain });
+						const freshOutput = session.getOutput({ lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain, incremental });
 						const truncatedNote = freshOutput.truncated ? ` (${freshOutput.totalBytes} bytes total, truncated)` : "";
 						const hasOutput = freshOutput.output.length > 0;
+						const hasMoreNote = freshOutput.hasMore === true ? " (more available)" : "";
 						const freshStatus = session.getStatus();
 						const freshRuntime = session.getRuntime();
 						const freshResult = session.getResult();
@@ -747,7 +767,7 @@ Examples:
 								content: [
 									{
 										type: "text",
-										text: `Session ${sessionId} ${freshStatus} after ${formatDurationMs(freshRuntime)}${hasOutput ? `\n\nOutput${truncatedNote}:\n${freshOutput.output}` : ""}`,
+										text: `Session ${sessionId} ${freshStatus} after ${formatDurationMs(freshRuntime)}${hasOutput ? `\n\nOutput${truncatedNote}${hasMoreNote}:\n${freshOutput.output}` : ""}`,
 									},
 								],
 								details: {
@@ -757,6 +777,8 @@ Examples:
 									output: freshOutput.output,
 									outputTruncated: freshOutput.truncated,
 									outputTotalBytes: freshOutput.totalBytes,
+									outputTotalLines: freshOutput.totalLines,
+									hasMore: freshOutput.hasMore,
 									exitCode: freshResult.exitCode,
 									signal: freshResult.signal,
 									backgroundId: freshResult.backgroundId,
@@ -768,7 +790,7 @@ Examples:
 							content: [
 								{
 									type: "text",
-									text: `Session ${sessionId} ${freshStatus} (${formatDurationMs(freshRuntime)})${hasOutput ? `\n\nOutput${truncatedNote}:\n${freshOutput.output}` : ""}`,
+									text: `Session ${sessionId} ${freshStatus} (${formatDurationMs(freshRuntime)})${hasOutput ? `\n\nOutput${truncatedNote}${hasMoreNote}:\n${freshOutput.output}` : ""}`,
 								},
 							],
 							details: {
@@ -778,21 +800,25 @@ Examples:
 								output: freshOutput.output,
 								outputTruncated: freshOutput.truncated,
 								outputTotalBytes: freshOutput.totalBytes,
+								outputTotalLines: freshOutput.totalLines,
+								hasMore: freshOutput.hasMore,
 								hasOutput,
 							},
 						};
 					}
 
-					const { output, truncated, totalBytes } = outputResult;
+					const { output, truncated, totalBytes, totalLines, hasMore } = outputResult;
 
 					const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
 					const hasOutput = output.length > 0;
+					// Only show "(more available)" when there's more to read; absence means caught up
+					const hasMoreNote = hasMore === true ? " (more available)" : "";
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Session ${sessionId} ${status} (${formatDurationMs(runtime)})${hasOutput ? `\n\nOutput${truncatedNote}:\n${output}` : ""}`,
+								text: `Session ${sessionId} ${status} (${formatDurationMs(runtime)})${hasOutput ? `\n\nOutput${truncatedNote}${hasMoreNote}:\n${output}` : ""}`,
 							},
 						],
 						details: {
@@ -802,6 +828,8 @@ Examples:
 							output,
 							outputTruncated: truncated,
 							outputTotalBytes: totalBytes,
+							outputTotalLines: totalLines,
+							hasMore,
 							hasOutput,
 						},
 					};

@@ -24,6 +24,9 @@ export interface OutputResult {
 	output: string;
 	truncated: boolean;
 	totalBytes: number;
+	// For incremental/offset modes
+	totalLines?: number;
+	hasMore?: boolean;
 	// Rate limiting
 	rateLimited?: boolean;
 	waitSeconds?: number;
@@ -34,7 +37,8 @@ export interface OutputOptions {
 	lines?: number; // Override default 20 lines
 	maxChars?: number; // Override default 5KB
 	offset?: number; // Line offset for pagination (0-indexed)
-	drain?: boolean; // If true, return only NEW output since last query (incremental)
+	drain?: boolean; // If true, return only NEW output since last query (raw stream)
+	incremental?: boolean; // If true, return next N lines not yet seen (server tracks position)
 }
 
 export interface ActiveSession {
@@ -141,7 +145,7 @@ export class ShellSessionManager {
 		reason?: string;
 		write: (data: string) => void;
 		kill: () => void;
-		getOutput: (skipRateLimit?: boolean) => OutputResult;
+		getOutput: (options?: OutputOptions | boolean) => OutputResult;
 		getStatus: () => ActiveSessionStatus;
 		getRuntime: () => number;
 		getResult: () => ActiveSessionResult | undefined;

@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface InteractiveShellConfig {
-	doubleEscapeThreshold: number;
 	exitAutoCloseDelay: number;
 	overlayWidthPercent: number;
 	overlayHeightPercent: number;
@@ -26,7 +25,6 @@ export interface InteractiveShellConfig {
 }
 
 const DEFAULT_CONFIG: InteractiveShellConfig = {
-	doubleEscapeThreshold: 300,
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 45,

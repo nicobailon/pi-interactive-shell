@@ -97,9 +97,6 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private state: OverlayState = "running";
 	private dialogSelection: DialogChoice = "background";
 	private exitCountdown = 0;
-	private lastEscapeTime = 0;
-	private showEscapeHint = false;
-	private escapeHintTimeout: ReturnType<typeof setTimeout> | null = null;
 	private countdownInterval: ReturnType<typeof setInterval> | null = null;
 	private lastWidth = 0;
 	private lastHeight = 0;
@@ -128,6 +125,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private completionResult: InteractiveShellResult | undefined;
 	// Rate limiting for queries
 	private lastQueryTime = 0;
+	// Incremental read position (for incremental: true queries)
+	private incrementalReadPosition = 0;
 	// Completion callbacks for waiters
 	private completeCallbacks: Array<() => void> = [];
 	// Simple render throttle to reduce flicker
@@ -256,7 +255,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private static readonly MAX_STATUS_LINES = 200; // 200 lines max
 
 	/** Get rendered terminal output (last N lines, truncated if too large) */
-	getOutputSinceLastCheck(options: { skipRateLimit?: boolean; lines?: number; maxChars?: number; offset?: number; drain?: boolean } | boolean = false): { output: string; truncated: boolean; totalBytes: number; totalLines?: number; rateLimited?: boolean; waitSeconds?: number } {
+	getOutputSinceLastCheck(options: { skipRateLimit?: boolean; lines?: number; maxChars?: number; offset?: number; drain?: boolean; incremental?: boolean } | boolean = false): { output: string; truncated: boolean; totalBytes: number; totalLines?: number; hasMore?: boolean; rateLimited?: boolean; waitSeconds?: number } {
 		// Handle legacy boolean parameter
 		const opts = typeof options === "boolean" ? { skipRateLimit: options } : options;
 		const skipRateLimit = opts.skipRateLimit ?? false;
@@ -291,7 +290,33 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			this.lastQueryTime = now;
 		}
 
-		// Drain mode: return only NEW output since last query (incremental)
+		// Incremental mode: return next N lines agent hasn't seen yet
+		// Server tracks position - agent just keeps calling with incremental: true
+		if (opts.incremental) {
+			const result = this.session.getLogSlice({
+				offset: this.incrementalReadPosition,
+				limit: requestedLines,
+				stripAnsi: true,
+			});
+			// Count lines from getLogSlice result BEFORE any char truncation
+			// This ensures we advance by actual lines fetched, not truncated amount
+			const linesFromSlice = result.slice ? result.slice.split("\n").length : 0;
+			// Apply maxChars limit (may truncate mid-line, but we still advance past it)
+			const truncatedByChars = result.slice.length > requestedMaxChars;
+			const output = truncatedByChars ? result.slice.slice(0, requestedMaxChars) : result.slice;
+			// Update position for next incremental read
+			this.incrementalReadPosition += linesFromSlice;
+			const hasMore = this.incrementalReadPosition < result.totalLines;
+			return {
+				output,
+				truncated: truncatedByChars,
+				totalBytes: output.length,
+				totalLines: result.totalLines,
+				hasMore,
+			};
+		}
+
+		// Drain mode: return only NEW output since last query (raw stream, not lines)
 		// This is more token-efficient than re-reading the tail each time
 		if (opts.drain) {
 			const newOutput = this.session.getRawStream({ sinceLast: true, stripAnsi: true });
@@ -871,35 +896,6 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.done(result);
 	}
 
-	private handleDoubleEscape(): boolean {
-		const now = Date.now();
-		if (now - this.lastEscapeTime < this.config.doubleEscapeThreshold) {
-			this.lastEscapeTime = 0;
-			this.clearEscapeHint();
-			return true;
-		}
-		this.lastEscapeTime = now;
-		// Show hint after first escape - clear any existing timeout first
-		if (this.escapeHintTimeout) {
-			clearTimeout(this.escapeHintTimeout);
-		}
-		this.showEscapeHint = true;
-		this.escapeHintTimeout = setTimeout(() => {
-			this.showEscapeHint = false;
-			this.tui.requestRender();
-		}, this.config.doubleEscapeThreshold);
-		this.tui.requestRender();
-		return false;
-	}
-
-	private clearEscapeHint(): void {
-		if (this.escapeHintTimeout) {
-			clearTimeout(this.escapeHintTimeout);
-			this.escapeHintTimeout = null;
-		}
-		this.showEscapeHint = false;
-	}
-
 	handleInput(data: string): void {
 		if (this.state === "detach-dialog") {
 			this.handleDialogInput(data);
@@ -913,20 +909,15 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			return;
 		}
 
-		// Double-escape detection (works in both hands-free and running)
-		if (matchesKey(data, "escape")) {
-			if (this.handleDoubleEscape()) {
-				// If in hands-free mode, trigger takeover first (notifies agent)
-				if (this.state === "hands-free") {
-					this.triggerUserTakeover();
-				}
-				this.state = "detach-dialog";
-				this.dialogSelection = "background";
-				this.tui.requestRender();
-				return;
+		// Ctrl+Q opens detach dialog (works in both hands-free and running)
+		if (matchesKey(data, "ctrl+q")) {
+			// If in hands-free mode, trigger takeover first (notifies agent)
+			if (this.state === "hands-free") {
+				this.triggerUserTakeover();
 			}
-			// Single escape goes to subprocess (no takeover)
-			this.session.write("\u001b");
+			this.state = "detach-dialog";
+			this.dialogSelection = "background";
+			this.tui.requestRender();
 			return;
 		}
 
@@ -1017,12 +1008,12 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			hint = `🤖 Hands-free (${elapsed}) • Type anything to take over`;
 		} else if (this.userTookOver) {
 			hint = this.options.reason
-				? `You took over • ${this.options.reason} • Double-Escape to detach`
-				: "You took over • Double-Escape to detach";
+				? `You took over • ${this.options.reason} • Ctrl+Q to detach`
+				: "You took over • Ctrl+Q to detach";
 		} else {
 			hint = this.options.reason
-				? `Double-Escape to detach • ${this.options.reason}`
-				: "Double-Escape to detach";
+				? `Ctrl+Q to detach • ${this.options.reason}`
+				: "Ctrl+Q to detach";
 		}
 		lines.push(row(dim(truncateToWidth(hint, innerWidth, "..."))));
 		lines.push(border("├" + "─".repeat(width - 2) + "┤"));
@@ -1081,17 +1072,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			footerLines.push(row(exitMsg));
 			footerLines.push(row(dim(`Closing in ${this.exitCountdown}s... (any key to close)`)));
 		} else if (this.state === "hands-free") {
-			if (this.showEscapeHint) {
-				footerLines.push(row(warning("Press Escape again to detach...")));
-			} else {
-				footerLines.push(row(dim("🤖 Agent controlling • Type to take over • Shift+Up/Down scroll")));
-			}
+			footerLines.push(row(dim("🤖 Agent controlling • Type to take over • Shift+Up/Down scroll")));
 		} else {
-			if (this.showEscapeHint) {
-				footerLines.push(row(warning("Press Escape again to detach...")));
-			} else {
-				footerLines.push(row(dim("Shift+Up/Down scroll • Double-Esc detach • Ctrl+C interrupt")));
-			}
+			footerLines.push(row(dim("Shift+Up/Down scroll • Ctrl+Q detach • Ctrl+C interrupt")));
 		}
 
 		while (footerLines.length < FOOTER_LINES) {
@@ -1113,7 +1096,6 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.stopCountdown();
 		this.stopTimeout();
 		this.stopHandsFreeUpdates();
-		this.clearEscapeHint();
 		if (this.renderTimeout) {
 			clearTimeout(this.renderTimeout);
 			this.renderTimeout = null;
@@ -1144,7 +1126,6 @@ export class ReattachOverlay implements Component, Focusable {
 	private state: OverlayState = "running";
 	private dialogSelection: DialogChoice = "background";
 	private exitCountdown = 0;
-	private lastEscapeTime = 0;
 	private countdownInterval: ReturnType<typeof setInterval> | null = null;
 	private initialExitTimeout: ReturnType<typeof setTimeout> | null = null;
 	private lastWidth = 0;
@@ -1329,16 +1310,6 @@ export class ReattachOverlay implements Component, Focusable {
 		});
 	}
 
-	private handleDoubleEscape(): boolean {
-		const now = Date.now();
-		if (now - this.lastEscapeTime < this.config.doubleEscapeThreshold) {
-			this.lastEscapeTime = 0;
-			return true;
-		}
-		this.lastEscapeTime = now;
-		return false;
-	}
-
 	handleInput(data: string): void {
 		if (this.state === "detach-dialog") {
 			this.handleDialogInput(data);
@@ -1360,14 +1331,11 @@ export class ReattachOverlay implements Component, Focusable {
 			return;
 		}
 
-		if (matchesKey(data, "escape")) {
-			if (this.handleDoubleEscape()) {
-				this.state = "detach-dialog";
-				this.dialogSelection = "background";
-				this.tui.requestRender();
-				return;
-			}
-			this.session.write("\u001b");
+		// Ctrl+Q opens detach dialog
+		if (matchesKey(data, "ctrl+q")) {
+			this.state = "detach-dialog";
+			this.dialogSelection = "background";
+			this.tui.requestRender();
 			return;
 		}
 
@@ -1452,8 +1420,8 @@ export class ReattachOverlay implements Component, Focusable {
 			),
 		);
 		const hint = this.bgSession.reason
-			? `Reattached • ${this.bgSession.reason} • Double-Escape to detach`
-			: "Reattached • Double-Escape to detach";
+			? `Reattached • ${this.bgSession.reason} • Ctrl+Q to detach`
+			: "Reattached • Ctrl+Q to detach";
 		lines.push(row(dim(truncateToWidth(hint, innerWidth, "..."))));
 		lines.push(border("├" + "─".repeat(width - 2) + "┤"));
 
@@ -1511,7 +1479,7 @@ export class ReattachOverlay implements Component, Focusable {
 			footerLines.push(row(exitMsg));
 			footerLines.push(row(dim(`Closing in ${this.exitCountdown}s... (any key to close)`)));
 		} else {
-			footerLines.push(row(dim("Shift+Up/Down scroll • Double-Esc detach")));
+			footerLines.push(row(dim("Shift+Up/Down scroll • Ctrl+Q detach")));
 		}
 
 		while (footerLines.length < FOOTER_LINES) {

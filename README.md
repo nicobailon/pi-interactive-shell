@@ -107,20 +107,23 @@ interactive_shell({ sessionId: "calm-reef" })
 // More lines (max: 200)
 interactive_shell({ sessionId: "calm-reef", outputLines: 100 })
 
-// Incremental (only new output since last query)
+// Incremental pagination (server tracks position)
+interactive_shell({ sessionId: "calm-reef", outputLines: 50, incremental: true })
+
+// Drain mode (raw stream since last query)
 interactive_shell({ sessionId: "calm-reef", drain: true })
 ```
 
 ### Background Sessions
 
-1. Double-Escape → "Run in background"
+1. Ctrl+Q → "Run in background"
 2. `/attach` or `/attach <id>` to reattach
 
 ## Keys
 
 | Key | Action |
 |-----|--------|
-| Double-Escape | Detach dialog |
+| Ctrl+Q | Detach dialog |
 | Shift+Up/Down | Scroll history |
 | Any key (hands-free) | Take over control |
 
