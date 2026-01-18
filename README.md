@@ -39,24 +39,12 @@ Installs to `~/.pi/agent/extensions/interactive-shell/`.
 
 ### Skills
 
-The extension includes two skills that teach the agent how to use it effectively:
+The extension includes two skills that are automatically symlinked during installation:
 
-| Skill | Purpose |
-|-------|---------|
-| `interactive-shell` | Core usage: hands-free mode, input injection, status polling |
-| `foreground-chains` | Multi-agent workflows with auto-continue support |
-
-**Install skills** (symlink to your skills directory):
-
-```bash
-# Interactive Shell skill (core)
-mkdir -p ~/.pi/agent/skills/interactive-shell
-ln -sf ~/.pi/agent/extensions/interactive-shell/SKILL.md ~/.pi/agent/skills/interactive-shell/SKILL.md
-
-# Foreground Chains skill (multi-agent orchestration)
-mkdir -p ~/.pi/agent/skills/foreground-chains
-ln -sf ~/.pi/agent/extensions/interactive-shell/skills/foreground-chains/SKILL.md ~/.pi/agent/skills/foreground-chains/SKILL.md
-```
+| Skill | Location | Purpose |
+|-------|----------|---------|
+| `interactive-shell` | `~/.pi/agent/skills/interactive-shell/` | Core usage: hands-free mode, input injection, status polling |
+| `foreground-chains` | `~/.pi/agent/skills/foreground-chains/` | Multi-agent workflows with auto-continue support |
 
 After installing, restart pi to pick up the new skills.
 

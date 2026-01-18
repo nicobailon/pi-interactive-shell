@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(__dirname, "..");
 
 const EXTENSION_DIR = join(homedir(), ".pi", "agent", "extensions", "interactive-shell");
-const SKILL_DIR = join(homedir(), ".pi", "agent", "skills", "interactive-shell");
+const SKILLS_BASE_DIR = join(homedir(), ".pi", "agent", "skills");
 
 function log(msg) {
 	console.log(`[pi-interactive-shell] ${msg}`);
@@ -56,6 +56,15 @@ function main() {
 		log("Copied scripts/");
 	}
 
+	// Copy skills directory (contains foreground-chains skill)
+	const skillsDir = join(packageRoot, "skills");
+	const destSkillsDir = join(EXTENSION_DIR, "skills");
+	if (existsSync(skillsDir)) {
+		mkdirSync(destSkillsDir, { recursive: true });
+		cpSync(skillsDir, destSkillsDir, { recursive: true });
+		log("Copied skills/");
+	}
+
 	// Run npm install in extension directory
 	log("Running npm install...");
 	try {
@@ -65,21 +74,29 @@ function main() {
 		log("You may need to run 'npm install' manually in the extension directory.");
 	}
 
-	// Create skill symlink
-	log(`Creating skill symlink at ${SKILL_DIR}`);
-	mkdirSync(SKILL_DIR, { recursive: true });
-	const skillLink = join(SKILL_DIR, "SKILL.md");
-	const skillTarget = join(EXTENSION_DIR, "SKILL.md");
+	// Create skill symlinks
+	const skills = [
+		{ name: "interactive-shell", target: join(EXTENSION_DIR, "SKILL.md") },
+		{ name: "foreground-chains", target: join(EXTENSION_DIR, "skills", "foreground-chains", "SKILL.md") },
+	];
 
-	try {
-		if (existsSync(skillLink)) {
-			unlinkSync(skillLink);
+	for (const skill of skills) {
+		const skillDir = join(SKILLS_BASE_DIR, skill.name);
+		const skillLink = join(skillDir, "SKILL.md");
+
+		log(`Creating skill symlink: ${skill.name}`);
+		mkdirSync(skillDir, { recursive: true });
+
+		try {
+			if (existsSync(skillLink)) {
+				unlinkSync(skillLink);
+			}
+			symlinkSync(skill.target, skillLink);
+			log(`  -> ${skillLink}`);
+		} catch (error) {
+			log(`  Warning: Could not create symlink: ${error.message}`);
+			log(`  You can create it manually: ln -sf ${skill.target} ${skillLink}`);
 		}
-		symlinkSync(skillTarget, skillLink);
-		log("Skill symlink created");
-	} catch (error) {
-		log(`Warning: Could not create skill symlink: ${error.message}`);
-		log(`You can create it manually: ln -sf ${skillTarget} ${skillLink}`);
 	}
 
 	log("");
