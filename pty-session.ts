@@ -567,6 +567,64 @@ export class PtyTerminalSession {
 		return output;
 	}
 
+	/**
+	 * Get a slice of log output with offset/limit pagination.
+	 * Similar to Clawdbot's sliceLogLines - enables reading specific ranges of output.
+	 * @param options.offset - Line number to start from (0-indexed). If omitted with limit, returns tail.
+	 * @param options.limit - Max number of lines to return
+	 * @param options.stripAnsi - If true, strip ANSI escape codes (default: true)
+	 */
+	getLogSlice(options: { offset?: number; limit?: number; stripAnsi?: boolean } = {}): {
+		slice: string;
+		totalLines: number;
+		totalChars: number;
+	} {
+		let text = this.rawOutput;
+
+		// Strip ANSI by default
+		if (options.stripAnsi !== false && text) {
+			text = stripVTControlCharacters(text);
+		}
+
+		if (!text) {
+			return { slice: "", totalLines: 0, totalChars: 0 };
+		}
+
+		// Normalize line endings and split
+		const normalized = text.replace(/\r\n/g, "\n");
+		const lines = normalized.split("\n");
+		// Remove trailing empty line from split
+		if (lines.length > 0 && lines[lines.length - 1] === "") {
+			lines.pop();
+		}
+
+		const totalLines = lines.length;
+		const totalChars = text.length;
+
+		// Calculate start position
+		let start: number;
+		if (typeof options.offset === "number" && Number.isFinite(options.offset)) {
+			start = Math.max(0, Math.floor(options.offset));
+		} else if (options.limit !== undefined) {
+			// No offset but limit provided - return tail (last N lines)
+			const tailCount = Math.max(0, Math.floor(options.limit));
+			start = Math.max(totalLines - tailCount, 0);
+		} else {
+			start = 0;
+		}
+
+		// Calculate end position
+		const end = typeof options.limit === "number" && Number.isFinite(options.limit)
+			? start + Math.max(0, Math.floor(options.limit))
+			: undefined;
+
+		return {
+			slice: lines.slice(start, end).join("\n"),
+			totalLines,
+			totalChars,
+		};
+	}
+
 	scrollUp(lines: number): void {
 		const buffer = this.xterm.buffer.active;
 		const maxScroll = Math.max(0, buffer.length - this.xterm.rows);

@@ -149,6 +149,38 @@ interactive_shell({ sessionId: "calm-reef", outputMaxChars: 30000 })
 | Shift+Up/Down | Scroll history |
 | Any key (hands-free) | Take over control |
 
+## Token Efficiency
+
+Unlike the standard tmux workflow where you `capture-pane` the entire terminal on every poll, Interactive Shell minimizes token waste:
+
+**Incremental Aggregation** - Output is accumulated as it arrives, not re-captured on each query.
+
+**Tail by Default** - Status queries return only the last 20 lines (configurable), not the full history.
+
+**ANSI Stripping** - All escape codes are stripped before sending output to the agent. Clean text only.
+
+**Drain Mode** - Use `drain: true` to get only NEW output since last query. No re-reading old content.
+
+```typescript
+// First query: get recent output
+interactive_shell({ sessionId: "calm-reef" })
+// → returns last 20 lines
+
+// Subsequent queries: get only new output (incremental)
+interactive_shell({ sessionId: "calm-reef", drain: true })
+// → returns only output since last query
+```
+
+**Offset/Limit Pagination** - Read specific ranges of the full output log.
+
+```typescript
+// Read lines 0-49
+interactive_shell({ sessionId: "calm-reef", outputOffset: 0, outputLines: 50 })
+
+// Read lines 50-99
+interactive_shell({ sessionId: "calm-reef", outputOffset: 50, outputLines: 50 })
+```
+
 ## How It Works
 
 ```

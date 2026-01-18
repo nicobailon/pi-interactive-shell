@@ -256,7 +256,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private static readonly MAX_STATUS_LINES = 200; // 200 lines max
 
 	/** Get rendered terminal output (last N lines, truncated if too large) */
-	getOutputSinceLastCheck(options: { skipRateLimit?: boolean; lines?: number; maxChars?: number } | boolean = false): { output: string; truncated: boolean; totalBytes: number; rateLimited?: boolean; waitSeconds?: number } {
+	getOutputSinceLastCheck(options: { skipRateLimit?: boolean; lines?: number; maxChars?: number; offset?: number; drain?: boolean } | boolean = false): { output: string; truncated: boolean; totalBytes: number; totalLines?: number; rateLimited?: boolean; waitSeconds?: number } {
 		// Handle legacy boolean parameter
 		const opts = typeof options === "boolean" ? { skipRateLimit: options } : options;
 		const skipRateLimit = opts.skipRateLimit ?? false;
@@ -291,7 +291,40 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			this.lastQueryTime = now;
 		}
 
-		// Use rendered terminal output instead of raw stream
+		// Drain mode: return only NEW output since last query (incremental)
+		// This is more token-efficient than re-reading the tail each time
+		if (opts.drain) {
+			const newOutput = this.session.getRawStream({ sinceLast: true, stripAnsi: true });
+			// Truncate if exceeds maxChars
+			const truncated = newOutput.length > requestedMaxChars;
+			const output = truncated ? newOutput.slice(-requestedMaxChars) : newOutput;
+			return {
+				output,
+				truncated,
+				totalBytes: output.length,
+			};
+		}
+
+		// Offset mode: use getLogSlice for pagination through full output
+		if (opts.offset !== undefined) {
+			const result = this.session.getLogSlice({
+				offset: opts.offset,
+				limit: requestedLines,
+				stripAnsi: true,
+			});
+			// Apply maxChars limit
+			const truncatedByChars = result.slice.length > requestedMaxChars;
+			const output = truncatedByChars ? result.slice.slice(0, requestedMaxChars) : result.slice;
+			const lineCount = output.split("\n").length;
+			return {
+				output,
+				truncated: truncatedByChars || lineCount >= requestedLines,
+				totalBytes: output.length,
+				totalLines: result.totalLines,
+			};
+		}
+
+		// Default: Use rendered terminal output (tail)
 		// This gives clean, readable content without TUI animation garbage
 		const lines = this.session.getTailLines({
 			lines: requestedLines,

@@ -315,6 +315,8 @@ QUERYING SESSION STATUS:
 - interactive_shell({ sessionId: "calm-reef" }) - get status + rendered terminal output (default: 20 lines, 5KB)
 - interactive_shell({ sessionId: "calm-reef", outputLines: 50 }) - get more lines (max: 200)
 - interactive_shell({ sessionId: "calm-reef", outputMaxChars: 20000 }) - get more content (max: 50KB)
+- interactive_shell({ sessionId: "calm-reef", outputOffset: 0, outputLines: 50 }) - pagination (lines 0-49)
+- interactive_shell({ sessionId: "calm-reef", drain: true }) - only NEW output since last query (token-efficient)
 - interactive_shell({ sessionId: "calm-reef", kill: true }) - end session
 - interactive_shell({ sessionId: "calm-reef", input: "..." }) - send input
 
@@ -372,6 +374,16 @@ Examples:
 			outputMaxChars: Type.Optional(
 				Type.Number({
 					description: "Max chars to return when querying (default: 5KB, max: 50KB)",
+				}),
+			),
+			outputOffset: Type.Optional(
+				Type.Number({
+					description: "Line offset for pagination (0-indexed). Use with outputLines to read specific ranges.",
+				}),
+			),
+			drain: Type.Optional(
+				Type.Boolean({
+					description: "If true, return only NEW output since last query (incremental). More token-efficient for repeated polling.",
 				}),
 			),
 			settings: Type.Optional(
@@ -488,6 +500,8 @@ Examples:
 				kill,
 				outputLines,
 				outputMaxChars,
+				outputOffset,
+				drain,
 				settings,
 				input,
 				cwd,
@@ -504,6 +518,8 @@ Examples:
 				kill?: boolean;
 				outputLines?: number;
 				outputMaxChars?: number;
+				outputOffset?: number;
+				drain?: boolean;
 				settings?: { updateInterval?: number; quietThreshold?: number };
 				input?: string | { text?: string; keys?: string[]; hex?: string[]; paste?: string };
 				cwd?: string;
@@ -536,7 +552,7 @@ Examples:
 
 				// Kill session if requested
 				if (kill) {
-					const { output, truncated, totalBytes } = session.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars });
+					const { output, truncated, totalBytes } = session.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain });
 					const status = session.getStatus();
 					const runtime = session.getRuntime();
 					session.kill();
@@ -619,7 +635,7 @@ Examples:
 					// If session completed, always allow query (no rate limiting)
 					// Rate limiting only applies to "checking in" on running sessions
 					if (result) {
-						const { output, truncated, totalBytes } = session.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars });
+						const { output, truncated, totalBytes } = session.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain });
 						const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
 						const hasOutput = output.length > 0;
 
@@ -646,7 +662,7 @@ Examples:
 					}
 
 					// Session still running - check rate limiting
-					const outputResult = session.getOutput({ lines: outputLines, maxChars: outputMaxChars });
+					const outputResult = session.getOutput({ lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain });
 
 					// If rate limited, wait until allowed then return fresh result
 					// Use Promise.race to detect if session completes during wait
@@ -669,7 +685,7 @@ Examples:
 								};
 							}
 							const earlyResult = earlySession.getResult();
-							const { output, truncated, totalBytes } = earlySession.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars });
+							const { output, truncated, totalBytes } = earlySession.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain });
 							const earlyStatus = earlySession.getStatus();
 							const earlyRuntime = earlySession.getRuntime();
 							const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
@@ -718,7 +734,7 @@ Examples:
 							};
 						}
 						// Get fresh output after waiting
-						const freshOutput = session.getOutput({ lines: outputLines, maxChars: outputMaxChars });
+						const freshOutput = session.getOutput({ lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain });
 						const truncatedNote = freshOutput.truncated ? ` (${freshOutput.totalBytes} bytes total, truncated)` : "";
 						const hasOutput = freshOutput.output.length > 0;
 						const freshStatus = session.getStatus();

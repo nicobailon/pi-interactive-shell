@@ -33,6 +33,8 @@ export interface OutputOptions {
 	skipRateLimit?: boolean;
 	lines?: number; // Override default 20 lines
 	maxChars?: number; // Override default 5KB
+	offset?: number; // Line offset for pagination (0-indexed)
+	drain?: boolean; // If true, return only NEW output since last query (incremental)
 }
 
 export interface ActiveSession {

@@ -2,6 +2,25 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.4.6] - 2026-01-18
+
+### Added
+- **Offset/limit pagination** - New `outputOffset` parameter for reading specific ranges of output:
+  - `outputOffset: 0, outputLines: 50` reads lines 0-49
+  - `outputOffset: 50, outputLines: 50` reads lines 50-99
+  - Returns `totalLines` in response for pagination
+- **Drain mode for incremental output** - New `drain: true` parameter returns only NEW output since last query:
+  - More token-efficient than re-reading the tail each time
+  - Ideal for repeated polling of long-running sessions
+- **Token Efficiency section in README** - Documents advantages over tmux workflow:
+  - Incremental aggregation vs full capture-pane
+  - Tail by default (20 lines, not full history)
+  - ANSI stripping before sending to agent
+  - Drain mode for only-new-output
+
+### Changed
+- **getLogSlice() method in pty-session** - New low-level method for offset/limit pagination through raw output buffer
+
 ## [0.4.3] - 2026-01-18
 
 ### Added
