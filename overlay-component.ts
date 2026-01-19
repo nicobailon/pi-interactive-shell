@@ -274,13 +274,14 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			// Apply maxChars limit
 			const truncatedByChars = result.slice.length > requestedMaxChars;
 			const output = truncatedByChars ? result.slice.slice(0, requestedMaxChars) : result.slice;
-			// Note: "".split("\n") returns [""] with length 1, so check for empty
-			const lineCount = output.length > 0 ? output.split("\n").length : 0;
+			// Calculate hasMore based on whether there are more lines after this slice
+			const hasMore = (opts.offset + result.sliceLineCount) < result.totalLines;
 			return {
 				output,
-				truncated: truncatedByChars || lineCount >= requestedLines,
+				truncated: truncatedByChars || result.sliceLineCount >= requestedLines,
 				totalBytes: output.length,
 				totalLines: result.totalLines,
+				hasMore,
 			};
 		}
 
@@ -601,8 +602,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 				totalCharsSent: this.totalCharsSent,
 				budgetExhausted: this.budgetExhausted,
 			});
-			// Unregister after notification in streaming mode
-			this.unregisterActiveSession();
+			// Unregister and release ID in streaming mode - agent got notified, won't query
+			this.unregisterActiveSession(true);
 		}
 		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
 		// so agent can query and see "user-takeover" status
@@ -1036,10 +1037,11 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		if (!this.completionResult) {
 			this.session.kill();
 			this.session.dispose();
-			this.unregisterActiveSession();
+			// Release ID since session is dead and agent can't query anymore
+			this.unregisterActiveSession(true);
 		} else if (this.options.onHandsFreeUpdate) {
-			// Streaming mode already delivered result, safe to unregister
-			this.unregisterActiveSession();
+			// Streaming mode already delivered result, safe to unregister and release
+			this.unregisterActiveSession(true);
 		}
 		// Non-blocking mode with completion: keep registered so agent can query
 	}

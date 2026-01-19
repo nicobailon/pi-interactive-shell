@@ -131,17 +131,45 @@ interactive_shell({ sessionId: "calm-reef", drain: true })
 
 ## Config
 
-`~/.pi/agent/settings.json` under `extensions.interactive-shell`:
+Configuration files (project overrides global):
+- **Global:** `~/.pi/agent/interactive-shell.json`
+- **Project:** `.pi/interactive-shell.json`
 
 ```json
 {
-  "overlayHeightPercent": 45,
   "overlayWidthPercent": 95,
+  "overlayHeightPercent": 45,
   "scrollbackLines": 5000,
+  "exitAutoCloseDelay": 10,
   "minQueryIntervalSeconds": 60,
-  "handsFreeQuietThreshold": 5000
+  "handsFreeUpdateMode": "on-quiet",
+  "handsFreeUpdateInterval": 60000,
+  "handsFreeQuietThreshold": 5000,
+  "handsFreeUpdateMaxChars": 1500,
+  "handsFreeMaxTotalChars": 100000,
+  "handoffPreviewEnabled": true,
+  "handoffPreviewLines": 30,
+  "handoffPreviewMaxChars": 2000,
+  "handoffSnapshotEnabled": false,
+  "ansiReemit": true
 }
 ```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `overlayWidthPercent` | 95 | Overlay width (10-100%) |
+| `overlayHeightPercent` | 45 | Overlay height (20-90%) |
+| `scrollbackLines` | 5000 | Terminal scrollback buffer |
+| `exitAutoCloseDelay` | 10 | Seconds before auto-close after exit |
+| `minQueryIntervalSeconds` | 60 | Rate limit between agent queries |
+| `handsFreeUpdateMode` | "on-quiet" | "on-quiet" or "interval" |
+| `handsFreeQuietThreshold` | 5000 | Silence duration before update (ms) |
+| `handsFreeUpdateInterval` | 60000 | Max interval between updates (ms) |
+| `handsFreeUpdateMaxChars` | 1500 | Max chars per update |
+| `handsFreeMaxTotalChars` | 100000 | Total char budget for updates |
+| `handoffPreviewEnabled` | true | Include tail in tool result |
+| `handoffSnapshotEnabled` | false | Write transcript on detach/exit |
+| `ansiReemit` | true | Preserve ANSI colors in output |
 
 ## How It Works
 

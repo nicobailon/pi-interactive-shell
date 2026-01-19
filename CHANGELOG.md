@@ -2,6 +2,20 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.4.7] - 2026-01-18
+
+### Added
+- **Incremental mode** - New `incremental: true` parameter for server-tracked pagination. Agent calls repeatedly and server tracks position automatically. Returns `hasMore` to indicate when more output is available.
+- **hasMore in offset mode** - Offset pagination now returns `hasMore` field so agents can know when they've finished reading all output.
+
+### Fixed
+- **Session ID leak on user takeover** - In streaming mode, session ID was unregistered but never released when user took over. Now properly releases ID since agent was notified and won't query.
+- **Session ID leak in dispose()** - When overlay was disposed without going through finishWith* methods (error cases), session ID was never released. Now releases ID in all cleanup paths.
+
+### Changed
+- **Config documentation** - Fixed incorrect config path in README. Config files are `~/.pi/agent/interactive-shell.json` (global) and `.pi/interactive-shell.json` (project), not under `settings.json`. Added full settings table with all options documented.
+- **Detach key** - Changed from double-Escape to Ctrl+Q for more reliable detection.
+
 ## [0.4.6] - 2026-01-18
 
 ### Added
