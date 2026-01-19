@@ -385,8 +385,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 								handsFreeQuietThreshold: handsFree?.quietThreshold,
 								handsFreeUpdateMaxChars: handsFree?.updateMaxChars,
 								handsFreeMaxTotalChars: handsFree?.maxTotalChars,
-								// Default autoExitOnQuiet to true in hands-free mode
-								autoExitOnQuiet: handsFree?.autoExitOnQuiet !== false,
+								// Default autoExitOnQuiet to false - agent must opt-in for fire-and-forget tasks
+								autoExitOnQuiet: handsFree?.autoExitOnQuiet === true,
 								// No onHandsFreeUpdate in non-blocking mode - agent queries directly
 								handoffPreviewEnabled: handoffPreview?.enabled,
 								handoffPreviewLines: handoffPreview?.lines,

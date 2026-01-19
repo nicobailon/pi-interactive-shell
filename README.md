@@ -84,7 +84,17 @@ interactive_shell({
 
 ### Auto-Exit on Quiet
 
-Sessions auto-close after 5s of silence. Disable with `handsFree: { autoExitOnQuiet: false }`.
+For fire-and-forget single-task delegations, enable auto-exit to kill the session after 5s of output silence:
+
+```typescript
+interactive_shell({
+  command: 'cursor-agent -f "Fix the bug in auth.ts"',
+  mode: "hands-free",
+  handsFree: { autoExitOnQuiet: true }
+})
+```
+
+For multi-turn sessions where you need back-and-forth interaction, leave it disabled (default) and use `kill: true` when done.
 
 ### Send Input
 

@@ -196,7 +196,7 @@ export const toolParameters = Type.Object({
 			),
 			autoExitOnQuiet: Type.Optional(
 				Type.Boolean({
-					description: "Auto-kill session when output stops (after quietThreshold). Defaults to true in hands-free mode. Set to false to keep session alive indefinitely.",
+					description: "Auto-kill session when output stops (after quietThreshold). Defaults to false. Set to true for fire-and-forget single-task delegations.",
 				}),
 			),
 		}),

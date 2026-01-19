@@ -13,6 +13,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 - **Session ID leak in dispose()** - When overlay was disposed without going through finishWith* methods (error cases), session ID was never released. Now releases ID in all cleanup paths.
 
 ### Changed
+- **autoExitOnQuiet now defaults to false** - Sessions stay alive for multi-turn interaction by default. Enable with `handsFree: { autoExitOnQuiet: true }` for fire-and-forget single-task delegations.
 - **Config documentation** - Fixed incorrect config path in README. Config files are `~/.pi/agent/interactive-shell.json` (global) and `.pi/interactive-shell.json` (project), not under `settings.json`. Added full settings table with all options documented.
 - **Detach key** - Changed from double-Escape to Ctrl+Q for more reliable detection.
 

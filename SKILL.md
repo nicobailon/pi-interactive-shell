@@ -122,21 +122,41 @@ interactive_shell({ sessionId: "calm-reef", kill: true })
 
 Kill when you see the task is complete in the output. Returns final status and output.
 
-**Auto-exit (default: enabled):** In hands-free mode, sessions auto-kill when output stops (after ~5 seconds of quiet). This means when an agent finishes its task and returns to its prompt, the session closes automatically.
+### Fire-and-Forget Tasks
 
-Since sessions auto-close, **always instruct the subagent to save results to a file** so you can read them:
+For single-task delegations where you don't need multi-turn interaction, enable auto-exit so the session kills itself when the agent goes quiet:
 
 ```typescript
 interactive_shell({
   command: 'pi "Review this codebase for security issues. Save your findings to /tmp/security-review.md"',
   mode: "hands-free",
-  reason: "Security review"
+  reason: "Security review",
+  handsFree: { autoExitOnQuiet: true }
 })
-// After session ends, read the results:
+// Session auto-kills after ~5s of quiet
+// Read results from file:
 // read("/tmp/security-review.md")
 ```
 
-To disable auto-exit (for long-running tasks or when you need to review output): `handsFree: { autoExitOnQuiet: false }`
+**Instruct subagent to save results to a file** since the session closes automatically.
+
+### Multi-Turn Sessions (default)
+
+For back-and-forth interaction, leave auto-exit disabled (the default). Query status and kill manually when done:
+
+```typescript
+interactive_shell({
+  command: 'cursor-agent -f',
+  mode: "hands-free",
+  reason: "Interactive refactoring"
+})
+
+// Send follow-up prompts
+interactive_shell({ sessionId: "calm-reef", input: "Now fix the tests\n" })
+
+// Kill when done
+interactive_shell({ sessionId: "calm-reef", kill: true })
+```
 
 ### Sending Input
 ```typescript
@@ -179,19 +199,12 @@ interactive_shell({ sessionId: "calm-reef", outputLines: 50, incremental: true }
 
 The server tracks your read position - just keep calling with `incremental: true` to get the next chunk.
 
-### Reviewing Long Sessions (autoExitOnQuiet disabled)
+### Reviewing Output
 
-When you disable auto-exit for long-running tasks, progressively review more output as needed:
+Query sessions to see progress. Increase limits when you need more context:
 
 ```typescript
-// Start a long session without auto-exit
-interactive_shell({
-  command: 'pi "Refactor entire codebase"',
-  mode: "hands-free",
-  handsFree: { autoExitOnQuiet: false }
-})
-
-// Query returns last 20 lines by default
+// Default: last 20 lines
 interactive_shell({ sessionId: "calm-reef" })
 
 // Get more lines when you need more context
