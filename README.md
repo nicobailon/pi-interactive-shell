@@ -2,7 +2,7 @@
 
 An extension for [Pi coding agent](https://github.com/badlogic/pi-mono/) that lets Pi autonomously run interactive CLIs in an observable TUI overlay. Pi controls the subprocess while you watch - take over anytime.
 
-<img width="1260" height="1237" alt="Interactive shell overlay showing a hands-free session" src="https://github.com/user-attachments/assets/01eb483b-3f83-4cf7-8a3f-56c516a6c8f9" />
+https://github.com/user-attachments/assets/76f56ecd-fc12-4d92-a01e-e6ae9ba65ff4
 
 ```typescript
 interactive_shell({ command: 'vim config.yaml' })
