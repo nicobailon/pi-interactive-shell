@@ -1,6 +1,6 @@
 {
   "name": "pi-interactive-shell",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "Run AI coding agents as foreground subagents in pi TUI overlays with hands-free monitoring",
   "type": "module",
   "bin": {
@@ -23,7 +23,7 @@
     ]
   },
   "dependencies": {
-    "node-pty": "^1.0.0",
+    "node-pty": "^1.1.0",
     "@xterm/headless": "^5.5.0",
     "@xterm/addon-serialize": "^0.13.0"
   },

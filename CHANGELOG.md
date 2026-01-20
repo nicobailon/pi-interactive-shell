@@ -2,6 +2,11 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.4.8] - 2026-01-19
+
+### Changed
+- **node-pty ^1.1.0** - Updated minimum version to 1.1.0 which includes prebuilt binaries for macOS (arm64, x64) and Windows (x64, arm64). No more Xcode or Visual Studio required for installation on these platforms. Linux still requires build tools (`build-essential`, `python3`).
+
 ## [0.4.7] - 2026-01-18
 
 ### Added
