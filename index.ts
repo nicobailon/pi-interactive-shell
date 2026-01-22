@@ -8,6 +8,9 @@ import { translateInput } from "./key-encoding.js";
 import { TOOL_NAME, TOOL_LABEL, TOOL_DESCRIPTION, toolParameters, type ToolParams } from "./tool-schema.js";
 import { formatDuration, formatDurationMs } from "./types.js";
 
+// Track whether an overlay is currently open to prevent stacking
+let overlayOpen = false;
+
 export default function interactiveShellExtension(pi: ExtensionAPI) {
 	pi.on("session_shutdown", () => {
 		sessionManager.killAll();
@@ -370,12 +373,24 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			const config = loadConfig(effectiveCwd);
 			const isHandsFree = mode === "hands-free";
 
+			// Prevent starting a new overlay while one is already open
+			if (overlayOpen) {
+				return {
+					content: [{ type: "text", text: "An interactive shell overlay is already open. Wait for it to close or kill the active session before starting a new one." }],
+					isError: true,
+					details: { error: "overlay_already_open" },
+				};
+			}
+
 			// Generate sessionId early so it's available immediately
 			const generatedSessionId = isHandsFree ? generateSessionId(name) : undefined;
 
 			// For hands-free mode: non-blocking - return immediately with sessionId
 			// Agent can then query status/output via sessionId and kill when done
 			if (isHandsFree && generatedSessionId) {
+				// Mark overlay as open
+				overlayOpen = true;
+
 				// Start overlay but don't await - it runs in background
 				const overlayPromise = ctx.ui.custom<InteractiveShellResult>(
 					(tui, theme, _kb, done) =>
@@ -421,12 +436,14 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 				// Handle overlay completion in background (cleanup when user closes)
 				overlayPromise.then((result) => {
+					overlayOpen = false;
 					// Session already handles cleanup via finishWith* methods
 					// This just ensures the promise doesn't cause unhandled rejection
 					if (result.userTookOver) {
 						// User took over - session continues interactively
 					}
 				}).catch(() => {
+					overlayOpen = false;
 					// Ignore errors - session cleanup handles this
 				});
 
@@ -448,6 +465,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			}
 
 			// Interactive mode: blocking - wait for overlay to close
+			overlayOpen = true;
 			onUpdate?.({
 				content: [{ type: "text", text: `Opening: ${command}` }],
 				details: {
@@ -457,7 +475,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				},
 			});
 
-			const result = await ctx.ui.custom<InteractiveShellResult>(
+			let result: InteractiveShellResult;
+			try {
+				result = await ctx.ui.custom<InteractiveShellResult>(
 				(tui, theme, _kb, done) =>
 					new InteractiveShellOverlay(
 						tui,
@@ -532,6 +552,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					},
 				},
 			);
+			} finally {
+				overlayOpen = false;
+			}
 
 			let summary: string;
 			if (result.backgrounded) {
@@ -569,6 +592,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 	pi.registerCommand("attach", {
 		description: "Reattach to a background shell session",
 		handler: async (args, ctx) => {
+			// Prevent reattaching while another overlay is open
+			if (overlayOpen) {
+				ctx.ui.notify("An overlay is already open. Close it first.", "error");
+				return;
+			}
+
 			const sessions = sessionManager.list();
 
 			if (sessions.length === 0) {
@@ -601,25 +630,30 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			}
 
 			const config = loadConfig(ctx.cwd);
-			await ctx.ui.custom<InteractiveShellResult>(
-				(tui, theme, _kb, done) =>
-					new ReattachOverlay(
-						tui,
-						theme,
-						{ id: session.id, command: session.command, reason: session.reason, session: session.session },
-						config,
-						done,
-					),
-				{
-					overlay: true,
-					overlayOptions: {
-						width: `${config.overlayWidthPercent}%`,
-						maxHeight: `${config.overlayHeightPercent}%`,
-						anchor: "center",
-						margin: 1,
+			overlayOpen = true;
+			try {
+				await ctx.ui.custom<InteractiveShellResult>(
+					(tui, theme, _kb, done) =>
+						new ReattachOverlay(
+							tui,
+							theme,
+							{ id: session.id, command: session.command, reason: session.reason, session: session.session },
+							config,
+							done,
+						),
+					{
+						overlay: true,
+						overlayOptions: {
+							width: `${config.overlayWidthPercent}%`,
+							maxHeight: `${config.overlayHeightPercent}%`,
+							anchor: "center",
+							margin: 1,
+						},
 					},
-				},
-			);
+				);
+			} finally {
+				overlayOpen = false;
+			}
 		},
 	});
 }

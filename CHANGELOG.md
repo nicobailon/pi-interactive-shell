@@ -2,6 +2,11 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.5.1] - 2026-01-22
+
+### Fixed
+- **Prevent overlay stacking** - Starting a new `interactive_shell` session or using `/attach` while an overlay is already open now returns an error instead of causing undefined behavior with stacked/stuck overlays.
+
 ## [0.5.0] - 2026-01-22
 
 ### Changed
