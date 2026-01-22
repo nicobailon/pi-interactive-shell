@@ -31,6 +31,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				incremental,
 				settings,
 				input,
+				inputKeys,
+				inputHex,
+				inputPaste,
 				cwd,
 				name,
 				reason,
@@ -40,6 +43,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				handoffSnapshot,
 				timeout,
 			} = params as ToolParams;
+
+			// Build structured input from separate fields if any are provided
+			const hasStructuredInput = inputKeys?.length || inputHex?.length || inputPaste;
+			const effectiveInput = hasStructuredInput
+				? { text: input, keys: inputKeys, hex: inputHex, paste: inputPaste }
+				: input;
 
 			// Mode 1: Interact with existing session (query status, send input, kill, or change settings)
 			if (sessionId) {
@@ -100,8 +109,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				}
 
 				// Send input if provided
-				if (input !== undefined) {
-					const translatedInput = translateInput(input);
+				if (effectiveInput !== undefined) {
+					const translatedInput = translateInput(effectiveInput);
 					const success = sessionManager.writeToActive(sessionId, translatedInput);
 
 					if (!success) {
@@ -113,17 +122,17 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					}
 
 					const inputDesc =
-						typeof input === "string"
-							? input.length === 0
+						typeof effectiveInput === "string"
+							? effectiveInput.length === 0
 								? "(empty)"
-								: input.length > 50
-									? `${input.slice(0, 50)}...`
-									: input
+								: effectiveInput.length > 50
+									? `${effectiveInput.slice(0, 50)}...`
+									: effectiveInput
 							: [
-									input.text ?? "",
-									input.keys ? `keys:[${input.keys.join(",")}]` : "",
-									input.hex ? `hex:[${input.hex.length} bytes]` : "",
-									input.paste ? `paste:[${input.paste.length} chars]` : "",
+									effectiveInput.text ?? "",
+									effectiveInput.keys ? `keys:[${effectiveInput.keys.join(",")}]` : "",
+									effectiveInput.hex ? `hex:[${effectiveInput.hex.length} bytes]` : "",
+									effectiveInput.paste ? `paste:[${effectiveInput.paste.length} chars]` : "",
 								]
 									.filter(Boolean)
 									.join(" + ") || "(empty)";

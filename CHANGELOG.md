@@ -2,6 +2,31 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.5.0] - 2026-01-22
+
+### Changed
+- **BREAKING: Split `input` into separate fields for Vertex AI compatibility** - The `input` parameter which previously accepted either a string or an object with `text/keys/hex/paste` fields has been split into separate parameters:
+  - `input` - Raw text/keystrokes (string only)
+  - `inputKeys` - Named keys array (e.g., `["ctrl+c", "enter"]`)
+  - `inputHex` - Hex bytes array for raw escape sequences
+  - `inputPaste` - Text for bracketed paste mode
+  
+  This change was required because Claude's Vertex AI API (`google-antigravity` provider) rejects `anyOf` JSON schemas with mixed primitive/object types.
+
+### Migration
+```typescript
+// Before (0.4.x)
+interactive_shell({ sessionId: "abc", input: { keys: ["ctrl+c"] } })
+interactive_shell({ sessionId: "abc", input: { paste: "code" } })
+
+// After (0.5.0)
+interactive_shell({ sessionId: "abc", inputKeys: ["ctrl+c"] })
+interactive_shell({ sessionId: "abc", inputPaste: "code" })
+
+// Combining text with keys (still works)
+interactive_shell({ sessionId: "abc", input: "y", inputKeys: ["enter"] })
+```
+
 ## [0.4.9] - 2026-01-21
 
 ### Fixed

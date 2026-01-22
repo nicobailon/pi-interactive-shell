@@ -60,7 +60,7 @@ interactive_shell({ sessionId: "calm-reef" })
 // → { status: "running", output: "...", runtime: 45000 }
 
 // Send input if needed
-interactive_shell({ sessionId: "calm-reef", input: { keys: ["ctrl+c"] } })
+interactive_shell({ sessionId: "calm-reef", inputKeys: ["ctrl+c"] })
 
 // Kill when done
 interactive_shell({ sessionId: "calm-reef", kill: true })
@@ -103,11 +103,17 @@ For multi-turn sessions where you need back-and-forth interaction, leave it disa
 interactive_shell({ sessionId: "calm-reef", input: "SELECT * FROM users;\n" })
 
 // Named keys
-interactive_shell({ sessionId: "calm-reef", input: { keys: ["ctrl+c"] } })
-interactive_shell({ sessionId: "calm-reef", input: { keys: ["down", "down", "enter"] } })
+interactive_shell({ sessionId: "calm-reef", inputKeys: ["ctrl+c"] })
+interactive_shell({ sessionId: "calm-reef", inputKeys: ["down", "down", "enter"] })
 
 // Bracketed paste (multiline without execution)
-interactive_shell({ sessionId: "calm-reef", input: { paste: "line1\nline2\nline3" } })
+interactive_shell({ sessionId: "calm-reef", inputPaste: "line1\nline2\nline3" })
+
+// Hex bytes (raw escape sequences)
+interactive_shell({ sessionId: "calm-reef", inputHex: ["0x1b", "0x5b", "0x41"] })
+
+// Combine text with keys
+interactive_shell({ sessionId: "calm-reef", input: "y", inputKeys: ["enter"] })
 ```
 
 ### Configurable Output

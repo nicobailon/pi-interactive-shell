@@ -161,7 +161,9 @@ interactive_shell({ sessionId: "calm-reef", kill: true })
 ### Sending Input
 ```typescript
 interactive_shell({ sessionId: "calm-reef", input: "/help\n" })
-interactive_shell({ sessionId: "calm-reef", input: { keys: ["ctrl+c"] } })
+interactive_shell({ sessionId: "calm-reef", inputKeys: ["ctrl+c"] })
+interactive_shell({ sessionId: "calm-reef", inputPaste: "multi\nline\ncode" })
+interactive_shell({ sessionId: "calm-reef", input: "y", inputKeys: ["enter"] })  // combine text + keys
 ```
 
 ### Query Output
@@ -223,14 +225,14 @@ Use the `sessionId` from updates to send input to a running hands-free session:
 // Send text
 interactive_shell({ sessionId: "shell-1", input: "/help\n" })
 
-// Send with named keys
-interactive_shell({ sessionId: "shell-1", input: { text: "/model", keys: ["enter"] } })
+// Send text with keys
+interactive_shell({ sessionId: "shell-1", input: "/model", inputKeys: ["enter"] })
 
 // Navigate menus
-interactive_shell({ sessionId: "shell-1", input: { keys: ["down", "down", "enter"] } })
+interactive_shell({ sessionId: "shell-1", inputKeys: ["down", "down", "enter"] })
 
 // Interrupt
-interactive_shell({ sessionId: "shell-1", input: { keys: ["ctrl+c"] } })
+interactive_shell({ sessionId: "shell-1", inputKeys: ["ctrl+c"] })
 ```
 
 ### Named Keys
@@ -257,45 +259,45 @@ Note: `ic`/`dc`, `ppage`/`npage`, `bspace` are tmux-style aliases for compatibil
 Supports `ctrl+`, `alt+`, `shift+` prefixes (or shorthand `c-`, `m-`, `s-`):
 ```typescript
 // Cancel
-{ keys: ["ctrl+c"] }
+inputKeys: ["ctrl+c"]
 
 // Alt+Tab
-{ keys: ["alt+tab"] }
+inputKeys: ["alt+tab"]
 
 // Ctrl+Alt+Delete
-{ keys: ["ctrl+alt+delete"] }
+inputKeys: ["ctrl+alt+delete"]
 
 // Shorthand syntax
-{ keys: ["c-c", "m-x", "s-tab"] }
+inputKeys: ["c-c", "m-x", "s-tab"]
 ```
 
 ### Hex Bytes (Advanced)
 Send raw escape sequences:
 ```typescript
-{ hex: ["0x1b", "0x5b", "0x41"] }  // ESC[A (up arrow)
+inputHex: ["0x1b", "0x5b", "0x41"]  // ESC[A (up arrow)
 ```
 
 ### Bracketed Paste
 Paste multiline text without triggering autocompletion/execution:
 ```typescript
-{ paste: "function foo() {\n  return 42;\n}" }
+inputPaste: "function foo() {\n  return 42;\n}"
 ```
 
 ### Model Selection Example
 ```typescript
 // Step 1: Open model selector
-interactive_shell({ sessionId: "shell-1", input: { text: "/model", keys: ["enter"] } })
+interactive_shell({ sessionId: "shell-1", input: "/model", inputKeys: ["enter"] })
 
 // Step 2: Filter and select (after ~500ms delay)
-interactive_shell({ sessionId: "shell-1", input: { text: "sonnet", keys: ["enter"] } })
+interactive_shell({ sessionId: "shell-1", input: "sonnet", inputKeys: ["enter"] })
 
 // Or navigate with arrows:
-interactive_shell({ sessionId: "shell-1", input: { keys: ["down", "down", "down", "enter"] } })
+interactive_shell({ sessionId: "shell-1", inputKeys: ["down", "down", "down", "enter"] })
 ```
 
 ### Context Compaction
 ```typescript
-interactive_shell({ sessionId: "shell-1", input: { text: "/compact", keys: ["enter"] } })
+interactive_shell({ sessionId: "shell-1", input: "/compact", inputKeys: ["enter"] })
 ```
 
 ### Changing Update Settings
@@ -396,11 +398,11 @@ interactive_shell({
 // Text with enter
 interactive_shell({ sessionId: "calm-reef", input: "/compact\n" })
 
-// Named keys
-interactive_shell({ sessionId: "calm-reef", input: { text: "/model", keys: ["enter"] } })
+// Text + named keys
+interactive_shell({ sessionId: "calm-reef", input: "/model", inputKeys: ["enter"] })
 
 // Menu navigation
-interactive_shell({ sessionId: "calm-reef", input: { keys: ["down", "down", "enter"] } })
+interactive_shell({ sessionId: "calm-reef", inputKeys: ["down", "down", "enter"] })
 ```
 
 **Change update frequency:**

@@ -54,13 +54,14 @@ Queries are limited to once every 60 seconds (configurable). If you query too so
 the tool will automatically wait until the limit expires before returning.
 
 SENDING INPUT:
-- interactive_shell({ sessionId: "calm-reef", input: "/help\\n" })
-- interactive_shell({ sessionId: "calm-reef", input: { keys: ["ctrl+c"] } })
+- interactive_shell({ sessionId: "calm-reef", input: "/help\\n" }) - raw text/keystrokes
+- interactive_shell({ sessionId: "calm-reef", inputKeys: ["ctrl+c"] }) - named keys
+- interactive_shell({ sessionId: "calm-reef", inputKeys: ["up", "up", "enter"] }) - multiple keys
+- interactive_shell({ sessionId: "calm-reef", inputHex: ["0x1b", "0x5b", "0x41"] }) - raw escape sequences
+- interactive_shell({ sessionId: "calm-reef", inputPaste: "multiline\\ntext" }) - bracketed paste (prevents auto-execution)
 
-Named keys: up, down, left, right, enter, escape, tab, backspace, ctrl+c, ctrl+d, etc.
+Named keys for inputKeys: up, down, left, right, enter, escape, tab, backspace, ctrl+c, ctrl+d, etc.
 Modifiers: ctrl+x, alt+x, shift+tab, ctrl+alt+delete (or c-x, m-x, s-tab syntax)
-Hex bytes: input: { hex: ["0x1b", "0x5b", "0x41"] } for raw escape sequences
-Bracketed paste: input: { paste: "multiline\\ntext" } prevents auto-execution
 
 TIMEOUT (for TUI commands that don't exit cleanly):
 Use timeout to auto-kill after N milliseconds. Useful for capturing output from commands like "pi --help":
@@ -128,31 +129,22 @@ export const toolParameters = Type.Object({
 		}),
 	),
 	input: Type.Optional(
-		Type.Union(
-			[
-				Type.String({ description: "Raw text/keystrokes to send" }),
-				Type.Object({
-					text: Type.Optional(Type.String({ description: "Text to type" })),
-					keys: Type.Optional(
-						Type.Array(Type.String(), {
-							description:
-								"Named keys with modifier support: up, down, enter, ctrl+c, alt+x, shift+tab, ctrl+alt+delete, etc.",
-						}),
-					),
-					hex: Type.Optional(
-						Type.Array(Type.String(), {
-							description: "Hex bytes to send (e.g., ['0x1b', '0x5b', '0x41'] for ESC[A)",
-						}),
-					),
-					paste: Type.Optional(
-						Type.String({
-							description: "Text to paste with bracketed paste mode (prevents auto-execution)",
-						}),
-					),
-				}),
-			],
-			{ description: "Input to send to an existing session (requires sessionId)" },
-		),
+		Type.String({ description: "Raw text/keystrokes to send to the session (requires sessionId). For special keys, use inputKeys instead." }),
+	),
+	inputKeys: Type.Optional(
+		Type.Array(Type.String(), {
+			description: "Named keys with modifier support: up, down, enter, ctrl+c, alt+x, shift+tab, ctrl+alt+delete, etc. (requires sessionId)",
+		}),
+	),
+	inputHex: Type.Optional(
+		Type.Array(Type.String(), {
+			description: "Hex bytes to send as raw escape sequences (e.g., ['0x1b', '0x5b', '0x41'] for ESC[A). (requires sessionId)",
+		}),
+	),
+	inputPaste: Type.Optional(
+		Type.String({
+			description: "Text to paste with bracketed paste mode - prevents shells from auto-executing multiline input. (requires sessionId)",
+		}),
 	),
 	cwd: Type.Optional(
 		Type.String({
@@ -171,15 +163,15 @@ export const toolParameters = Type.Object({
 		}),
 	),
 	mode: Type.Optional(
-		Type.Union([Type.Literal("interactive"), Type.Literal("hands-free")], {
-			description: "interactive (default): user controls. hands-free: agent monitors, user can take over",
+		Type.String({
+			description: "Mode: 'interactive' (default, user controls) or 'hands-free' (agent monitors, user can take over)",
 		}),
 	),
 	handsFree: Type.Optional(
 		Type.Object({
 			updateMode: Type.Optional(
-				Type.Union([Type.Literal("on-quiet"), Type.Literal("interval")], {
-					description: "on-quiet (default): emit when output stops. interval: emit on fixed schedule.",
+				Type.String({
+					description: "Update mode: 'on-quiet' (default, emit when output stops) or 'interval' (emit on fixed schedule)",
 				}),
 			),
 			updateInterval: Type.Optional(
@@ -235,7 +227,10 @@ export interface ToolParams {
 	drain?: boolean;
 	incremental?: boolean;
 	settings?: { updateInterval?: number; quietThreshold?: number };
-	input?: string | { text?: string; keys?: string[]; hex?: string[]; paste?: string };
+	input?: string;
+	inputKeys?: string[];
+	inputHex?: string[];
+	inputPaste?: string;
 	cwd?: string;
 	name?: string;
 	reason?: string;
