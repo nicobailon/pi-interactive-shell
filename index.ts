@@ -573,8 +573,11 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				const options = sessions.map((s) => {
 					const status = s.session.exited ? "exited" : "running";
 					const duration = formatDuration(Date.now() - s.startedAt.getTime());
-					const reason = s.reason ? ` • ${s.reason}` : "";
-					return `${s.id} - ${s.command}${reason} (${status}, ${duration})`;
+					// Sanitize command and reason: collapse newlines and whitespace for display
+					const sanitizedCommand = s.command.replace(/\s+/g, " ").trim();
+					const sanitizedReason = s.reason?.replace(/\s+/g, " ").trim();
+					const reason = sanitizedReason ? ` • ${sanitizedReason}` : "";
+					return `${s.id} - ${sanitizedCommand}${reason} (${status}, ${duration})`;
 				});
 
 				const choice = await ctx.ui.select("Background Sessions", options);

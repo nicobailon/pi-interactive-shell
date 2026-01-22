@@ -924,7 +924,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		const lines: string[] = [];
 
-		const title = truncateToWidth(this.options.command, innerWidth - 20, "...");
+		// Sanitize command: collapse newlines and whitespace to single spaces for display
+		const sanitizedCommand = this.options.command.replace(/\s+/g, " ").trim();
+		const title = truncateToWidth(sanitizedCommand, innerWidth - 20, "...");
 		const pid = `PID: ${this.session.pid}`;
 		lines.push(border("╭" + "─".repeat(width - 2) + "╮"));
 		lines.push(
@@ -935,16 +937,18 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			),
 		);
 		let hint: string;
+		// Sanitize reason: collapse newlines and whitespace to single spaces for display
+		const sanitizedReason = this.options.reason?.replace(/\s+/g, " ").trim();
 		if (this.state === "hands-free") {
 			const elapsed = formatDuration(Date.now() - this.startTime);
 			hint = `🤖 Hands-free (${elapsed}) • Type anything to take over`;
 		} else if (this.userTookOver) {
-			hint = this.options.reason
-				? `You took over • ${this.options.reason} • Ctrl+Q to detach`
+			hint = sanitizedReason
+				? `You took over • ${sanitizedReason} • Ctrl+Q to detach`
 				: "You took over • Ctrl+Q to detach";
 		} else {
-			hint = this.options.reason
-				? `Ctrl+Q to detach • ${this.options.reason}`
+			hint = sanitizedReason
+				? `Ctrl+Q to detach • ${sanitizedReason}`
 				: "Ctrl+Q to detach";
 		}
 		lines.push(row(dim(truncateToWidth(hint, innerWidth, "..."))));

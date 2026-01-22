@@ -306,7 +306,9 @@ export class ReattachOverlay implements Component, Focusable {
 
 		const lines: string[] = [];
 
-		const title = truncateToWidth(this.bgSession.command, innerWidth - 30, "...");
+		// Sanitize command: collapse newlines and whitespace to single spaces for display
+		const sanitizedCommand = this.bgSession.command.replace(/\s+/g, " ").trim();
+		const title = truncateToWidth(sanitizedCommand, innerWidth - 30, "...");
 		const idLabel = `[${this.bgSession.id}]`;
 		const pid = `PID: ${this.session.pid}`;
 
@@ -322,8 +324,10 @@ export class ReattachOverlay implements Component, Focusable {
 					dim(pid),
 			),
 		);
-		const hint = this.bgSession.reason
-			? `Reattached • ${this.bgSession.reason} • Ctrl+Q to detach`
+		// Sanitize reason: collapse newlines and whitespace to single spaces for display
+		const sanitizedReason = this.bgSession.reason?.replace(/\s+/g, " ").trim();
+		const hint = sanitizedReason
+			? `Reattached • ${sanitizedReason} • Ctrl+Q to detach`
 			: "Reattached • Ctrl+Q to detach";
 		lines.push(row(dim(truncateToWidth(hint, innerWidth, "..."))));
 		lines.push(border("├" + "─".repeat(width - 2) + "┤"));

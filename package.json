@@ -1,6 +1,6 @@
 {
   "name": "pi-interactive-shell",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "description": "Run AI coding agents as foreground subagents in pi TUI overlays with hands-free monitoring",
   "type": "module",
   "bin": {
@@ -9,9 +9,13 @@
   "files": [
     "index.ts",
     "config.ts",
+    "key-encoding.ts",
     "overlay-component.ts",
     "pty-session.ts",
+    "reattach-overlay.ts",
     "session-manager.ts",
+    "tool-schema.ts",
+    "types.ts",
     "scripts/",
     "README.md",
     "SKILL.md",

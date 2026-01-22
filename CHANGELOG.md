@@ -2,6 +2,13 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.4.9] - 2026-01-21
+
+### Fixed
+- **Multi-line command overflow in header** - Commands containing newlines (e.g., long prompts passed via `-f` flag) now properly collapse to a single line in the overlay header instead of overflowing and leaking behind the overlay.
+- **Reason field overflow** - The `reason` field in the hint line is also sanitized to prevent newline overflow.
+- **Session list overflow** - The `/attach` command's session list now sanitizes command and reason fields for proper display.
+
 ## [0.4.8] - 2026-01-19
 
 ### Changed
