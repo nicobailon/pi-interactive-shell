@@ -2,6 +2,12 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.5.2] - 2026-01-23
+
+### Fixed
+- **npx installation missing files** - The install script had a hardcoded file list that was missing 4 critical files (`key-encoding.ts`, `types.ts`, `tool-schema.ts`, `reattach-overlay.ts`). Now reads from `package.json`'s `files` array as the single source of truth, ensuring all files are always copied.
+- **Broken symlink handling** - Fixed skill symlink creation failing when a broken symlink already existed at the target path. `existsSync()` returns `false` for broken symlinks, causing the old code to skip removal. Now unconditionally attempts removal, correctly handling broken symlinks.
+
 ## [0.5.1] - 2026-01-22
 
 ### Fixed
