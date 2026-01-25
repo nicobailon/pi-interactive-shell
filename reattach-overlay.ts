@@ -174,6 +174,7 @@ export class ReattachOverlay implements Component, Focusable {
 			exitCode: this.session.exitCode,
 			signal: this.session.signal,
 			backgrounded: false,
+			minimized: false,
 			cancelled: false,
 			handoffPreview,
 			handoff,
@@ -191,9 +192,35 @@ export class ReattachOverlay implements Component, Focusable {
 			exitCode: null,
 			backgrounded: true,
 			backgroundId: this.bgSession.id,
+			minimized: false,
 			cancelled: false,
 			handoffPreview,
 			handoff,
+		});
+	}
+
+	private finishWithMinimize(): void {
+		if (this.finished) return;
+		this.finished = true;
+		this.stopCountdown();
+		this.session.setEventHandlers({});
+
+		// Move from background to minimized
+		sessionManager.remove(this.bgSession.id);
+		sessionManager.minimize(
+			this.bgSession.id,
+			this.bgSession.command,
+			this.session,
+			undefined,
+			this.bgSession.reason,
+		);
+
+		this.done({
+			exitCode: null,
+			backgrounded: false,
+			minimized: true,
+			minimizedId: this.bgSession.id,
+			cancelled: false,
 		});
 	}
 
@@ -207,6 +234,7 @@ export class ReattachOverlay implements Component, Focusable {
 		this.done({
 			exitCode: null,
 			backgrounded: false,
+			minimized: false,
 			cancelled: true,
 			handoffPreview,
 			handoff,
@@ -242,6 +270,12 @@ export class ReattachOverlay implements Component, Focusable {
 			return;
 		}
 
+		// Ctrl+Z minimizes immediately
+		if (matchesKey(data, "ctrl+z")) {
+			this.finishWithMinimize();
+			return;
+		}
+
 		if (matchesKey(data, "shift+up")) {
 			this.session.scrollUp(Math.max(1, this.session.rows - 2));
 			this.tui.requestRender();
@@ -264,7 +298,7 @@ export class ReattachOverlay implements Component, Focusable {
 		}
 
 		if (matchesKey(data, "up") || matchesKey(data, "down")) {
-			const options: DialogChoice[] = ["kill", "background", "cancel"];
+			const options: DialogChoice[] = ["kill", "background", "minimize", "cancel"];
 			const currentIdx = options.indexOf(this.dialogSelection);
 			const direction = matchesKey(data, "up") ? -1 : 1;
 			const newIdx = (currentIdx + direction + options.length) % options.length;
@@ -280,6 +314,9 @@ export class ReattachOverlay implements Component, Focusable {
 					break;
 				case "background":
 					this.finishWithBackground();
+					break;
+				case "minimize":
+					this.finishWithMinimize();
 					break;
 				case "cancel":
 					this.state = "running";
@@ -371,6 +408,7 @@ export class ReattachOverlay implements Component, Focusable {
 			const opts: Array<{ key: DialogChoice; label: string }> = [
 				{ key: "kill", label: "Kill process" },
 				{ key: "background", label: "Run in background" },
+				{ key: "minimize", label: "Minimize (hide, keep running)" },
 				{ key: "cancel", label: "Cancel (return to session)" },
 			];
 			for (const opt of opts) {
@@ -386,7 +424,7 @@ export class ReattachOverlay implements Component, Focusable {
 			footerLines.push(row(exitMsg));
 			footerLines.push(row(dim(`Closing in ${this.exitCountdown}s... (any key to close)`)));
 		} else {
-			footerLines.push(row(dim("Shift+Up/Down scroll • Ctrl+Q detach")));
+			footerLines.push(row(dim("Shift+Up/Down scroll • Ctrl+Z minimize • Ctrl+Q detach")));
 		}
 
 		while (footerLines.length < FOOTER_LINES) {

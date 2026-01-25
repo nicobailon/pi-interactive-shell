@@ -9,6 +9,16 @@ export interface BackgroundSession {
 	startedAt: Date;
 }
 
+export interface MinimizedSession {
+	id: string;
+	name: string;
+	command: string;
+	reason?: string;
+	session: PtyTerminalSession;
+	startedAt: Date;
+	minimizedAt: Date;
+}
+
 export type ActiveSessionStatus = "running" | "user-takeover" | "exited" | "killed" | "backgrounded";
 
 export interface ActiveSessionResult {
@@ -137,6 +147,8 @@ export class ShellSessionManager {
 	private exitWatchers = new Map<string, NodeJS.Timeout>();
 	private cleanupTimers = new Map<string, NodeJS.Timeout>();
 	private activeSessions = new Map<string, ActiveSession>();
+	private minimizedSessions = new Map<string, MinimizedSession>();
+	private minimizedExitWatchers = new Map<string, NodeJS.Timeout>();
 
 	// Active hands-free session management
 	registerActive(session: {
@@ -195,6 +207,80 @@ export class ShellSessionManager {
 
 	listActive(): ActiveSession[] {
 		return Array.from(this.activeSessions.values());
+	}
+
+	// Minimized session management
+	minimize(
+		id: string,
+		command: string,
+		session: PtyTerminalSession,
+		name?: string,
+		reason?: string,
+		startedAt?: Date
+	): string {
+		this.minimizedSessions.set(id, {
+			id,
+			name: name || deriveSessionName(command),
+			command,
+			reason,
+			session,
+			startedAt: startedAt || new Date(),
+			minimizedAt: new Date(),
+		});
+
+		// Watch for exit while minimized
+		const checkExit = setInterval(() => {
+			if (session.exited) {
+				clearInterval(checkExit);
+				this.minimizedExitWatchers.delete(id);
+				// Auto-remove after 30s if exited while minimized
+				setTimeout(() => {
+					if (this.minimizedSessions.has(id)) {
+						this.removeMinimized(id);
+					}
+				}, 30000);
+			}
+		}, 1000);
+		this.minimizedExitWatchers.set(id, checkExit);
+
+		return id;
+	}
+
+	restore(id: string): MinimizedSession | undefined {
+		const session = this.minimizedSessions.get(id);
+		if (session) {
+			// Stop watching for exit
+			const watcher = this.minimizedExitWatchers.get(id);
+			if (watcher) {
+				clearInterval(watcher);
+				this.minimizedExitWatchers.delete(id);
+			}
+			this.minimizedSessions.delete(id);
+		}
+		return session;
+	}
+
+	getMinimized(id: string): MinimizedSession | undefined {
+		return this.minimizedSessions.get(id);
+	}
+
+	listMinimized(): MinimizedSession[] {
+		return Array.from(this.minimizedSessions.values());
+	}
+
+	removeMinimized(id: string): void {
+		const watcher = this.minimizedExitWatchers.get(id);
+		if (watcher) {
+			clearInterval(watcher);
+			this.minimizedExitWatchers.delete(id);
+		}
+
+		const session = this.minimizedSessions.get(id);
+		if (session) {
+			session.session.dispose();
+			this.minimizedSessions.delete(id);
+			releaseSessionId(id);
+		}
 	}
 
 	// Background session management
@@ -268,6 +354,12 @@ export class ShellSessionManager {
 		const bgIds = Array.from(this.sessions.keys());
 		for (const id of bgIds) {
 			this.remove(id);
+		}
+
+		// Kill all minimized sessions
+		const minimizedIds = Array.from(this.minimizedSessions.keys());
+		for (const id of minimizedIds) {
+			this.removeMinimized(id);
 		}
 
 		// Kill all active hands-free sessions

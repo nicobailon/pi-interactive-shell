@@ -692,6 +692,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			exitCode: this.session.exitCode,
 			signal: this.session.signal,
 			backgrounded: false,
+			minimized: false,
 			cancelled: false,
 			sessionId: this.sessionId ?? undefined,
 			userTookOver: this.userTookOver,
@@ -725,6 +726,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			exitCode: null,
 			backgrounded: true,
 			backgroundId: id,
+			minimized: false,
 			cancelled: false,
 			sessionId: this.sessionId ?? undefined,
 			userTookOver: this.userTookOver,
@@ -757,6 +759,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const result: InteractiveShellResult = {
 			exitCode: null,
 			backgrounded: false,
+			minimized: false,
 			cancelled: true,
 			sessionId: this.sessionId ?? undefined,
 			userTookOver: this.userTookOver,
@@ -770,6 +773,46 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		// so agent can query completion result. Agent's query will unregister.
 		if (this.options.onHandsFreeUpdate) {
 			this.unregisterActiveSession(true);
+		}
+
+		this.done(result);
+	}
+
+	private finishWithMinimize(): void {
+		if (this.finished) return;
+		this.finished = true;
+		this.stopCountdown();
+		this.stopTimeout();
+		this.stopHandsFreeUpdates();
+
+		// Generate session ID if not already set
+		const id = this.sessionId ?? generateSessionId(this.options.name);
+
+		// Store in minimized sessions (keeps PTY running)
+		sessionManager.minimize(
+			id,
+			this.options.command,
+			this.session,
+			this.options.name,
+			this.options.reason,
+			new Date(this.startTime),
+		);
+
+		const result: InteractiveShellResult = {
+			exitCode: null,
+			backgrounded: false,
+			minimized: true,
+			minimizedId: id,
+			cancelled: false,
+			sessionId: this.sessionId ?? undefined,
+			userTookOver: this.userTookOver,
+		};
+		this.completionResult = result;
+		this.triggerCompleteCallbacks();
+
+		// Unregister from active sessions since it's now minimized
+		if (this.sessionId) {
+			this.unregisterActiveSession(false); // Don't release ID - minimized session owns it
 		}
 
 		this.done(result);
@@ -809,6 +852,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const result: InteractiveShellResult = {
 			exitCode: null,
 			backgrounded: false,
+			minimized: false,
 			cancelled: false,
 			timedOut: true,
 			sessionId: this.sessionId ?? undefined,
@@ -853,6 +897,16 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			return;
 		}
 
+		// Ctrl+Z minimizes immediately (quick hide, keeps running)
+		if (matchesKey(data, "ctrl+z")) {
+			// If in hands-free mode, trigger takeover first (notifies agent)
+			if (this.state === "hands-free") {
+				this.triggerUserTakeover();
+			}
+			this.finishWithMinimize();
+			return;
+		}
+
 		// Scroll does NOT trigger takeover
 		if (matchesKey(data, "shift+up")) {
 			this.session.scrollUp(Math.max(1, this.session.rows - 2));
@@ -882,7 +936,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		}
 
 		if (matchesKey(data, "up") || matchesKey(data, "down")) {
-			const options: DialogChoice[] = ["kill", "background", "cancel"];
+			const options: DialogChoice[] = ["kill", "background", "minimize", "cancel"];
 			const currentIdx = options.indexOf(this.dialogSelection);
 			const direction = matchesKey(data, "up") ? -1 : 1;
 			const newIdx = (currentIdx + direction + options.length) % options.length;
@@ -898,6 +952,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 					break;
 				case "background":
 					this.finishWithBackground();
+					break;
+				case "minimize":
+					this.finishWithMinimize();
 					break;
 				case "cancel":
 					this.state = "running";
@@ -993,6 +1050,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			const opts: Array<{ key: DialogChoice; label: string }> = [
 				{ key: "kill", label: "Kill process" },
 				{ key: "background", label: "Run in background" },
+				{ key: "minimize", label: "Minimize (hide, keep running)" },
 				{ key: "cancel", label: "Cancel (return to session)" },
 			];
 			for (const opt of opts) {
@@ -1010,7 +1068,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		} else if (this.state === "hands-free") {
 			footerLines.push(row(dim("🤖 Agent controlling • Type to take over • Shift+Up/Down scroll")));
 		} else {
-			footerLines.push(row(dim("Shift+Up/Down scroll • Ctrl+Q detach • Ctrl+C interrupt")));
+			footerLines.push(row(dim("Shift+Up/Down scroll • Ctrl+Z minimize • Ctrl+Q detach")));
 		}
 
 		while (footerLines.length < FOOTER_LINES) {

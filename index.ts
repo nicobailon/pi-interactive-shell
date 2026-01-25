@@ -439,7 +439,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					overlayOpen = false;
 					// Session already handles cleanup via finishWith* methods
 					// This just ensures the promise doesn't cause unhandled rejection
-					if (result.userTookOver) {
+					if (result.minimized) {
+						ctx.ui.notify(`Session ${result.minimizedId} minimized. Use /restore to bring it back.`, "info");
+					} else if (result.userTookOver) {
 						// User took over - session continues interactively
 					}
 				}).catch(() => {
@@ -557,7 +559,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			}
 
 			let summary: string;
-			if (result.backgrounded) {
+			if (result.minimized) {
+				summary = `Session minimized (id: ${result.minimizedId}). User can restore with /restore ${result.minimizedId}`;
+				ctx.ui.notify(`Session ${result.minimizedId} minimized. Use /restore to bring it back.`, "info");
+			} else if (result.backgrounded) {
 				summary = `Session running in background (id: ${result.backgroundId}). User can reattach with /attach ${result.backgroundId}`;
 			} else if (result.cancelled) {
 				summary = "User killed the interactive session";
@@ -654,6 +659,132 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			} finally {
 				overlayOpen = false;
 			}
+		},
+	});
+
+	// Shared handler for /restore and /fg commands
+	const restoreHandler = async (args: string, ctx: Parameters<Parameters<typeof pi.registerCommand>[1]["handler"]>[1]) => {
+		// Prevent restoring while another overlay is open
+		if (overlayOpen) {
+			ctx.ui.notify("An overlay is already open. Close it first.", "error");
+			return;
+		}
+
+		const sessions = sessionManager.listMinimized();
+
+		if (sessions.length === 0) {
+			ctx.ui.notify("No minimized sessions", "info");
+			return;
+		}
+
+		let targetId = args.trim();
+
+		if (!targetId) {
+			if (sessions.length === 1) {
+				// Auto-select if only one session
+				targetId = sessions[0]!.id;
+			} else {
+				const options = sessions.map((s) => {
+					const status = s.session.exited ? "exited" : "running";
+					const duration = formatDuration(Date.now() - s.startedAt.getTime());
+					const minimizedFor = formatDuration(Date.now() - s.minimizedAt.getTime());
+					// Sanitize command and reason: collapse newlines and whitespace for display
+					const sanitizedCommand = s.command.replace(/\s+/g, " ").trim();
+					const sanitizedReason = s.reason?.replace(/\s+/g, " ").trim();
+					const reason = sanitizedReason ? ` • ${sanitizedReason}` : "";
+					return `${s.id} - ${sanitizedCommand}${reason} (${status}, running ${duration}, minimized ${minimizedFor})`;
+				});
+
+				const choice = await ctx.ui.select("Minimized Sessions", options);
+				if (!choice) return;
+				targetId = choice.split(" - ")[0]!;
+			}
+		}
+
+		const session = sessionManager.restore(targetId);
+		if (!session) {
+			ctx.ui.notify(`Session not found: ${targetId}`, "error");
+			return;
+		}
+
+		const config = loadConfig(ctx.cwd);
+		overlayOpen = true;
+		try {
+			await ctx.ui.custom<InteractiveShellResult>(
+				(tui, theme, _kb, done) =>
+					new ReattachOverlay(
+						tui,
+						theme,
+						{ id: session.id, command: session.command, reason: session.reason, session: session.session },
+						config,
+						done,
+					),
+				{
+					overlay: true,
+					overlayOptions: {
+						width: `${config.overlayWidthPercent}%`,
+						maxHeight: `${config.overlayHeightPercent}%`,
+						anchor: "center",
+						margin: 1,
+					},
+				},
+			);
+		} finally {
+			overlayOpen = false;
+		}
+	};
+
+	pi.registerCommand("restore", {
+		description: "Restore a minimized shell session",
+		handler: restoreHandler,
+	});
+
+	// Alias for /restore
+	pi.registerCommand("fg", {
+		description: "Restore a minimized shell session (alias for /restore)",
+		handler: restoreHandler,
+	});
+
+	pi.registerCommand("sessions", {
+		description: "List all shell sessions (minimized and background)",
+		handler: async (_args, ctx) => {
+			const minimized = sessionManager.listMinimized();
+			const background = sessionManager.list();
+
+			if (minimized.length === 0 && background.length === 0) {
+				ctx.ui.notify("No active sessions", "info");
+				return;
+			}
+
+			const lines: string[] = [];
+
+			if (minimized.length > 0) {
+				lines.push("MINIMIZED SESSIONS:");
+				for (const s of minimized) {
+					const status = s.session.exited ? "exited" : "running";
+					const duration = formatDuration(Date.now() - s.startedAt.getTime());
+					const minimizedFor = formatDuration(Date.now() - s.minimizedAt.getTime());
+					const sanitizedCommand = s.command.replace(/\s+/g, " ").trim();
+					const truncatedCommand = sanitizedCommand.length > 40 ? sanitizedCommand.slice(0, 37) + "..." : sanitizedCommand;
+					lines.push(`  ${s.id} - ${truncatedCommand} (${status}, ${duration}, min'd ${minimizedFor})`);
+					lines.push(`    /restore ${s.id}`);
+				}
+			}
+
+			if (background.length > 0) {
+				if (lines.length > 0) lines.push("");
+				lines.push("BACKGROUND SESSIONS:");
+				for (const s of background) {
+					const status = s.session.exited ? "exited" : "running";
+					const duration = formatDuration(Date.now() - s.startedAt.getTime());
+					const sanitizedCommand = s.command.replace(/\s+/g, " ").trim();
+					const truncatedCommand = sanitizedCommand.length > 40 ? sanitizedCommand.slice(0, 37) + "..." : sanitizedCommand;
+					lines.push(`  ${s.id} - ${truncatedCommand} (${status}, ${duration})`);
+					lines.push(`    /attach ${s.id}`);
+				}
+			}
+
+			ctx.ui.notify(lines.join("\n"), "info");
 		},
 	});
 }

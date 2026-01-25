@@ -7,6 +7,8 @@ export interface InteractiveShellResult {
 	signal?: number;
 	backgrounded: boolean;
 	backgroundId?: string;
+	minimized: boolean;
+	minimizedId?: string;
 	cancelled: boolean;
 	timedOut?: boolean;
 	sessionId?: string;
@@ -62,11 +64,11 @@ export interface InteractiveShellOptions {
 	timeout?: number;
 }
 
-export type DialogChoice = "kill" | "background" | "cancel";
+export type DialogChoice = "kill" | "background" | "minimize" | "cancel";
 export type OverlayState = "running" | "exited" | "detach-dialog" | "hands-free";
 
 // UI constants
-export const FOOTER_LINES = 5;
+export const FOOTER_LINES = 6;
 export const HEADER_LINES = 4;
 export const CHROME_LINES = HEADER_LINES + FOOTER_LINES + 2;
 
