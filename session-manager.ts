@@ -149,6 +149,7 @@ export class ShellSessionManager {
 	private activeSessions = new Map<string, ActiveSession>();
 	private minimizedSessions = new Map<string, MinimizedSession>();
 	private minimizedExitWatchers = new Map<string, NodeJS.Timeout>();
+	private minimizedCleanupTimers = new Map<string, NodeJS.Timeout>();
 
 	// Active hands-free session management
 	registerActive(session: {
@@ -218,6 +219,18 @@ export class ShellSessionManager {
 		reason?: string,
 		startedAt?: Date
 	): string {
+		// Clear any existing watcher/timer for this ID (defensive)
+		const existingWatcher = this.minimizedExitWatchers.get(id);
+		if (existingWatcher) {
+			clearInterval(existingWatcher);
+			this.minimizedExitWatchers.delete(id);
+		}
+		const existingTimer = this.minimizedCleanupTimers.get(id);
+		if (existingTimer) {
+			clearTimeout(existingTimer);
+			this.minimizedCleanupTimers.delete(id);
+		}
+
 		this.minimizedSessions.set(id, {
 			id,
 			name: name || deriveSessionName(command),
@@ -234,11 +247,13 @@ export class ShellSessionManager {
 				clearInterval(checkExit);
 				this.minimizedExitWatchers.delete(id);
 				// Auto-remove after 30s if exited while minimized
-				setTimeout(() => {
+				const cleanupTimer = setTimeout(() => {
+					this.minimizedCleanupTimers.delete(id);
 					if (this.minimizedSessions.has(id)) {
 						this.removeMinimized(id);
 					}
 				}, 30000);
+				this.minimizedCleanupTimers.set(id, cleanupTimer);
 			}
 		}, 1000);
 		this.minimizedExitWatchers.set(id, checkExit);
@@ -254,6 +269,12 @@ export class ShellSessionManager {
 			if (watcher) {
 				clearInterval(watcher);
 				this.minimizedExitWatchers.delete(id);
+			}
+			// Cancel cleanup timer if session already exited
+			const cleanupTimer = this.minimizedCleanupTimers.get(id);
+			if (cleanupTimer) {
+				clearTimeout(cleanupTimer);
+				this.minimizedCleanupTimers.delete(id);
 			}
 			this.minimizedSessions.delete(id);
 		}
@@ -273,6 +294,12 @@ export class ShellSessionManager {
 		if (watcher) {
 			clearInterval(watcher);
 			this.minimizedExitWatchers.delete(id);
+		}
+
+		const cleanupTimer = this.minimizedCleanupTimers.get(id);
+		if (cleanupTimer) {
+			clearTimeout(cleanupTimer);
+			this.minimizedCleanupTimers.delete(id);
 		}
 
 		const session = this.minimizedSessions.get(id);
@@ -300,6 +327,18 @@ export class ShellSessionManager {
 			this.cleanupTimers.delete(id);
 		}
 
+		// Clear any existing minimized watchers/timers for this ID (defensive)
+		const existingMinWatcher = this.minimizedExitWatchers.get(id);
+		if (existingMinWatcher) {
+			clearInterval(existingMinWatcher);
+			this.minimizedExitWatchers.delete(id);
+		}
+		const existingMinTimer = this.minimizedCleanupTimers.get(id);
+		if (existingMinTimer) {
+			clearTimeout(existingMinTimer);
+			this.minimizedCleanupTimers.delete(id);
+		}
+
 		// Remove from background (don't dispose, don't release ID)
 		this.sessions.delete(id);
 
@@ -320,11 +359,13 @@ export class ShellSessionManager {
 				clearInterval(checkExit);
 				this.minimizedExitWatchers.delete(id);
 				// Auto-remove after 30s if exited while minimized
-				setTimeout(() => {
+				const cleanupTimer = setTimeout(() => {
+					this.minimizedCleanupTimers.delete(id);
 					if (this.minimizedSessions.has(id)) {
 						this.removeMinimized(id);
 					}
 				}, 30000);
+				this.minimizedCleanupTimers.set(id, cleanupTimer);
 			}
 		}, 1000);
 		this.minimizedExitWatchers.set(id, checkExit);
