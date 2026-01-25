@@ -283,9 +283,64 @@ export class ShellSessionManager {
 		}
 	}
 
+	/** Transfer a background session to minimized without disposing it */
+	transferBackgroundToMinimized(id: string): boolean {
+		const bgSession = this.sessions.get(id);
+		if (!bgSession) return false;
+
+		// Clear background session watchers/timers
+		const exitWatcher = this.exitWatchers.get(id);
+		if (exitWatcher) {
+			clearInterval(exitWatcher);
+			this.exitWatchers.delete(id);
+		}
+		const cleanupTimer = this.cleanupTimers.get(id);
+		if (cleanupTimer) {
+			clearTimeout(cleanupTimer);
+			this.cleanupTimers.delete(id);
+		}
+
+		// Remove from background (don't dispose, don't release ID)
+		this.sessions.delete(id);
+
+		// Add to minimized with a new exit watcher
+		this.minimizedSessions.set(id, {
+			id: bgSession.id,
+			name: bgSession.name,
+			command: bgSession.command,
+			reason: bgSession.reason,
+			session: bgSession.session,
+			startedAt: bgSession.startedAt,
+			minimizedAt: new Date(),
+		});
+
+		// Watch for exit while minimized
+		const checkExit = setInterval(() => {
+			if (bgSession.session.exited) {
+				clearInterval(checkExit);
+				this.minimizedExitWatchers.delete(id);
+				// Auto-remove after 30s if exited while minimized
+				setTimeout(() => {
+					if (this.minimizedSessions.has(id)) {
+						this.removeMinimized(id);
+					}
+				}, 30000);
+			}
+		}, 1000);
+		this.minimizedExitWatchers.set(id, checkExit);
+
+		return true;
+	}
+
 	// Background session management
 	add(command: string, session: PtyTerminalSession, name?: string, reason?: string): string {
 		const id = generateSessionId(name);
+		this.addWithId(id, command, session, name, reason);
+		return id;
+	}
+
+	/** Add a session to background with a specific ID (for restoring sessions) */
+	addWithId(id: string, command: string, session: PtyTerminalSession, name?: string, reason?: string): void {
 		this.sessions.set(id, {
 			id,
 			name: name || deriveSessionName(command),
@@ -309,8 +364,6 @@ export class ShellSessionManager {
 			}
 		}, 1000);
 		this.exitWatchers.set(id, checkExit);
-
-		return id;
 	}
 
 	get(id: string): BackgroundSession | undefined {

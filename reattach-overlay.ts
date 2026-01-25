@@ -5,7 +5,7 @@ import type { Component, Focusable, TUI } from "@mariozechner/pi-tui";
 import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { PtyTerminalSession } from "./pty-session.js";
-import { sessionManager } from "./session-manager.js";
+import { sessionManager, releaseSessionId } from "./session-manager.js";
 import type { InteractiveShellConfig } from "./config.js";
 import {
 	type InteractiveShellResult,
@@ -169,7 +169,15 @@ export class ReattachOverlay implements Component, Focusable {
 		this.stopCountdown();
 		const handoffPreview = this.maybeBuildHandoffPreview("exit");
 		const handoff = this.maybeWriteHandoffSnapshot("exit");
-		sessionManager.remove(this.bgSession.id);
+		// Try to remove from background map (for /attach sessions)
+		// If not found (restored from minimized), clean up manually
+		if (!sessionManager.get(this.bgSession.id)) {
+			// Session was restored from minimized, dispose and release ID manually
+			this.session.dispose();
+			releaseSessionId(this.bgSession.id);
+		} else {
+			sessionManager.remove(this.bgSession.id);
+		}
 		this.done({
 			exitCode: this.session.exitCode,
 			signal: this.session.signal,
@@ -188,6 +196,17 @@ export class ReattachOverlay implements Component, Focusable {
 		const handoffPreview = this.maybeBuildHandoffPreview("detach");
 		const handoff = this.maybeWriteHandoffSnapshot("detach");
 		this.session.setEventHandlers({});
+
+		// Ensure session is in background map (it might have come from /restore which removed it from minimized)
+		// sessionManager.get() returns undefined if not in background map
+		if (!sessionManager.get(this.bgSession.id)) {
+			// Session was restored from minimized, add it to background
+			// Note: add() generates a new ID, but we want to keep the same ID
+			// So we need to add it manually or use a method that accepts an ID
+			// For now, we'll re-add and the ID will be preserved since usedIds still has it
+			sessionManager.addWithId(this.bgSession.id, this.bgSession.command, this.session, undefined, this.bgSession.reason);
+		}
+
 		this.done({
 			exitCode: null,
 			backgrounded: true,
@@ -205,15 +224,19 @@ export class ReattachOverlay implements Component, Focusable {
 		this.stopCountdown();
 		this.session.setEventHandlers({});
 
-		// Move from background to minimized
-		sessionManager.remove(this.bgSession.id);
-		sessionManager.minimize(
-			this.bgSession.id,
-			this.bgSession.command,
-			this.session,
-			undefined,
-			this.bgSession.reason,
-		);
+		// Try to transfer from background to minimized first (for /attach sessions)
+		// If that fails, directly add to minimized (for /restore sessions that were already minimized)
+		const transferred = sessionManager.transferBackgroundToMinimized(this.bgSession.id);
+		if (!transferred) {
+			// Session was restored from minimized, add it back directly
+			sessionManager.minimize(
+				this.bgSession.id,
+				this.bgSession.command,
+				this.session,
+				undefined,
+				this.bgSession.reason,
+			);
+		}
 
 		this.done({
 			exitCode: null,
@@ -230,7 +253,16 @@ export class ReattachOverlay implements Component, Focusable {
 		this.stopCountdown();
 		const handoffPreview = this.maybeBuildHandoffPreview("kill");
 		const handoff = this.maybeWriteHandoffSnapshot("kill");
-		sessionManager.remove(this.bgSession.id);
+		// Try to remove from background map (for /attach sessions)
+		// If not found (restored from minimized), kill and clean up manually
+		if (!sessionManager.get(this.bgSession.id)) {
+			// Session was restored from minimized, kill, dispose, and release ID manually
+			this.session.kill();
+			this.session.dispose();
+			releaseSessionId(this.bgSession.id);
+		} else {
+			sessionManager.remove(this.bgSession.id);
+		}
 		this.done({
 			exitCode: null,
 			backgrounded: false,
