@@ -35,6 +35,7 @@
     "postinstall": "node ./scripts/fix-spawn-helper.cjs"
   },
   "keywords": [
+    "pi-package",
     "pi",
     "pi-coding-agent",
     "extension",

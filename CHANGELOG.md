@@ -2,6 +2,11 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Added `pi-package` keyword for npm discoverability (pi v0.50.0 package system)
+
 ## [0.5.2] - 2026-01-23
 
 ### Fixed
