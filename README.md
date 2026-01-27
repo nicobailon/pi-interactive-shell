@@ -25,10 +25,8 @@ Works with any CLI: `vim`, `htop`, `psql`, `ssh`, `docker logs -f`, `npm run dev
 ## Install
 
 ```bash
-npx pi-interactive-shell
+pi install npm:pi-interactive-shell
 ```
-
-Installs to `~/.pi/agent/extensions/interactive-shell/`.
 
 The `interactive-shell` skill is automatically symlinked to `~/.pi/agent/skills/interactive-shell/`.
 
