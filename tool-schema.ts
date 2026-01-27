@@ -16,7 +16,8 @@ MODES:
 The user will see the process in an overlay. They can:
 - Watch output in real-time
 - Scroll through output (Shift+Up/Down)
-- Detach (Ctrl+Q) to kill or run in background
+- Transfer output to you (Ctrl+T) - closes overlay and sends output as your context
+- Detach (Ctrl+Q) for menu: transfer/background/kill
 - In hands-free mode: type anything to take over control
 
 HANDS-FREE MODE (NON-BLOCKING):

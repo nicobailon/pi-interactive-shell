@@ -557,7 +557,13 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			}
 
 			let summary: string;
-			if (result.backgrounded) {
+			if (result.transferred) {
+				// User triggered "Transfer" action - output is the primary content
+				const truncatedNote = result.transferred.truncated
+					? ` (truncated from ${result.transferred.totalLines} total lines)`
+					: "";
+				summary = `Session output transferred (${result.transferred.lines.length} lines${truncatedNote}):\n\n${result.transferred.lines.join("\n")}`;
+			} else if (result.backgrounded) {
 				summary = `Session running in background (id: ${result.backgroundId}). User can reattach with /attach ${result.backgroundId}`;
 			} else if (result.cancelled) {
 				summary = "User killed the interactive session";
@@ -577,7 +583,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				summary += `\n\n${warning}`;
 			}
 
-			if (result.handoffPreview?.type === "tail" && result.handoffPreview.lines.length > 0) {
+			// Only include handoff preview if not already transferring (transfer includes full output)
+			if (!result.transferred && result.handoffPreview?.type === "tail" && result.handoffPreview.lines.length > 0) {
 				const tailHeader = `\n\nOverlay tail (${result.handoffPreview.when}, last ${result.handoffPreview.lines.length} lines):\n`;
 				summary += tailHeader + result.handoffPreview.lines.join("\n");
 			}

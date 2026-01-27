@@ -25,7 +25,7 @@ export class ReattachOverlay implements Component, Focusable {
 	private config: InteractiveShellConfig;
 
 	private state: OverlayState = "running";
-	private dialogSelection: DialogChoice = "background";
+	private dialogSelection: DialogChoice = "transfer";
 	private exitCountdown = 0;
 	private countdownInterval: ReturnType<typeof setInterval> | null = null;
 	private initialExitTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -101,7 +101,43 @@ export class ReattachOverlay implements Component, Focusable {
 		}
 	}
 
-	private maybeBuildHandoffPreview(when: "exit" | "detach" | "kill"): InteractiveShellResult["handoffPreview"] | undefined {
+	/** Capture output for transfer action (Ctrl+T or dialog) */
+	private captureTransferOutput(): InteractiveShellResult["transferred"] {
+		const maxLines = this.config.transferLines;
+		const maxChars = this.config.transferMaxChars;
+
+		// Use raw output stream for clean content
+		const rawOutput = this.session.getRawStream({ stripAnsi: true });
+		if (!rawOutput) {
+			return { lines: [], totalLines: 0, truncated: false };
+		}
+
+		const allLines = rawOutput.split("\n");
+		const totalLines = allLines.length;
+
+		// Get last N lines, respecting maxChars
+		let capturedLines: string[] = [];
+		let charCount = 0;
+		let truncated = false;
+
+		for (let i = allLines.length - 1; i >= 0 && capturedLines.length < maxLines; i--) {
+			const line = allLines[i]!;
+			if (charCount + line.length > maxChars && capturedLines.length > 0) {
+				truncated = true;
+				break;
+			}
+			capturedLines.unshift(line);
+			charCount += line.length + 1; // +1 for newline
+		}
+
+		if (capturedLines.length < totalLines) {
+			truncated = true;
+		}
+
+		return { lines: capturedLines, totalLines, truncated };
+	}
+
+	private maybeBuildHandoffPreview(when: "exit" | "detach" | "kill" | "transfer"): InteractiveShellResult["handoffPreview"] | undefined {
 		if (!this.config.handoffPreviewEnabled) return undefined;
 		const lines = this.config.handoffPreviewLines;
 		const maxChars = this.config.handoffPreviewMaxChars;
@@ -127,7 +163,7 @@ export class ReattachOverlay implements Component, Focusable {
 		return { type: "tail", when, lines: tail };
 	}
 
-	private maybeWriteHandoffSnapshot(when: "exit" | "detach" | "kill"): InteractiveShellResult["handoff"] | undefined {
+	private maybeWriteHandoffSnapshot(when: "exit" | "detach" | "kill" | "transfer"): InteractiveShellResult["handoff"] | undefined {
 		if (!this.config.handoffSnapshotEnabled) return undefined;
 		const lines = this.config.handoffSnapshotLines;
 		const maxChars = this.config.handoffSnapshotMaxChars;
@@ -213,9 +249,37 @@ export class ReattachOverlay implements Component, Focusable {
 		});
 	}
 
+	private finishWithTransfer(): void {
+		if (this.finished) return;
+		this.finished = true;
+		this.stopCountdown();
+
+		// Capture output BEFORE removing session
+		const transferred = this.captureTransferOutput();
+		const handoffPreview = this.maybeBuildHandoffPreview("transfer");
+		const handoff = this.maybeWriteHandoffSnapshot("transfer");
+
+		sessionManager.remove(this.bgSession.id);
+		this.done({
+			exitCode: this.session.exitCode,
+			signal: this.session.signal,
+			backgrounded: false,
+			cancelled: false,
+			transferred,
+			handoffPreview,
+			handoff,
+		});
+	}
+
 	handleInput(data: string): void {
 		if (this.state === "detach-dialog") {
 			this.handleDialogInput(data);
+			return;
+		}
+
+		// Ctrl+T: Quick transfer - capture output and close (works in all states including "exited")
+		if (matchesKey(data, "ctrl+t")) {
+			this.finishWithTransfer();
 			return;
 		}
 
@@ -237,7 +301,7 @@ export class ReattachOverlay implements Component, Focusable {
 		// Ctrl+Q opens detach dialog
 		if (matchesKey(data, "ctrl+q")) {
 			this.state = "detach-dialog";
-			this.dialogSelection = "background";
+			this.dialogSelection = "transfer";
 			this.tui.requestRender();
 			return;
 		}
@@ -264,7 +328,7 @@ export class ReattachOverlay implements Component, Focusable {
 		}
 
 		if (matchesKey(data, "up") || matchesKey(data, "down")) {
-			const options: DialogChoice[] = ["kill", "background", "cancel"];
+			const options: DialogChoice[] = ["transfer", "background", "kill", "cancel"];
 			const currentIdx = options.indexOf(this.dialogSelection);
 			const direction = matchesKey(data, "up") ? -1 : 1;
 			const newIdx = (currentIdx + direction + options.length) % options.length;
@@ -275,6 +339,9 @@ export class ReattachOverlay implements Component, Focusable {
 
 		if (matchesKey(data, "enter")) {
 			switch (this.dialogSelection) {
+				case "transfer":
+					this.finishWithTransfer();
+					break;
 				case "kill":
 					this.finishWithKill();
 					break;
@@ -367,10 +434,11 @@ export class ReattachOverlay implements Component, Focusable {
 		const footerLines: string[] = [];
 
 		if (this.state === "detach-dialog") {
-			footerLines.push(row(accent("Detach from session:")));
+			footerLines.push(row(accent("Session actions:")));
 			const opts: Array<{ key: DialogChoice; label: string }> = [
-				{ key: "kill", label: "Kill process" },
+				{ key: "transfer", label: "Transfer output to agent" },
 				{ key: "background", label: "Run in background" },
+				{ key: "kill", label: "Kill process" },
 				{ key: "cancel", label: "Cancel (return to session)" },
 			];
 			for (const opt of opts) {
@@ -386,7 +454,7 @@ export class ReattachOverlay implements Component, Focusable {
 			footerLines.push(row(exitMsg));
 			footerLines.push(row(dim(`Closing in ${this.exitCountdown}s... (any key to close)`)));
 		} else {
-			footerLines.push(row(dim("Shift+Up/Down scroll • Ctrl+Q detach")));
+			footerLines.push(row(dim("Ctrl+T transfer • Ctrl+Q menu • Shift+Up/Down scroll")));
 		}
 
 		while (footerLines.length < FOOTER_LINES) {

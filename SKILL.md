@@ -340,6 +340,26 @@ interactive_shell({ command: 'claude "Review the codebase"', reason: 'Code revie
 
 ## Handoff Options
 
+### Transfer (Ctrl+T) - Recommended
+When the subagent finishes, the user presses **Ctrl+T** to transfer output directly to you:
+
+```
+[Subagent finishes work in overlay]
+        ↓
+[User presses Ctrl+T]
+        ↓
+[You receive: "Session output transferred (150 lines):
+  
+  Completing skill integration...
+  Modified files:
+  - skills.ts
+  - agents/types/..."]
+```
+
+This is the cleanest workflow - the subagent's response becomes your context automatically.
+
+**Configuration:** `transferLines` (default: 200), `transferMaxChars` (default: 20KB)
+
 ### Tail Preview (default)
 Last 30 lines included in tool result. Good for seeing errors/final status.
 
@@ -352,7 +372,7 @@ interactive_shell({
 })
 ```
 
-### Artifact Handoff (recommended for complex tasks)
+### Artifact Handoff (for complex tasks)
 Instruct the delegated agent to write a handoff file:
 ```
 Write your findings to .pi/delegation/claude-handoff.md including:

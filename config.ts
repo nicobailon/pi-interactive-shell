@@ -14,6 +14,9 @@ export interface InteractiveShellConfig {
 	handoffSnapshotEnabled: boolean;
 	handoffSnapshotLines: number;
 	handoffSnapshotMaxChars: number;
+	// Transfer output settings (Ctrl+T)
+	transferLines: number;
+	transferMaxChars: number;
 	// Hands-free mode defaults
 	handsFreeUpdateMode: "on-quiet" | "interval";
 	handsFreeUpdateInterval: number;
@@ -36,6 +39,9 @@ const DEFAULT_CONFIG: InteractiveShellConfig = {
 	handoffSnapshotEnabled: false,
 	handoffSnapshotLines: 200,
 	handoffSnapshotMaxChars: 12000,
+	// Transfer output settings (Ctrl+T) - generous defaults for full context transfer
+	transferLines: 200,
+	transferMaxChars: 20000,
 	// Hands-free mode defaults
 	handsFreeUpdateMode: "on-quiet" as const,
 	handsFreeUpdateInterval: 60000,
@@ -94,6 +100,9 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 			0,
 			200000,
 		),
+		// Transfer output settings (Ctrl+T)
+		transferLines: clampInt(merged.transferLines, DEFAULT_CONFIG.transferLines, 10, 1000),
+		transferMaxChars: clampInt(merged.transferMaxChars, DEFAULT_CONFIG.transferMaxChars, 1000, 100000),
 		// Hands-free mode
 		handsFreeUpdateMode: merged.handsFreeUpdateMode === "interval" ? "interval" : "on-quiet",
 		handsFreeUpdateInterval: clampInt(

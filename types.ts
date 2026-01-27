@@ -11,14 +11,20 @@ export interface InteractiveShellResult {
 	timedOut?: boolean;
 	sessionId?: string;
 	userTookOver?: boolean;
+	/** When user triggers "Transfer" action, this contains the captured output */
+	transferred?: {
+		lines: string[];
+		totalLines: number;
+		truncated: boolean;
+	};
 	handoffPreview?: {
 		type: "tail";
-		when: "exit" | "detach" | "kill" | "timeout";
+		when: "exit" | "detach" | "kill" | "timeout" | "transfer";
 		lines: string[];
 	};
 	handoff?: {
 		type: "snapshot";
-		when: "exit" | "detach" | "kill" | "timeout";
+		when: "exit" | "detach" | "kill" | "timeout" | "transfer";
 		transcriptPath: string;
 		linesWritten: number;
 	};
@@ -62,11 +68,11 @@ export interface InteractiveShellOptions {
 	timeout?: number;
 }
 
-export type DialogChoice = "kill" | "background" | "cancel";
+export type DialogChoice = "kill" | "background" | "transfer" | "cancel";
 export type OverlayState = "running" | "exited" | "detach-dialog" | "hands-free";
 
 // UI constants
-export const FOOTER_LINES = 5;
+export const FOOTER_LINES = 6;
 export const HEADER_LINES = 4;
 export const CHROME_LINES = HEADER_LINES + FOOTER_LINES + 2;
 

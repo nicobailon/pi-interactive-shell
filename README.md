@@ -132,6 +132,24 @@ interactive_shell({ sessionId: "calm-reef", outputLines: 50, incremental: true }
 interactive_shell({ sessionId: "calm-reef", drain: true })
 ```
 
+### Transfer Output to Agent
+
+When a subagent finishes work, press **Ctrl+T** to capture its output and send it directly to the main agent:
+
+```
+[Subagent finishes work]
+        ↓
+[Press Ctrl+T]
+        ↓
+[Overlay closes, main agent receives full output]
+```
+
+The main agent then has the subagent's response in context and can continue working with that information.
+
+**Configuration:**
+- `transferLines`: Max lines to capture (default: 200)
+- `transferMaxChars`: Max characters (default: 20KB)
+
 ### Background Sessions
 
 1. Ctrl+Q → "Run in background"
@@ -141,7 +159,8 @@ interactive_shell({ sessionId: "calm-reef", drain: true })
 
 | Key | Action |
 |-----|--------|
-| Ctrl+Q | Detach dialog |
+| Ctrl+T | **Transfer & close** - capture output and send to main agent |
+| Ctrl+Q | Session menu (transfer/background/kill/cancel) |
 | Shift+Up/Down | Scroll history |
 | Any key (hands-free) | Take over control |
 
@@ -158,6 +177,8 @@ Configuration files (project overrides global):
   "scrollbackLines": 5000,
   "exitAutoCloseDelay": 10,
   "minQueryIntervalSeconds": 60,
+  "transferLines": 200,
+  "transferMaxChars": 20000,
   "handsFreeUpdateMode": "on-quiet",
   "handsFreeUpdateInterval": 60000,
   "handsFreeQuietThreshold": 5000,
@@ -178,6 +199,8 @@ Configuration files (project overrides global):
 | `scrollbackLines` | 5000 | Terminal scrollback buffer |
 | `exitAutoCloseDelay` | 10 | Seconds before auto-close after exit |
 | `minQueryIntervalSeconds` | 60 | Rate limit between agent queries |
+| `transferLines` | 200 | Lines to capture on Ctrl+T transfer (10-1000) |
+| `transferMaxChars` | 20000 | Max chars for transfer (1KB-100KB) |
 | `handsFreeUpdateMode` | "on-quiet" | "on-quiet" or "interval" |
 | `handsFreeQuietThreshold` | 5000 | Silence duration before update (ms) |
 | `handsFreeUpdateInterval` | 60000 | Max interval between updates (ms) |

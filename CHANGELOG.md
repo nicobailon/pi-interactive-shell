@@ -4,6 +4,17 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-01-27
+
+### Added
+- **Transfer output to agent (Ctrl+T)** - New action to capture subagent output and send it directly to the main agent. When a subagent finishes work, press Ctrl+T to close the overlay and transfer the output as primary content (not buried in details). The main agent immediately has the subagent's response in context.
+- **Transfer option in Ctrl+Q menu** - "Transfer output to agent" is now the first option in the session menu, making it the default selection.
+- **Configurable transfer settings** - `transferLines` (default: 200, range: 10-1000) and `transferMaxChars` (default: 20KB, range: 1KB-100KB) control how much output is captured.
+
+### Changed
+- **Ctrl+Q menu redesigned** - Options are now: Transfer output → Run in background → Kill process → Cancel. Transfer is the default selection since it's the most common action when a subagent finishes.
+- **Footer hints updated** - Now shows "Ctrl+T transfer • Ctrl+Q menu" for discoverability.
+
 ## [0.5.3] - 2026-01-26
 
 ### Changed
