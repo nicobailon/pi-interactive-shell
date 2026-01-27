@@ -4,6 +4,11 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-01-27
+
+### Added
+- **Banner image** - Added fancy banner to README for consistent branding with other pi extensions
+
 ## [0.6.0] - 2026-01-27
 
 ### Added
