@@ -1,3 +1,7 @@
+<p>
+  <img src="banner.png" alt="pi-interactive-shell" width="1100">
+</p>
+
 # Pi Interactive Shell
 
 An extension for [Pi coding agent](https://github.com/badlogic/pi-mono/) that lets Pi autonomously run interactive CLIs in an observable TUI overlay. Pi controls the subprocess while you watch - take over anytime.
