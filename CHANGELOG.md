@@ -4,6 +4,15 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-01-28
+
+### Fixed
+- **Ctrl+T transfer now works in hands-free mode** - When using Ctrl+T to transfer output in non-blocking hands-free mode, the captured output is now properly sent back to the main agent using `pi.sendMessage()` with `triggerTurn: true`. Previously, the transfer data was captured but never delivered to the agent because the tool had already returned. The fix uses the event bus pattern to wake the agent with the transferred content.
+- **Race condition when Ctrl+T during polling** - Added guard in `getOutputSinceLastCheck()` to return empty output if the session is finished. This prevents errors when a query races with Ctrl+T transfer (PTY disposed before query completes).
+
+### Added
+- **New event: `interactive-shell:transfer`** - Emitted via `pi.events` when Ctrl+T transfer occurs, allowing other extensions to hook into transfer events.
+
 ## [0.6.1] - 2026-01-27
 
 ### Added

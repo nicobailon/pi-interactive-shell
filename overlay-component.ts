@@ -190,6 +190,16 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 	/** Get rendered terminal output (last N lines, truncated if too large) */
 	getOutputSinceLastCheck(options: { skipRateLimit?: boolean; lines?: number; maxChars?: number; offset?: number; drain?: boolean; incremental?: boolean } | boolean = false): { output: string; truncated: boolean; totalBytes: number; totalLines?: number; hasMore?: boolean; rateLimited?: boolean; waitSeconds?: number } {
+		// Guard: if session is finished (PTY disposed), return empty output
+		// This handles race conditions where query arrives after Ctrl+T transfer
+		if (this.finished) {
+			return {
+				output: "",
+				truncated: false,
+				totalBytes: 0,
+			};
+		}
+
 		// Handle legacy boolean parameter
 		const opts = typeof options === "boolean" ? { skipRateLimit: options } : options;
 		const skipRateLimit = opts.skipRateLimit ?? false;

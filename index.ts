@@ -437,10 +437,37 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				// Handle overlay completion in background (cleanup when user closes)
 				overlayPromise.then((result) => {
 					overlayOpen = false;
-					// Session already handles cleanup via finishWith* methods
-					// This just ensures the promise doesn't cause unhandled rejection
-					if (result.userTookOver) {
-						// User took over - session continues interactively
+					
+					// Handle Ctrl+T transfer: send output back to main agent
+					if (result.transferred) {
+						const truncatedNote = result.transferred.truncated
+							? ` (truncated from ${result.transferred.totalLines} total lines)`
+							: "";
+						const content = `Session ${generatedSessionId} output transferred (${result.transferred.lines.length} lines${truncatedNote}):\n\n${result.transferred.lines.join("\n")}`;
+						
+						// Send message with triggerTurn to wake the agent
+						pi.sendMessage({
+							customType: "interactive-shell-transfer",
+							content,
+							display: true,
+							details: {
+								sessionId: generatedSessionId,
+								transferred: result.transferred,
+								exitCode: result.exitCode,
+								signal: result.signal,
+							},
+						}, { triggerTurn: true });
+						
+						// Emit event for extensions that want to handle transfers
+						pi.events.emit("interactive-shell:transfer", {
+							sessionId: generatedSessionId,
+							transferred: result.transferred,
+							exitCode: result.exitCode,
+							signal: result.signal,
+						});
+						
+						// Unregister session - PTY is disposed, agent has the output via sendMessage
+						sessionManager.unregisterActive(generatedSessionId, true);
 					}
 				}).catch(() => {
 					overlayOpen = false;
