@@ -4,6 +4,12 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-01-30
+
+### Fixed
+- **Garbled output on Ctrl+T transfer** - Transfer and handoff preview captured raw PTY output via `getRawStream()`, which includes every intermediate frame of TUI spinners (e.g., Codex's "Working" spinner produced `WorkingWorking•orking•rking•king•ing...`). Switched both `captureTransferOutput()` and `maybeBuildHandoffPreview()` to use `getTailLines()` which reads from the xterm terminal emulator buffer. The emulator correctly processes carriage returns and cursor movements, so only the final rendered state of each line is captured. Fixed in both `overlay-component.ts` and `reattach-overlay.ts`.
+- **Removed dead code** - Cleaned up unused private fields (`timedOut`, `lastDataTime`) and unreachable method (`getSessionId()`) from `InteractiveShellOverlay`.
+
 ## [0.6.2] - 2026-01-28
 
 ### Fixed

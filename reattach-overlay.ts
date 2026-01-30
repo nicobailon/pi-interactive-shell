@@ -106,35 +106,19 @@ export class ReattachOverlay implements Component, Focusable {
 		const maxLines = this.config.transferLines;
 		const maxChars = this.config.transferMaxChars;
 
-		// Use raw output stream for clean content
-		const rawOutput = this.session.getRawStream({ stripAnsi: true });
-		if (!rawOutput) {
-			return { lines: [], totalLines: 0, truncated: false };
-		}
+		const result = this.session.getTailLines({
+			lines: maxLines,
+			ansi: false,
+			maxChars,
+		});
 
-		const allLines = rawOutput.split("\n");
-		const totalLines = allLines.length;
+		const truncated = result.lines.length < result.totalLinesInBuffer || result.truncatedByChars;
 
-		// Get last N lines, respecting maxChars
-		let capturedLines: string[] = [];
-		let charCount = 0;
-		let truncated = false;
-
-		for (let i = allLines.length - 1; i >= 0 && capturedLines.length < maxLines; i--) {
-			const line = allLines[i]!;
-			if (charCount + line.length > maxChars && capturedLines.length > 0) {
-				truncated = true;
-				break;
-			}
-			capturedLines.unshift(line);
-			charCount += line.length + 1; // +1 for newline
-		}
-
-		if (capturedLines.length < totalLines) {
-			truncated = true;
-		}
-
-		return { lines: capturedLines, totalLines, truncated };
+		return {
+			lines: result.lines,
+			totalLines: result.totalLinesInBuffer,
+			truncated,
+		};
 	}
 
 	private maybeBuildHandoffPreview(when: "exit" | "detach" | "kill" | "transfer"): InteractiveShellResult["handoffPreview"] | undefined {
@@ -143,24 +127,13 @@ export class ReattachOverlay implements Component, Focusable {
 		const maxChars = this.config.handoffPreviewMaxChars;
 		if (lines <= 0 || maxChars <= 0) return undefined;
 
-		// Use raw output stream instead of xterm buffer - TUI apps using alternate
-		// screen buffer can have misleading content in getTailLines()
-		const rawOutput = this.session.getRawStream({ stripAnsi: true });
-		if (!rawOutput) return { type: "tail", when, lines: [] };
-		
-		const outputLines = rawOutput.split("\n");
+		const result = this.session.getTailLines({
+			lines,
+			ansi: false,
+			maxChars,
+		});
 
-		// Get last N lines, respecting maxChars
-		let tail: string[] = [];
-		let charCount = 0;
-		for (let i = outputLines.length - 1; i >= 0 && tail.length < lines; i--) {
-			const line = outputLines[i];
-			if (charCount + line.length > maxChars && tail.length > 0) break;
-			tail.unshift(line);
-			charCount += line.length + 1; // +1 for newline
-		}
-
-		return { type: "tail", when, lines: tail };
+		return { type: "tail", when, lines: result.lines };
 	}
 
 	private maybeWriteHandoffSnapshot(when: "exit" | "detach" | "kill" | "transfer"): InteractiveShellResult["handoff"] | undefined {
