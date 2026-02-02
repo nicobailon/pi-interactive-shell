@@ -22,7 +22,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		description: TOOL_DESCRIPTION,
 		parameters: toolParameters,
 
-		async execute(_toolCallId, params, onUpdate, ctx) {
+		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
 			const {
 				command,
 				sessionId,

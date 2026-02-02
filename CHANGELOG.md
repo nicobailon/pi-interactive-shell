@@ -4,6 +4,11 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-02-01
+
+### Fixed
+- Adapt execute signature to pi v0.51.0: insert signal as 3rd parameter
+
 ## [0.6.3] - 2026-01-30
 
 ### Fixed
