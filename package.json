@@ -26,7 +26,8 @@
   "pi": {
     "extensions": [
       "./index.ts"
-    ]
+    ],
+    "video": "https://github.com/nicobailon/pi-interactive-shell/raw/refs/heads/main/pi-interactive-shell-extension.mp4"
   },
   "dependencies": {
     "node-pty": "^1.1.0",
