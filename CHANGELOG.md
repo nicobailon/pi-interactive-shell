@@ -4,6 +4,11 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-02-03
+
+### Changed
+- Added demo video and `pi.video` field to package.json for pi package browser.
+
 ## [0.7.0] - 2026-02-03
 
 ### Added
