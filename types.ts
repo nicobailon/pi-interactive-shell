@@ -17,6 +17,12 @@ export interface InteractiveShellResult {
 		totalLines: number;
 		truncated: boolean;
 	};
+	/** Captured before PTY disposal for dispatch mode completion notifications */
+	completionOutput?: {
+		lines: string[];
+		totalLines: number;
+		truncated: boolean;
+	};
 	handoffPreview?: {
 		type: "tail";
 		when: "exit" | "detach" | "kill" | "timeout" | "transfer";
@@ -53,9 +59,9 @@ export interface InteractiveShellOptions {
 	handoffSnapshotEnabled?: boolean;
 	handoffSnapshotLines?: number;
 	handoffSnapshotMaxChars?: number;
-	// Hands-free mode
-	mode?: "interactive" | "hands-free";
-	sessionId?: string; // Pre-generated sessionId for hands-free mode
+	// Hands-free / dispatch mode
+	mode?: "interactive" | "hands-free" | "dispatch";
+	sessionId?: string; // Pre-generated sessionId for non-blocking modes
 	handsFreeUpdateMode?: "on-quiet" | "interval";
 	handsFreeUpdateInterval?: number;
 	handsFreeQuietThreshold?: number;
@@ -66,6 +72,8 @@ export interface InteractiveShellOptions {
 	autoExitOnQuiet?: boolean;
 	// Auto-kill timeout
 	timeout?: number;
+	// Existing PTY session (for attach flow -- skip creating a new PTY)
+	existingSession?: import("./pty-session.js").PtyTerminalSession;
 }
 
 export type DialogChoice = "kill" | "background" | "transfer" | "cancel";

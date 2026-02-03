@@ -4,6 +4,38 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-02-03
+
+### Added
+- **Dispatch mode** (`mode: "dispatch"`) - Fire-and-forget sessions where the agent is notified on completion via `triggerTurn` instead of polling. Defaults `autoExitOnQuiet: true`.
+- **Background dispatch** (`mode: "dispatch", background: true`) - Headless sessions with no overlay. Multiple can run concurrently alongside an interactive overlay.
+- **Agent-initiated background** (`sessionId, background: true`) - Dismiss an active overlay while keeping the process running.
+- **Attach** (`attach: "session-id"`) - Reattach to background sessions with any mode (interactive, hands-free, dispatch).
+- **List background sessions** (`listBackground: true`) - Query all background sessions with status and duration.
+- **Ctrl+B shortcut** - Direct keyboard shortcut to background a session (dismiss overlay, keep process running) without navigating the Ctrl+Q menu.
+- **HeadlessDispatchMonitor** - Lightweight monitor for background PTY sessions handling quiet timer, timeout, exit detection, and output capture.
+- **Completion output capture** - `completionOutput` captured before PTY disposal in all `finishWith*` methods for dispatch notifications.
+- `completionNotifyLines` and `completionNotifyMaxChars` config options for notification output size.
+- **Dismiss background sessions** - `/dismiss [id]` user command and `dismissBackground` tool param to kill running / remove exited sessions without opening an overlay.
+- **Background sessions widget** - Persistent widget below the editor showing all background sessions with status indicators (`●` running / `○` exited), session ID, command, reason, and live duration. Auto-appears/disappears. Responsive layout wraps to two lines on narrow terminals.
+- **Additive listeners on PtyTerminalSession** - `addDataListener()` and `addExitListener()` allow multiple subscribers alongside the primary `setEventHandlers()`. Headless monitor and overlay coexist without conflicts.
+
+### Changed
+- `sessionManager.add()` now accepts optional `{ id, noAutoCleanup }` options for headless dispatch sessions.
+- `sessionManager.take()` removes sessions from background registry without disposing PTY (for attach flow).
+- `ActiveSession` interface now includes `background()` method.
+- Overlay `onExit` handler broadened: non-blocking modes (dispatch and hands-free) auto-close immediately on exit instead of showing countdown.
+- `finishWithBackground()` reuses sessionId as backgroundId for non-blocking modes.
+- `getOutputSinceLastCheck()` returns `completionOutput` as fallback when session is finished.
+- `/attach` command coordinates with headless monitors via additive listeners (monitor stays active during overlay).
+- Headless dispatch completion notifications are compact: status line, duration, 5-line tail, and reattach instruction. Full output available via `details.completionOutput` or by reattaching.
+- Completed headless sessions preserve their PTY for 5 minutes (`scheduleCleanup`) instead of disposing immediately, allowing the agent to reattach and review full scrollback.
+- Notification tail strips trailing blank lines from terminal buffer before slicing.
+
+### Fixed
+- Interval timer in `startHandsFreeUpdates()` and `setUpdateInterval()` no longer kills autoExitOnQuiet detection in dispatch mode (guarded on-quiet branch with `onHandsFreeUpdate` null check).
+- Hands-free non-blocking polls returning empty output for completed sessions now return captured `completionOutput`.
+
 ## [0.6.4] - 2026-02-01
 
 ### Fixed

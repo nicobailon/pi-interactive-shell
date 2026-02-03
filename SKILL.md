@@ -1,6 +1,6 @@
 ---
 name: interactive-shell
-description: Cheat sheet + workflow for launching interactive coding-agent CLIs (Claude Code, Gemini CLI, Codex CLI, Cursor CLI, and pi itself) via the interactive_shell overlay. The overlay is for interactive supervision only - headless commands should use the bash tool instead.
+description: Cheat sheet + workflow for launching interactive coding-agent CLIs (Claude Code, Gemini CLI, Codex CLI, Cursor CLI, and pi itself) via the interactive_shell overlay or headless dispatch. Use for TUI agents and long-running processes that need supervision, fire-and-forget delegation, or headless background execution. Regular bash commands should use the bash tool instead.
 ---
 
 # Interactive Shell (Skill)
@@ -11,16 +11,18 @@ Last verified: 2026-01-18
 
 Pi has two ways to delegate work to other AI coding agents:
 
-| | Foreground Subagents | Background Subagents |
-|---|---|---|
-| **Tool** | `interactive_shell` | `subagent` |
-| **Visibility** | User sees overlay in real-time | Hidden from user |
-| **Default agent** | `pi` (others if user requests) | Pi only |
-| **Output** | Minimal (tail preview) | Full output captured |
-| **User control** | Can take over anytime | No intervention |
-| **Best for** | Long tasks needing supervision | Parallel tasks, structured delegation |
+| | Foreground Subagents | Dispatch Subagents | Background Subagents |
+|---|---|---|---|
+| **Tool** | `interactive_shell` | `interactive_shell` (dispatch) | `subagent` |
+| **Visibility** | User sees overlay | User sees overlay (or headless) | Hidden from user |
+| **Agent model** | Polls for status | Notified on completion | Full output captured |
+| **Default agent** | `pi` (others if user requests) | `pi` (others if user requests) | Pi only |
+| **User control** | Can take over anytime | Can take over anytime | No intervention |
+| **Best for** | Long tasks needing supervision | Fire-and-forget delegations | Parallel tasks, structured delegation |
 
-**Foreground subagents** run in an overlay where the user watches (and can intervene). Use `interactive_shell` with `mode: "hands-free"` to monitor while receiving periodic updates.
+**Foreground subagents** run in an overlay where the user watches (and can intervene). Use `interactive_shell` with `mode: "hands-free"` to monitor while receiving periodic updates, or `mode: "dispatch"` to be notified on completion without polling.
+
+**Dispatch subagents** also use `interactive_shell` but with `mode: "dispatch"`. The agent fires the session and moves on. When the session completes, the agent is woken up via `triggerTurn` with the output in context. Add `background: true` for headless execution (no overlay).
 
 **Background subagents** run invisibly via the `subagent` tool. Pi-only, but captures full output and supports parallel execution.
 
@@ -64,6 +66,34 @@ interactive_shell({ command: 'pi' })
 Agent starts working immediately, user supervises.
 ```typescript
 interactive_shell({ command: 'pi "Review this codebase for security issues"' })
+```
+
+### Dispatch (Fire-and-Forget) - NON-BLOCKING, NO POLLING
+Agent fires a session and moves on. Notified automatically on completion via `triggerTurn`.
+
+```typescript
+// Start session - returns immediately, no polling needed
+interactive_shell({
+  command: 'pi "Fix all TypeScript errors in src/"',
+  mode: "dispatch",
+  reason: "Fixing TS errors"
+})
+// Returns: { sessionId: "calm-reef", mode: "dispatch" }
+// → Do other work. When session completes, you receive notification with output.
+```
+
+Dispatch defaults `autoExitOnQuiet: true`. The agent can still query the sessionId if needed, but doesn't have to.
+
+#### Background Dispatch (Headless)
+No overlay opens. Multiple headless dispatches can run concurrently:
+
+```typescript
+interactive_shell({
+  command: 'pi "Fix lint errors"',
+  mode: "dispatch",
+  background: true
+})
+// → No overlay. User can /attach to watch. Agent notified on completion.
 ```
 
 ### Hands-Free (Foreground Subagent) - NON-BLOCKING
@@ -315,13 +345,13 @@ interactive_shell({ sessionId: "calm-reef", settings: { updateInterval: 30000, q
 
 ## CLI Quick Reference
 
-| Agent | Interactive | With Prompt | Headless (bash) |
-|-------|-------------|-------------|-----------------|
-| `claude` | `claude` | `claude "prompt"` | `claude -p "prompt"` |
-| `gemini` | `gemini` | `gemini -i "prompt"` | `gemini "prompt"` |
-| `codex` | `codex` | `codex "prompt"` | `codex exec "prompt"` |
-| `agent` | `agent` | `agent "prompt"` | `agent -p "prompt"` |
-| `pi` | `pi` | `pi "prompt"` | `pi -p "prompt"` |
+| Agent | Interactive | With Prompt | Headless (bash) | Dispatch |
+|-------|-------------|-------------|-----------------|----------|
+| `claude` | `claude` | `claude "prompt"` | `claude -p "prompt"` | `mode: "dispatch"` |
+| `gemini` | `gemini` | `gemini -i "prompt"` | `gemini "prompt"` | `mode: "dispatch"` |
+| `codex` | `codex` | `codex "prompt"` | `codex exec "prompt"` | `mode: "dispatch"` |
+| `agent` | `agent` | `agent "prompt"` | `agent -p "prompt"` | `mode: "dispatch"` |
+| `pi` | `pi` | `pi "prompt"` | `pi -p "prompt"` | `mode: "dispatch"` |
 
 **Gemini model:** `gemini -m gemini-3-flash-preview -i "prompt"`
 
@@ -401,7 +431,46 @@ The process is killed after timeout and captured output is returned in the hando
 
 For pi CLI documentation, you can also read directly: `/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/README.md`
 
+## Background Session Management
+
+```typescript
+// Background an active session (close overlay, keep running)
+interactive_shell({ sessionId: "calm-reef", background: true })
+
+// List all background sessions
+interactive_shell({ listBackground: true })
+
+// Reattach to a background session
+interactive_shell({ attach: "calm-reef" })                    // interactive (blocking)
+interactive_shell({ attach: "calm-reef", mode: "hands-free" })  // hands-free (poll)
+interactive_shell({ attach: "calm-reef", mode: "dispatch" })    // dispatch (notified)
+
+// Dismiss background sessions (kill running, remove exited)
+interactive_shell({ dismissBackground: true })               // all
+interactive_shell({ dismissBackground: "calm-reef" })        // specific
+```
+
 ## Quick Reference
+
+**Dispatch subagent (fire-and-forget, default to pi):**
+```typescript
+interactive_shell({
+  command: 'pi "Implement the feature described in SPEC.md"',
+  mode: "dispatch",
+  reason: "Implementing feature"
+})
+// Returns immediately. You'll be notified when done.
+```
+
+**Background dispatch (headless, no overlay):**
+```typescript
+interactive_shell({
+  command: 'pi "Fix lint errors"',
+  mode: "dispatch",
+  background: true,
+  reason: "Fixing lint"
+})
+```
 
 **Start foreground subagent (hands-free, default to pi):**
 ```typescript

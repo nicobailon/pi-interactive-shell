@@ -32,11 +32,28 @@ The `interactive-shell` skill is automatically symlinked to `~/.pi/agent/skills/
 
 **Requires:** Node.js, build tools for `node-pty` (Xcode CLI tools on macOS).
 
+## Modes
+
+Three modes control how the agent engages with a session:
+
+| | Interactive | Hands-Free | Dispatch |
+|---|---|---|---|
+| **Agent blocked?** | Yes — tool call waits | No — returns immediately | No — returns immediately |
+| **How agent gets output** | Tool return value | Polls with `sessionId` | Notification via `triggerTurn` |
+| **Overlay visible?** | Yes | Yes | Yes (or headless with `background: true`) |
+| **User can interact?** | Always | Type to take over | Type to take over |
+| **Concurrent sessions?** | No | One overlay + queries | Multiple headless, one overlay |
+| **Best for** | Editors, REPLs, SSH | Dev servers, builds | Delegating to other agents |
+
+**Interactive** is the default. The agent's tool call blocks until the session ends — use this when the agent needs the result right away, or when the user drives the session (editors, database shells).
+
+**Hands-free** returns immediately so the agent can do other work, but the agent must poll periodically to discover output and completion. Good for processes the agent needs to monitor and react to mid-flight, like watching build output and sending follow-up commands.
+
+**Dispatch** also returns immediately, but the agent doesn't poll at all. When the session completes — whether by natural exit, quiet detection, timeout, or user intervention — the agent gets woken up with a notification containing the tail output. This is the right mode for delegating a task to a subagent and moving on. Add `background: true` to skip the overlay entirely and run headless.
+
 ## Quick Start
 
-### Interactive Mode
-
-User controls the session directly:
+### Interactive
 
 ```typescript
 interactive_shell({ command: 'vim package.json' })
@@ -44,9 +61,9 @@ interactive_shell({ command: 'psql -d mydb' })
 interactive_shell({ command: 'ssh user@server' })
 ```
 
-### Hands-Free Mode
+The agent's turn is blocked until the overlay closes. User controls the session directly.
 
-Agent monitors while user watches. Returns immediately with sessionId:
+### Hands-Free
 
 ```typescript
 // Start a long-running process
@@ -57,20 +74,68 @@ interactive_shell({
 })
 // → { sessionId: "calm-reef", status: "running" }
 
-// Query status (rate-limited to 60s)
+// Poll for output (rate-limited to 60s between queries)
 interactive_shell({ sessionId: "calm-reef" })
-// → { status: "running", output: "...", runtime: 45000 }
+// → { status: "running", output: "Server ready on :3000", runtime: 45000 }
 
-// Send input if needed
+// Send input when needed
 interactive_shell({ sessionId: "calm-reef", inputKeys: ["ctrl+c"] })
 
 // Kill when done
 interactive_shell({ sessionId: "calm-reef", kill: true })
+// → { status: "killed", output: "..." }
 ```
 
-User sees the overlay in real-time. Type anything to take over control.
+The overlay opens for the user to watch. The agent checks in periodically. User can type anything to take over control.
 
-### Timeout Mode
+### Dispatch
+
+```typescript
+// Fire off a task
+interactive_shell({
+  command: 'pi "Refactor the auth module"',
+  mode: "dispatch",
+  reason: "Auth refactor"
+})
+// → Returns immediately: { sessionId: "calm-reef" }
+// → Agent ends turn or does other work.
+```
+
+When the session completes, the agent receives a compact notification on a new turn:
+
+```
+Session calm-reef completed successfully (5m 23s). 847 lines of output.
+
+Step 9 of 10
+Step 10 of 10
+All tasks completed.
+
+Attach to review full output: interactive_shell({ attach: "calm-reef" })
+```
+
+The notification includes a brief tail (last 5 lines) and a reattach instruction. The PTY is preserved for 5 minutes so the agent can attach to review full scrollback.
+
+Dispatch defaults `autoExitOnQuiet: true` — the session is killed after output goes silent (5s by default), which signals completion for task-oriented subagents. Opt out with `handsFree: { autoExitOnQuiet: false }` for long-running processes.
+
+The overlay still shows for the user, who can Ctrl+T to transfer output, Ctrl+B to background, take over by typing, or Ctrl+Q for more options.
+
+### Background Dispatch (Headless)
+
+```typescript
+// No overlay — runs completely invisibly
+interactive_shell({
+  command: 'pi "Fix all lint errors"',
+  mode: "dispatch",
+  background: true
+})
+// → { sessionId: "calm-reef" }
+// → User can /attach calm-reef to peek
+// → Agent notified on completion, same as regular dispatch
+```
+
+Multiple headless dispatches can run concurrently alongside a single interactive overlay. This is how you parallelize subagent work — fire off three background dispatches and process results as each completion notification arrives.
+
+### Timeout
 
 Capture output from TUI apps that don't exit cleanly:
 
@@ -154,14 +219,34 @@ The main agent then has the subagent's response in context and can continue work
 
 ### Background Sessions
 
-1. Ctrl+Q → "Run in background"
-2. `/attach` or `/attach <id>` to reattach
+Sessions can be backgrounded by the user (Ctrl+B, or Ctrl+Q → "Run in background") or by the agent:
+
+```typescript
+// Agent backgrounds an active session
+interactive_shell({ sessionId: "calm-reef", background: true })
+// → Overlay closes, process keeps running
+
+// List background sessions
+interactive_shell({ listBackground: true })
+
+// Reattach with a specific mode
+interactive_shell({ attach: "calm-reef" })                      // interactive (blocking)
+interactive_shell({ attach: "calm-reef", mode: "hands-free" })  // hands-free (poll)
+interactive_shell({ attach: "calm-reef", mode: "dispatch" })    // dispatch (notified)
+
+// Dismiss background sessions
+interactive_shell({ dismissBackground: true })               // all sessions
+interactive_shell({ dismissBackground: "calm-reef" })        // specific session
+```
+
+User can also `/attach` or `/attach <id>` to reattach, and `/dismiss` or `/dismiss <id>` to clean up from the chat.
 
 ## Keys
 
 | Key | Action |
 |-----|--------|
 | Ctrl+T | **Transfer & close** - capture output and send to main agent |
+| Ctrl+B | Background session (dismiss overlay, keep running) |
 | Ctrl+Q | Session menu (transfer/background/kill/cancel) |
 | Shift+Up/Down | Scroll history |
 | Any key (hands-free) | Take over control |
@@ -181,6 +266,8 @@ Configuration files (project overrides global):
   "minQueryIntervalSeconds": 60,
   "transferLines": 200,
   "transferMaxChars": 20000,
+  "completionNotifyLines": 50,
+  "completionNotifyMaxChars": 5000,
   "handsFreeUpdateMode": "on-quiet",
   "handsFreeUpdateInterval": 60000,
   "handsFreeQuietThreshold": 5000,
@@ -203,6 +290,8 @@ Configuration files (project overrides global):
 | `minQueryIntervalSeconds` | 60 | Rate limit between agent queries |
 | `transferLines` | 200 | Lines to capture on Ctrl+T transfer (10-1000) |
 | `transferMaxChars` | 20000 | Max chars for transfer (1KB-100KB) |
+| `completionNotifyLines` | 50 | Lines in dispatch completion notification (10-500) |
+| `completionNotifyMaxChars` | 5000 | Max chars in completion notification (1KB-50KB) |
 | `handsFreeUpdateMode` | "on-quiet" | "on-quiet" or "interval" |
 | `handsFreeQuietThreshold` | 5000 | Silence duration before update (ms) |
 | `handsFreeUpdateInterval` | 60000 | Max interval between updates (ms) |

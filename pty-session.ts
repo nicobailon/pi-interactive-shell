@@ -229,6 +229,8 @@ export class PtyTerminalSession {
 
 	private dataHandler: ((data: string) => void) | undefined;
 	private exitHandler: ((exitCode: number, signal?: number) => void) | undefined;
+	private additionalDataListeners: Array<(data: string) => void> = [];
+	private additionalExitListeners: Array<(exitCode: number, signal?: number) => void> = [];
 
 	// Trim raw output buffer if it exceeds max size
 	private trimRawOutputIfNeeded(): void {
@@ -295,7 +297,7 @@ export class PtyTerminalSession {
 					await new Promise<void>((resolve) => {
 						this.xterm.write(data, () => resolve());
 					});
-					this.dataHandler?.(data);
+					this.notifyDataListeners(data);
 				});
 			} else {
 				// Process each segment in order, responding to DSR after writing preceding text
@@ -307,7 +309,7 @@ export class PtyTerminalSession {
 							await new Promise<void>((resolve) => {
 								this.xterm.write(segment.text, () => resolve());
 							});
-							this.dataHandler?.(segment.text);
+							this.notifyDataListeners(segment.text);
 						}
 						// If there was a DSR after this segment, respond with current cursor position
 						if (segment.dsrAfter) {
@@ -334,10 +336,10 @@ export class PtyTerminalSession {
 				});
 			});
 
-			// Wait for writeQueue to drain before calling exitHandler
+			// Wait for writeQueue to drain before calling exit listeners
 			// This ensures exit message is in rawOutput and xterm buffer
 			this.writeQueue.drain().then(() => {
-				this.exitHandler?.(exitCode, signal);
+				this.notifyExitListeners(exitCode, signal);
 			});
 		});
 	}
@@ -345,6 +347,36 @@ export class PtyTerminalSession {
 	setEventHandlers(events: PtySessionEvents): void {
 		this.dataHandler = events.onData;
 		this.exitHandler = events.onExit;
+	}
+
+	addDataListener(cb: (data: string) => void): () => void {
+		this.additionalDataListeners.push(cb);
+		return () => {
+			const idx = this.additionalDataListeners.indexOf(cb);
+			if (idx >= 0) this.additionalDataListeners.splice(idx, 1);
+		};
+	}
+
+	addExitListener(cb: (exitCode: number, signal?: number) => void): () => void {
+		this.additionalExitListeners.push(cb);
+		return () => {
+			const idx = this.additionalExitListeners.indexOf(cb);
+			if (idx >= 0) this.additionalExitListeners.splice(idx, 1);
+		};
+	}
+
+	private notifyDataListeners(data: string): void {
+		this.dataHandler?.(data);
+		for (const listener of this.additionalDataListeners) {
+			listener(data);
+		}
+	}
+
+	private notifyExitListeners(exitCode: number, signal?: number): void {
+		this.exitHandler?.(exitCode, signal);
+		for (const listener of this.additionalExitListeners) {
+			listener(exitCode, signal);
+		}
 	}
 
 	get exited(): boolean {

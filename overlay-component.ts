@@ -82,42 +82,24 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const cols = Math.max(20, overlayWidth - 4);
 		const rows = Math.max(3, overlayHeight - CHROME_LINES);
 
-		this.session = new PtyTerminalSession(
-			{
-				command: options.command,
-				cwd: options.cwd,
-				cols,
-				rows,
-				scrollback: this.config.scrollbackLines,
-				ansiReemit: this.config.ansiReemit,
+		const ptyEvents = {
+			onData: () => {
+				this.debouncedRender();
+				if (this.state === "hands-free" && this.updateMode === "on-quiet") {
+					this.hasUnsentData = true;
+					this.resetQuietTimer();
+				}
 			},
-			{
-				onData: () => {
-					// Don't call scrollToBottom() here - pty-session handles auto-follow at render time
-					// Debounce render to batch rapid updates and reduce flicker
-					this.debouncedRender();
+			onExit: () => {
+				if (this.finished) return;
+				this.stopTimeout();
 
-					// Track activity for on-quiet mode
-					if (this.state === "hands-free" && this.updateMode === "on-quiet") {
-						this.hasUnsentData = true;
-						this.resetQuietTimer();
+				if (this.state === "hands-free" && this.sessionId) {
+					if (this.hasUnsentData || this.updateMode === "interval") {
+						this.emitHandsFreeUpdate();
+						this.hasUnsentData = false;
 					}
-				},
-				onExit: () => {
-					// Guard: if already finished (e.g., timeout fired), don't process exit
-					if (this.finished) return;
-
-					// Stop timeout to prevent double done() call
-					this.stopTimeout();
-
-					// In hands-free mode (user hasn't taken over): send exited notification and auto-close immediately
-					if (this.state === "hands-free" && this.options.onHandsFreeUpdate && this.sessionId) {
-						// Flush any pending output before sending exited notification
-						if (this.hasUnsentData || this.updateMode === "interval") {
-							this.emitHandsFreeUpdate();
-							this.hasUnsentData = false;
-						}
-						// Now send exited notification
+					if (this.options.onHandsFreeUpdate) {
 						this.options.onHandsFreeUpdate({
 							status: "exited",
 							sessionId: this.sessionId,
@@ -127,30 +109,44 @@ export class InteractiveShellOverlay implements Component, Focusable {
 							totalCharsSent: this.totalCharsSent,
 							budgetExhausted: this.budgetExhausted,
 						});
-						// Auto-close immediately in hands-free mode - agent should get control back
-						this.finishWithExit();
-						return;
 					}
+					this.finishWithExit();
+					return;
+				}
 
-					// Interactive mode (or user took over): show exit state with countdown
-					this.stopHandsFreeUpdates();
-					this.state = "exited";
-					this.exitCountdown = this.config.exitAutoCloseDelay;
-					this.startExitCountdown();
-					this.tui.requestRender();
-				},
+				this.stopHandsFreeUpdates();
+				this.state = "exited";
+				this.exitCountdown = this.config.exitAutoCloseDelay;
+				this.startExitCountdown();
+				this.tui.requestRender();
 			},
-		);
+		};
+
+		if (options.existingSession) {
+			this.session = options.existingSession;
+			this.session.setEventHandlers(ptyEvents);
+			this.session.resize(cols, rows);
+		} else {
+			this.session = new PtyTerminalSession(
+				{
+					command: options.command,
+					cwd: options.cwd,
+					cols,
+					rows,
+					scrollback: this.config.scrollbackLines,
+					ansiReemit: this.config.ansiReemit,
+				},
+				ptyEvents,
+			);
+		}
 
 		// Initialize hands-free mode settings
 		this.updateMode = options.handsFreeUpdateMode ?? config.handsFreeUpdateMode;
 		this.currentUpdateInterval = options.handsFreeUpdateInterval ?? config.handsFreeUpdateInterval;
 		this.currentQuietThreshold = options.handsFreeQuietThreshold ?? config.handsFreeQuietThreshold;
 
-		// Initialize hands-free mode if requested
-		if (options.mode === "hands-free") {
+		if (options.mode === "hands-free" || options.mode === "dispatch") {
 			this.state = "hands-free";
-			// Use provided sessionId or generate one
 			this.sessionId = options.sessionId ?? generateSessionId(options.name);
 			sessionManager.registerActive({
 				id: this.sessionId,
@@ -158,6 +154,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 				reason: options.reason,
 				write: (data) => this.session.write(data),
 				kill: () => this.killSession(),
+				background: () => this.backgroundSession(),
 				getOutput: (options) => this.getOutputSinceLastCheck(options),
 				getStatus: () => this.getSessionStatus(),
 				getRuntime: () => this.getRuntime(),
@@ -169,11 +166,37 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			this.startHandsFreeUpdates();
 		}
 
-		// Start auto-kill timeout if specified
 		if (options.timeout && options.timeout > 0) {
 			this.timeoutTimer = setTimeout(() => {
 				this.finishWithTimeout();
 			}, options.timeout);
+		}
+
+		if (options.existingSession && options.existingSession.exited) {
+			queueMicrotask(() => {
+				if (this.finished) return;
+				this.stopTimeout();
+				if (this.state === "hands-free" && this.sessionId) {
+					if (this.options.onHandsFreeUpdate) {
+						this.options.onHandsFreeUpdate({
+							status: "exited",
+							sessionId: this.sessionId,
+							runtime: Date.now() - this.startTime,
+							tail: [],
+							tailTruncated: false,
+							totalCharsSent: this.totalCharsSent,
+							budgetExhausted: this.budgetExhausted,
+						});
+					}
+					this.finishWithExit();
+				} else {
+					this.stopHandsFreeUpdates();
+					this.state = "exited";
+					this.exitCountdown = this.config.exitAutoCloseDelay;
+					this.startExitCountdown();
+					this.tui.requestRender();
+				}
+			});
 		}
 	}
 
@@ -187,14 +210,18 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 	/** Get rendered terminal output (last N lines, truncated if too large) */
 	getOutputSinceLastCheck(options: { skipRateLimit?: boolean; lines?: number; maxChars?: number; offset?: number; drain?: boolean; incremental?: boolean } | boolean = false): { output: string; truncated: boolean; totalBytes: number; totalLines?: number; hasMore?: boolean; rateLimited?: boolean; waitSeconds?: number } {
-		// Guard: if session is finished (PTY disposed), return empty output
-		// This handles race conditions where query arrives after Ctrl+T transfer
 		if (this.finished) {
-			return {
-				output: "",
-				truncated: false,
-				totalBytes: 0,
-			};
+			if (this.completionResult?.completionOutput) {
+				const lines = this.completionResult.completionOutput.lines;
+				const output = lines.join("\n");
+				return {
+					output,
+					truncated: this.completionResult.completionOutput.truncated,
+					totalBytes: output.length,
+					totalLines: this.completionResult.completionOutput.totalLines,
+				};
+			}
+			return { output: "", truncated: false, totalBytes: 0 };
 		}
 
 		// Handle legacy boolean parameter
@@ -304,7 +331,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const totalBytes = output.length;
 		const truncated = tailResult.lines.length >= requestedLines || tailResult.truncatedByChars;
 
-		return { output, truncated, totalBytes };
+		return { output, truncated, totalBytes, totalLines: tailResult.totalLinesInBuffer };
 	}
 
 	/** Get current session status */
@@ -399,18 +426,15 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			}
 		}, 2000);
 
-		// Fallback interval (always runs, ensures updates even during continuous output)
 		this.handsFreeInterval = setInterval(() => {
 			if (this.state === "hands-free") {
-				// In on-quiet mode, only emit if we have unsent data (interval is fallback)
 				if (this.updateMode === "on-quiet") {
-					if (this.hasUnsentData) {
+					if (this.hasUnsentData && this.options.onHandsFreeUpdate) {
 						this.emitHandsFreeUpdate();
 						this.hasUnsentData = false;
-						this.stopQuietTimer(); // Reset quiet timer since we just sent
+						this.stopQuietTimer();
 					}
 				} else {
-					// In interval mode, always emit
 					this.emitHandsFreeUpdate();
 				}
 			}
@@ -468,13 +492,12 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		if (clamped === this.currentUpdateInterval) return;
 		this.currentUpdateInterval = clamped;
 
-		// Restart the interval with new timing
 		if (this.handsFreeInterval) {
 			clearInterval(this.handsFreeInterval);
 			this.handsFreeInterval = setInterval(() => {
 				if (this.state === "hands-free") {
 					if (this.updateMode === "on-quiet") {
-						if (this.hasUnsentData) {
+						if (this.hasUnsentData && this.options.onHandsFreeUpdate) {
 							this.emitHandsFreeUpdate();
 							this.hasUnsentData = false;
 							this.stopQuietTimer();
@@ -613,6 +636,20 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.tui.requestRender();
 	}
 
+	/** Capture output for dispatch completion notifications */
+	private captureCompletionOutput(): InteractiveShellResult["completionOutput"] {
+		const result = this.session.getTailLines({
+			lines: this.config.completionNotifyLines,
+			ansi: false,
+			maxChars: this.config.completionNotifyMaxChars,
+		});
+		return {
+			lines: result.lines,
+			totalLines: result.totalLinesInBuffer,
+			truncated: result.lines.length < result.totalLinesInBuffer || result.truncatedByChars,
+		};
+	}
+
 	/** Capture output for transfer action (Ctrl+T or dialog) */
 	private captureTransferOutput(): InteractiveShellResult["transferred"] {
 		const maxLines = this.config.transferLines;
@@ -698,6 +735,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		const handoffPreview = this.maybeBuildHandoffPreview("exit");
 		const handoff = this.maybeWriteHandoffSnapshot("exit");
+		const completionOutput = this.captureCompletionOutput();
 		this.session.dispose();
 		const result: InteractiveShellResult = {
 			exitCode: this.session.exitCode,
@@ -706,6 +744,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			cancelled: false,
 			sessionId: this.sessionId ?? undefined,
 			userTookOver: this.userTookOver,
+			completionOutput,
 			handoffPreview,
 			handoff,
 		};
@@ -722,6 +761,10 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.done(result);
 	}
 
+	backgroundSession(): void {
+		this.finishWithBackground();
+	}
+
 	private finishWithBackground(): void {
 		if (this.finished) return;
 		this.finished = true;
@@ -731,7 +774,10 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		const handoffPreview = this.maybeBuildHandoffPreview("detach");
 		const handoff = this.maybeWriteHandoffSnapshot("detach");
-		const id = sessionManager.add(this.options.command, this.session, this.options.name, this.options.reason);
+		const addOptions = this.sessionId
+			? { id: this.sessionId, noAutoCleanup: this.options.mode === "dispatch" }
+			: undefined;
+		const id = sessionManager.add(this.options.command, this.session, this.options.name, this.options.reason, addOptions);
 		const result: InteractiveShellResult = {
 			exitCode: null,
 			backgrounded: true,
@@ -747,8 +793,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
 		// so agent can query completion result. Agent's query will unregister.
+		// Use releaseId=false because the background session now owns the ID.
 		if (this.options.onHandsFreeUpdate) {
-			this.unregisterActiveSession(true);
+			this.unregisterActiveSession(false);
 		}
 
 		this.done(result);
@@ -763,6 +810,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		const handoffPreview = this.maybeBuildHandoffPreview("kill");
 		const handoff = this.maybeWriteHandoffSnapshot("kill");
+		const completionOutput = this.captureCompletionOutput();
 		this.session.kill();
 		this.session.dispose();
 		const result: InteractiveShellResult = {
@@ -771,6 +819,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			cancelled: true,
 			sessionId: this.sessionId ?? undefined,
 			userTookOver: this.userTookOver,
+			completionOutput,
 			handoffPreview,
 			handoff,
 		};
@@ -795,6 +844,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		// Capture output BEFORE killing the session
 		const transferred = this.captureTransferOutput();
+		const completionOutput = this.captureCompletionOutput();
 		const handoffPreview = this.maybeBuildHandoffPreview("transfer");
 		const handoff = this.maybeWriteHandoffSnapshot("transfer");
 
@@ -808,6 +858,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			sessionId: this.sessionId ?? undefined,
 			userTookOver: this.userTookOver,
 			transferred,
+			completionOutput,
 			handoffPreview,
 			handoff,
 		};
@@ -851,6 +902,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.stopHandsFreeUpdates();
 		const handoffPreview = this.maybeBuildHandoffPreview("timeout");
 		const handoff = this.maybeWriteHandoffSnapshot("timeout");
+		const completionOutput = this.captureCompletionOutput();
 		this.session.kill();
 		this.session.dispose();
 		const result: InteractiveShellResult = {
@@ -860,6 +912,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			timedOut: true,
 			sessionId: this.sessionId ?? undefined,
 			userTookOver: this.userTookOver,
+			completionOutput,
 			handoffPreview,
 			handoff,
 		};
@@ -888,6 +941,15 @@ export class InteractiveShellOverlay implements Component, Focusable {
 				this.triggerUserTakeover();
 			}
 			this.finishWithTransfer();
+			return;
+		}
+
+		// Ctrl+B: Quick background - dismiss overlay, keep process running
+		if (matchesKey(data, "ctrl+b") && !this.session.exited) {
+			if (this.state === "hands-free") {
+				this.triggerUserTakeover();
+			}
+			this.finishWithBackground();
 			return;
 		}
 
@@ -1004,12 +1066,12 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			hint = `🤖 Hands-free (${elapsed}) • Type anything to take over`;
 		} else if (this.userTookOver) {
 			hint = sanitizedReason
-				? `You took over • ${sanitizedReason} • Ctrl+Q to detach`
-				: "You took over • Ctrl+Q to detach";
+				? `You took over • ${sanitizedReason} • Ctrl+B background`
+				: "You took over • Ctrl+B background";
 		} else {
 			hint = sanitizedReason
-				? `Ctrl+Q to detach • ${sanitizedReason}`
-				: "Ctrl+Q to detach";
+				? `Ctrl+B background • ${sanitizedReason}`
+				: "Ctrl+B background";
 		}
 		lines.push(row(dim(truncateToWidth(hint, innerWidth, "..."))));
 		lines.push(border("├" + "─".repeat(width - 2) + "┤"));
@@ -1069,9 +1131,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			footerLines.push(row(exitMsg));
 			footerLines.push(row(dim(`Closing in ${this.exitCountdown}s... (any key to close)`)));
 		} else if (this.state === "hands-free") {
-			footerLines.push(row(dim("🤖 Agent controlling • Type to take over • Ctrl+T transfer • Shift+Up/Down scroll")));
+			footerLines.push(row(dim("🤖 Agent controlling • Type to take over • Ctrl+T transfer • Ctrl+B background")));
 		} else {
-			footerLines.push(row(dim("Ctrl+T transfer • Ctrl+Q menu • Shift+Up/Down scroll")));
+			footerLines.push(row(dim("Ctrl+T transfer • Ctrl+B background • Ctrl+Q menu • Shift+Up/Down scroll")));
 		}
 
 		while (footerLines.length < FOOTER_LINES) {

@@ -101,6 +101,19 @@ export class ReattachOverlay implements Component, Focusable {
 		}
 	}
 
+	private captureCompletionOutput(): InteractiveShellResult["completionOutput"] {
+		const result = this.session.getTailLines({
+			lines: this.config.completionNotifyLines,
+			ansi: false,
+			maxChars: this.config.completionNotifyMaxChars,
+		});
+		return {
+			lines: result.lines,
+			totalLines: result.totalLinesInBuffer,
+			truncated: result.lines.length < result.totalLinesInBuffer || result.truncatedByChars,
+		};
+	}
+
 	/** Capture output for transfer action (Ctrl+T or dialog) */
 	private captureTransferOutput(): InteractiveShellResult["transferred"] {
 		const maxLines = this.config.transferLines;
@@ -178,12 +191,14 @@ export class ReattachOverlay implements Component, Focusable {
 		this.stopCountdown();
 		const handoffPreview = this.maybeBuildHandoffPreview("exit");
 		const handoff = this.maybeWriteHandoffSnapshot("exit");
+		const completionOutput = this.captureCompletionOutput();
 		sessionManager.remove(this.bgSession.id);
 		this.done({
 			exitCode: this.session.exitCode,
 			signal: this.session.signal,
 			backgrounded: false,
 			cancelled: false,
+			completionOutput,
 			handoffPreview,
 			handoff,
 		});
@@ -196,6 +211,9 @@ export class ReattachOverlay implements Component, Focusable {
 		const handoffPreview = this.maybeBuildHandoffPreview("detach");
 		const handoff = this.maybeWriteHandoffSnapshot("detach");
 		this.session.setEventHandlers({});
+		if (this.session.exited) {
+			sessionManager.scheduleCleanup(this.bgSession.id);
+		}
 		this.done({
 			exitCode: null,
 			backgrounded: true,
@@ -212,11 +230,13 @@ export class ReattachOverlay implements Component, Focusable {
 		this.stopCountdown();
 		const handoffPreview = this.maybeBuildHandoffPreview("kill");
 		const handoff = this.maybeWriteHandoffSnapshot("kill");
+		const completionOutput = this.captureCompletionOutput();
 		sessionManager.remove(this.bgSession.id);
 		this.done({
 			exitCode: null,
 			backgrounded: false,
 			cancelled: true,
+			completionOutput,
 			handoffPreview,
 			handoff,
 		});
@@ -227,10 +247,10 @@ export class ReattachOverlay implements Component, Focusable {
 		this.finished = true;
 		this.stopCountdown();
 
-		// Capture output BEFORE removing session
 		const transferred = this.captureTransferOutput();
 		const handoffPreview = this.maybeBuildHandoffPreview("transfer");
 		const handoff = this.maybeWriteHandoffSnapshot("transfer");
+		const completionOutput = this.captureCompletionOutput();
 
 		sessionManager.remove(this.bgSession.id);
 		this.done({
@@ -239,6 +259,7 @@ export class ReattachOverlay implements Component, Focusable {
 			backgrounded: false,
 			cancelled: false,
 			transferred,
+			completionOutput,
 			handoffPreview,
 			handoff,
 		});
@@ -253,6 +274,12 @@ export class ReattachOverlay implements Component, Focusable {
 		// Ctrl+T: Quick transfer - capture output and close (works in all states including "exited")
 		if (matchesKey(data, "ctrl+t")) {
 			this.finishWithTransfer();
+			return;
+		}
+
+		// Ctrl+B: Quick background - dismiss overlay, keep process running
+		if (matchesKey(data, "ctrl+b") && !this.session.exited) {
+			this.finishWithBackground();
 			return;
 		}
 
@@ -367,8 +394,8 @@ export class ReattachOverlay implements Component, Focusable {
 		// Sanitize reason: collapse newlines and whitespace to single spaces for display
 		const sanitizedReason = this.bgSession.reason?.replace(/\s+/g, " ").trim();
 		const hint = sanitizedReason
-			? `Reattached • ${sanitizedReason} • Ctrl+Q to detach`
-			: "Reattached • Ctrl+Q to detach";
+			? `Reattached • ${sanitizedReason} • Ctrl+B background`
+			: "Reattached • Ctrl+B background";
 		lines.push(row(dim(truncateToWidth(hint, innerWidth, "..."))));
 		lines.push(border("├" + "─".repeat(width - 2) + "┤"));
 
@@ -427,7 +454,7 @@ export class ReattachOverlay implements Component, Focusable {
 			footerLines.push(row(exitMsg));
 			footerLines.push(row(dim(`Closing in ${this.exitCountdown}s... (any key to close)`)));
 		} else {
-			footerLines.push(row(dim("Ctrl+T transfer • Ctrl+Q menu • Shift+Up/Down scroll")));
+			footerLines.push(row(dim("Ctrl+T transfer • Ctrl+B background • Ctrl+Q menu • Shift+Up/Down scroll")));
 		}
 
 		while (footerLines.length < FOOTER_LINES) {

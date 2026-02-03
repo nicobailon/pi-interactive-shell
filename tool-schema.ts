@@ -12,11 +12,13 @@ DO NOT use this for regular bash commands - use the standard bash tool instead.
 MODES:
 - interactive (default): User supervises and controls the session
 - hands-free: Agent monitors with periodic updates, user can take over anytime by typing
+- dispatch: Agent is notified on completion via triggerTurn (no polling needed)
 
 The user will see the process in an overlay. They can:
 - Watch output in real-time
 - Scroll through output (Shift+Up/Down)
 - Transfer output to you (Ctrl+T) - closes overlay and sends output as your context
+- Background (Ctrl+B) - dismiss overlay, keep process running
 - Detach (Ctrl+Q) for menu: transfer/background/kill
 - In hands-free mode: type anything to take over control
 
@@ -67,6 +69,39 @@ Modifiers: ctrl+x, alt+x, shift+tab, ctrl+alt+delete (or c-x, m-x, s-tab syntax)
 TIMEOUT (for TUI commands that don't exit cleanly):
 Use timeout to auto-kill after N milliseconds. Useful for capturing output from commands like "pi --help":
 - interactive_shell({ command: "pi --help", mode: "hands-free", timeout: 5000 })
+
+DISPATCH MODE (NON-BLOCKING, NO POLLING):
+When mode="dispatch", the tool returns IMMEDIATELY with a sessionId.
+You do NOT need to poll. You'll be notified automatically when the session completes.
+
+Workflow:
+1. Start session: interactive_shell({ command: 'pi "Fix bugs"', mode: "dispatch" })
+   -> Returns immediately with sessionId
+2. Do other work - no polling needed
+3. When complete, you receive a notification with the session output
+
+Dispatch defaults autoExitOnQuiet to true (opt-out with handsFree.autoExitOnQuiet: false).
+You can still query with sessionId if needed, but it's not required.
+
+BACKGROUND DISPATCH (HEADLESS):
+Start a session without any overlay. Process runs headlessly, agent notified on completion:
+- interactive_shell({ command: 'pi "fix bugs"', mode: "dispatch", background: true })
+
+AGENT-INITIATED BACKGROUND:
+Dismiss an existing overlay, keep the process running in background:
+- interactive_shell({ sessionId: "calm-reef", background: true })
+
+ATTACH (REATTACH TO BACKGROUND SESSION):
+Open an overlay for a background session:
+- interactive_shell({ attach: "calm-reef" }) - interactive (blocking)
+- interactive_shell({ attach: "calm-reef", mode: "dispatch" }) - dispatch (non-blocking, notified)
+
+LIST BACKGROUND SESSIONS:
+- interactive_shell({ listBackground: true })
+
+DISMISS BACKGROUND SESSIONS:
+- interactive_shell({ dismissBackground: true }) - kill running, remove exited, clear all
+- interactive_shell({ dismissBackground: "calm-reef" }) - dismiss specific session
 
 Important: this tool does NOT inject prompts. If you want to start with a prompt,
 include it in the command using the CLI's own prompt flags.
@@ -165,7 +200,27 @@ export const toolParameters = Type.Object({
 	),
 	mode: Type.Optional(
 		Type.String({
-			description: "Mode: 'interactive' (default, user controls) or 'hands-free' (agent monitors, user can take over)",
+			description: "Mode: 'interactive' (default, user controls), 'hands-free' (agent monitors, user can take over), or 'dispatch' (agent notified on completion, no polling needed)",
+		}),
+	),
+	background: Type.Optional(
+		Type.Boolean({
+			description: "Run without overlay (with mode='dispatch') or dismiss existing overlay (with sessionId). Process runs in background, user can /attach.",
+		}),
+	),
+	attach: Type.Optional(
+		Type.String({
+			description: "Background session ID to reattach. Opens overlay with the specified mode.",
+		}),
+	),
+	listBackground: Type.Optional(
+		Type.Boolean({
+			description: "List all background sessions.",
+		}),
+	),
+	dismissBackground: Type.Optional(
+		Type.Union([Type.Boolean(), Type.String()], {
+			description: "Dismiss background sessions. true = all, string = specific session ID. Kills running sessions, removes exited ones.",
 		}),
 	),
 	handsFree: Type.Optional(
@@ -235,7 +290,11 @@ export interface ToolParams {
 	cwd?: string;
 	name?: string;
 	reason?: string;
-	mode?: "interactive" | "hands-free";
+	mode?: "interactive" | "hands-free" | "dispatch";
+	background?: boolean;
+	attach?: string;
+	listBackground?: boolean;
+	dismissBackground?: boolean | string;
 	handsFree?: {
 		updateMode?: "on-quiet" | "interval";
 		updateInterval?: number;

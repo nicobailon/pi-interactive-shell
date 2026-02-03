@@ -17,6 +17,9 @@ export interface InteractiveShellConfig {
 	// Transfer output settings (Ctrl+T)
 	transferLines: number;
 	transferMaxChars: number;
+	// Dispatch completion notification output
+	completionNotifyLines: number;
+	completionNotifyMaxChars: number;
 	// Hands-free mode defaults
 	handsFreeUpdateMode: "on-quiet" | "interval";
 	handsFreeUpdateInterval: number;
@@ -42,6 +45,9 @@ const DEFAULT_CONFIG: InteractiveShellConfig = {
 	// Transfer output settings (Ctrl+T) - generous defaults for full context transfer
 	transferLines: 200,
 	transferMaxChars: 20000,
+	// Dispatch completion notification output (between handoff preview and transfer)
+	completionNotifyLines: 50,
+	completionNotifyMaxChars: 5000,
 	// Hands-free mode defaults
 	handsFreeUpdateMode: "on-quiet" as const,
 	handsFreeUpdateInterval: 60000,
@@ -79,6 +85,7 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 
 	return {
 		...merged,
+		exitAutoCloseDelay: clampInt(merged.exitAutoCloseDelay, DEFAULT_CONFIG.exitAutoCloseDelay, 0, 60),
 		overlayWidthPercent: clampPercent(merged.overlayWidthPercent, DEFAULT_CONFIG.overlayWidthPercent),
 		// Height: 20-90% range (default 45%)
 		overlayHeightPercent: clampInt(merged.overlayHeightPercent, DEFAULT_CONFIG.overlayHeightPercent, 20, 90),
@@ -103,6 +110,9 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 		// Transfer output settings (Ctrl+T)
 		transferLines: clampInt(merged.transferLines, DEFAULT_CONFIG.transferLines, 10, 1000),
 		transferMaxChars: clampInt(merged.transferMaxChars, DEFAULT_CONFIG.transferMaxChars, 1000, 100000),
+		// Dispatch completion notification output
+		completionNotifyLines: clampInt(merged.completionNotifyLines, DEFAULT_CONFIG.completionNotifyLines, 10, 500),
+		completionNotifyMaxChars: clampInt(merged.completionNotifyMaxChars, DEFAULT_CONFIG.completionNotifyMaxChars, 1000, 50000),
 		// Hands-free mode
 		handsFreeUpdateMode: merged.handsFreeUpdateMode === "interval" ? "interval" : "on-quiet",
 		handsFreeUpdateInterval: clampInt(

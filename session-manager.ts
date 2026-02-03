@@ -47,14 +47,14 @@ export interface ActiveSession {
 	reason?: string;
 	write: (data: string) => void;
 	kill: () => void;
-	getOutput: (options?: OutputOptions | boolean) => OutputResult; // Get output since last check (truncated if large)
+	background: () => void;
+	getOutput: (options?: OutputOptions | boolean) => OutputResult;
 	getStatus: () => ActiveSessionStatus;
 	getRuntime: () => number;
-	getResult: () => ActiveSessionResult | undefined; // Available when completed
+	getResult: () => ActiveSessionResult | undefined;
 	setUpdateInterval?: (intervalMs: number) => void;
 	setQuietThreshold?: (thresholdMs: number) => void;
-	onComplete: (callback: () => void) => void; // Register callback for when session completes
-	startedAt: Date;
+	onComplete: (callback: () => void) => void;
 }
 
 // Human-readable session slug generation
@@ -124,7 +124,7 @@ export function releaseSessionId(id: string): void {
 }
 
 // Derive a friendly display name from command (e.g., "pi Fix all bugs" -> "pi Fix all bugs")
-export function deriveSessionName(command: string): string {
+function deriveSessionName(command: string): string {
 	const trimmed = command.trim();
 	if (trimmed.length <= 60) return trimmed;
 
@@ -137,26 +137,21 @@ export class ShellSessionManager {
 	private exitWatchers = new Map<string, NodeJS.Timeout>();
 	private cleanupTimers = new Map<string, NodeJS.Timeout>();
 	private activeSessions = new Map<string, ActiveSession>();
+	private changeListeners = new Set<() => void>();
 
-	// Active hands-free session management
-	registerActive(session: {
-		id: string;
-		command: string;
-		reason?: string;
-		write: (data: string) => void;
-		kill: () => void;
-		getOutput: (options?: OutputOptions | boolean) => OutputResult;
-		getStatus: () => ActiveSessionStatus;
-		getRuntime: () => number;
-		getResult: () => ActiveSessionResult | undefined;
-		setUpdateInterval?: (intervalMs: number) => void;
-		setQuietThreshold?: (thresholdMs: number) => void;
-		onComplete: (callback: () => void) => void;
-	}): void {
-		this.activeSessions.set(session.id, {
-			...session,
-			startedAt: new Date(),
-		});
+	onChange(listener: () => void): () => void {
+		this.changeListeners.add(listener);
+		return () => { this.changeListeners.delete(listener); };
+	}
+
+	private notifyChange(): void {
+		for (const listener of this.changeListeners) {
+			try { listener(); } catch { /* ignore */ }
+		}
+	}
+
+	registerActive(session: ActiveSession): void {
+		this.activeSessions.set(session.id, session);
 	}
 
 	unregisterActive(id: string, releaseId = false): void {
@@ -193,48 +188,101 @@ export class ShellSessionManager {
 		return true;
 	}
 
-	listActive(): ActiveSession[] {
-		return Array.from(this.activeSessions.values());
-	}
-
-	// Background session management
-	add(command: string, session: PtyTerminalSession, name?: string, reason?: string): string {
-		const id = generateSessionId(name);
+	add(command: string, session: PtyTerminalSession, name?: string, reason?: string, options?: { id?: string; noAutoCleanup?: boolean; startedAt?: Date }): string {
+		const id = options?.id ?? generateSessionId(name);
+		if (options?.id) usedIds.add(id);
 		this.sessions.set(id, {
 			id,
 			name: name || deriveSessionName(command),
 			command,
 			reason,
 			session,
-			startedAt: new Date(),
+			startedAt: options?.startedAt ?? new Date(),
 		});
 
 		session.setEventHandlers({});
 
-		const checkExit = setInterval(() => {
-			if (session.exited) {
-				clearInterval(checkExit);
-				this.exitWatchers.delete(id);
-				const cleanupTimer = setTimeout(() => {
-					this.cleanupTimers.delete(id);
-					this.remove(id);
-				}, 30000);
-				this.cleanupTimers.set(id, cleanupTimer);
-			}
-		}, 1000);
-		this.exitWatchers.set(id, checkExit);
+		if (!options?.noAutoCleanup) {
+			const checkExit = setInterval(() => {
+				if (session.exited) {
+					clearInterval(checkExit);
+					this.exitWatchers.delete(id);
+					this.notifyChange();
+					const cleanupTimer = setTimeout(() => {
+						this.cleanupTimers.delete(id);
+						this.remove(id);
+					}, 30000);
+					this.cleanupTimers.set(id, cleanupTimer);
+				}
+			}, 1000);
+			this.exitWatchers.set(id, checkExit);
+		}
 
+		this.notifyChange();
 		return id;
 	}
 
+	take(id: string): BackgroundSession | undefined {
+		const watcher = this.exitWatchers.get(id);
+		if (watcher) {
+			clearInterval(watcher);
+			this.exitWatchers.delete(id);
+		}
+		const cleanupTimer = this.cleanupTimers.get(id);
+		if (cleanupTimer) {
+			clearTimeout(cleanupTimer);
+			this.cleanupTimers.delete(id);
+		}
+		const session = this.sessions.get(id);
+		if (session) {
+			this.sessions.delete(id);
+			this.notifyChange();
+			return session;
+		}
+		return undefined;
+	}
+
 	get(id: string): BackgroundSession | undefined {
-		// Cancel auto-cleanup timer when session is being reattached
+		// Suspend all auto-cleanup while session is being actively used
+		const watcher = this.exitWatchers.get(id);
+		if (watcher) {
+			clearInterval(watcher);
+			this.exitWatchers.delete(id);
+		}
 		const cleanupTimer = this.cleanupTimers.get(id);
 		if (cleanupTimer) {
 			clearTimeout(cleanupTimer);
 			this.cleanupTimers.delete(id);
 		}
 		return this.sessions.get(id);
+	}
+
+	restartAutoCleanup(id: string): void {
+		if (this.exitWatchers.has(id)) return;
+		const entry = this.sessions.get(id);
+		if (!entry) return;
+		if (entry.session.exited) {
+			this.scheduleCleanup(id);
+			return;
+		}
+		const checkExit = setInterval(() => {
+			if (entry.session.exited) {
+				clearInterval(checkExit);
+				this.exitWatchers.delete(id);
+				this.notifyChange();
+				this.scheduleCleanup(id);
+			}
+		}, 1000);
+		this.exitWatchers.set(id, checkExit);
+	}
+
+	scheduleCleanup(id: string, delayMs = 30000): void {
+		if (this.cleanupTimers.has(id)) return;
+		const timer = setTimeout(() => {
+			this.cleanupTimers.delete(id);
+			this.remove(id);
+		}, delayMs);
+		this.cleanupTimers.set(id, timer);
 	}
 
 	remove(id: string): void {
@@ -255,6 +303,7 @@ export class ShellSessionManager {
 			session.session.dispose();
 			this.sessions.delete(id);
 			releaseSessionId(id);
+			this.notifyChange();
 		}
 	}
 
