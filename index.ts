@@ -361,7 +361,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			if (!ctx.hasUI) {
+			// Relaxed check: allow if ctx.ui exists even if hasUI is false
+			// (workaround for edge cases where TUI is visible but hasUI=false)
+			if (!ctx.hasUI && !ctx.ui) {
 				return {
 					content: [{ type: "text", text: "Interactive shell requires interactive TUI mode" }],
 					isError: true,
