@@ -11,8 +11,9 @@ import {
 	type InteractiveShellResult,
 	type DialogChoice,
 	type OverlayState,
-	CHROME_LINES,
-	FOOTER_LINES,
+	HEADER_LINES,
+	FOOTER_LINES_COMPACT,
+	FOOTER_LINES_DIALOG,
 } from "./types.js";
 
 export class ReattachOverlay implements Component, Focusable {
@@ -74,7 +75,7 @@ export class ReattachOverlay implements Component, Focusable {
 		const overlayWidth = Math.floor((tui.terminal.columns * this.config.overlayWidthPercent) / 100);
 		const overlayHeight = Math.floor((tui.terminal.rows * this.config.overlayHeightPercent) / 100);
 		const cols = Math.max(20, overlayWidth - 4);
-		const rows = Math.max(3, overlayHeight - CHROME_LINES);
+		const rows = Math.max(3, overlayHeight - (HEADER_LINES + FOOTER_LINES_COMPACT + 2));
 		bgSession.session.resize(cols, rows);
 	}
 
@@ -400,7 +401,9 @@ export class ReattachOverlay implements Component, Focusable {
 		lines.push(border("├" + "─".repeat(width - 2) + "┤"));
 
 		const overlayHeight = Math.floor((this.tui.terminal.rows * this.config.overlayHeightPercent) / 100);
-		const termRows = Math.max(3, overlayHeight - CHROME_LINES);
+		const footerHeight = this.state === "detach-dialog" ? FOOTER_LINES_DIALOG : FOOTER_LINES_COMPACT;
+		const chrome = HEADER_LINES + footerHeight + 2;
+		const termRows = Math.max(3, overlayHeight - chrome);
 
 		if (innerWidth !== this.lastWidth || termRows !== this.lastHeight) {
 			this.session.resize(innerWidth, termRows);
@@ -457,7 +460,7 @@ export class ReattachOverlay implements Component, Focusable {
 			footerLines.push(row(dim("Ctrl+T transfer • Ctrl+B background • Ctrl+Q menu • Shift+Up/Down scroll")));
 		}
 
-		while (footerLines.length < FOOTER_LINES) {
+		while (footerLines.length < footerHeight) {
 			footerLines.push(emptyRow());
 		}
 		lines.push(...footerLines);

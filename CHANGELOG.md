@@ -4,6 +4,18 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-02-08
+
+### Added
+- `autoExitGracePeriod` config option (default: 30000ms, clamped 5000-120000ms) and `handsFree.gracePeriod` tool parameter override for startup quiet-kill grace control.
+
+### Changed
+- Default `overlayHeightPercent` increased from 45 to 60 for improved usable terminal rows on smaller displays.
+- Overlay sizing now uses dynamic footer chrome: compact 2-line footer in normal states and full 6-line footer in detach dialog, increasing terminal viewport height during normal operation.
+
+### Fixed
+- Dispatch/hands-free `autoExitOnQuiet` no longer kills sessions during startup silence; quiet timer now re-arms during grace period and applies auto-kill only after grace expires.
+
 ## [0.7.1] - 2026-02-03
 
 ### Changed
@@ -290,4 +302,3 @@ interactive_shell({ sessionId: "abc", input: "y", inputKeys: ["enter"] })
 ### Fixed
 - Prevented TUI width crashes by avoiding unbounded terminal escape rendering.
 - Reduced flicker by sanitizing/redrawing in a controlled overlay viewport.
-

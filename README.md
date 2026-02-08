@@ -115,7 +115,7 @@ Attach to review full output: interactive_shell({ attach: "calm-reef" })
 
 The notification includes a brief tail (last 5 lines) and a reattach instruction. The PTY is preserved for 5 minutes so the agent can attach to review full scrollback.
 
-Dispatch defaults `autoExitOnQuiet: true` — the session is killed after output goes silent (5s by default), which signals completion for task-oriented subagents. Opt out with `handsFree: { autoExitOnQuiet: false }` for long-running processes.
+Dispatch defaults `autoExitOnQuiet: true` — the session gets a 30s startup grace period, then is killed after output goes silent (5s by default), which signals completion for task-oriented subagents. Opt out with `handsFree: { autoExitOnQuiet: false }` for long-running processes.
 
 The overlay still shows for the user, who can Ctrl+T to transfer output, Ctrl+B to background, take over by typing, or Ctrl+Q for more options.
 
@@ -260,7 +260,7 @@ Configuration files (project overrides global):
 ```json
 {
   "overlayWidthPercent": 95,
-  "overlayHeightPercent": 45,
+  "overlayHeightPercent": 60,
   "scrollbackLines": 5000,
   "exitAutoCloseDelay": 10,
   "minQueryIntervalSeconds": 60,
@@ -271,6 +271,7 @@ Configuration files (project overrides global):
   "handsFreeUpdateMode": "on-quiet",
   "handsFreeUpdateInterval": 60000,
   "handsFreeQuietThreshold": 5000,
+  "autoExitGracePeriod": 30000,
   "handsFreeUpdateMaxChars": 1500,
   "handsFreeMaxTotalChars": 100000,
   "handoffPreviewEnabled": true,
@@ -284,7 +285,7 @@ Configuration files (project overrides global):
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `overlayWidthPercent` | 95 | Overlay width (10-100%) |
-| `overlayHeightPercent` | 45 | Overlay height (20-90%) |
+| `overlayHeightPercent` | 60 | Overlay height (20-90%) |
 | `scrollbackLines` | 5000 | Terminal scrollback buffer |
 | `exitAutoCloseDelay` | 10 | Seconds before auto-close after exit |
 | `minQueryIntervalSeconds` | 60 | Rate limit between agent queries |
@@ -294,6 +295,7 @@ Configuration files (project overrides global):
 | `completionNotifyMaxChars` | 5000 | Max chars in completion notification (1KB-50KB) |
 | `handsFreeUpdateMode` | "on-quiet" | "on-quiet" or "interval" |
 | `handsFreeQuietThreshold` | 5000 | Silence duration before update (ms) |
+| `autoExitGracePeriod` | 30000 | Startup grace before `autoExitOnQuiet` kill (ms) |
 | `handsFreeUpdateInterval` | 60000 | Max interval between updates (ms) |
 | `handsFreeUpdateMaxChars` | 1500 | Max chars per update |
 | `handsFreeMaxTotalChars` | 100000 | Total char budget for updates |

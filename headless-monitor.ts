@@ -4,6 +4,7 @@ import type { InteractiveShellConfig } from "./config.js";
 export interface HeadlessMonitorOptions {
 	autoExitOnQuiet: boolean;
 	quietThreshold: number;
+	gracePeriod?: number;
 	timeout?: number;
 }
 
@@ -80,6 +81,11 @@ export class HeadlessDispatchMonitor {
 		this.quietTimer = setTimeout(() => {
 			this.quietTimer = null;
 			if (!this._disposed && this.options.autoExitOnQuiet) {
+				const gracePeriod = this.options.gracePeriod ?? this.config.autoExitGracePeriod;
+				if (Date.now() - this.startTime < gracePeriod) {
+					this.resetQuietTimer();
+					return;
+				}
 				this.session.kill();
 				this.handleCompletion(null, undefined, false, true);
 			}

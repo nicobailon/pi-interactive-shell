@@ -24,6 +24,7 @@ export interface InteractiveShellConfig {
 	handsFreeUpdateMode: "on-quiet" | "interval";
 	handsFreeUpdateInterval: number;
 	handsFreeQuietThreshold: number;
+	autoExitGracePeriod: number;
 	handsFreeUpdateMaxChars: number;
 	handsFreeMaxTotalChars: number;
 	// Query rate limiting
@@ -33,7 +34,7 @@ export interface InteractiveShellConfig {
 const DEFAULT_CONFIG: InteractiveShellConfig = {
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
-	overlayHeightPercent: 45,
+	overlayHeightPercent: 60,
 	scrollbackLines: 5000,
 	ansiReemit: true,
 	handoffPreviewEnabled: true,
@@ -52,6 +53,7 @@ const DEFAULT_CONFIG: InteractiveShellConfig = {
 	handsFreeUpdateMode: "on-quiet" as const,
 	handsFreeUpdateInterval: 60000,
 	handsFreeQuietThreshold: 5000,
+	autoExitGracePeriod: 30000,
 	handsFreeUpdateMaxChars: 1500,
 	handsFreeMaxTotalChars: 100000,
 	// Query rate limiting (default 60 seconds between queries)
@@ -87,7 +89,7 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 		...merged,
 		exitAutoCloseDelay: clampInt(merged.exitAutoCloseDelay, DEFAULT_CONFIG.exitAutoCloseDelay, 0, 60),
 		overlayWidthPercent: clampPercent(merged.overlayWidthPercent, DEFAULT_CONFIG.overlayWidthPercent),
-		// Height: 20-90% range (default 45%)
+		// Height: 20-90% range (default 60%)
 		overlayHeightPercent: clampInt(merged.overlayHeightPercent, DEFAULT_CONFIG.overlayHeightPercent, 20, 90),
 		scrollbackLines: clampInt(merged.scrollbackLines, DEFAULT_CONFIG.scrollbackLines, 200, 50000),
 		ansiReemit: merged.ansiReemit !== false,
@@ -126,6 +128,12 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 			DEFAULT_CONFIG.handsFreeQuietThreshold,
 			1000,
 			30000,
+		),
+		autoExitGracePeriod: clampInt(
+			merged.autoExitGracePeriod,
+			DEFAULT_CONFIG.autoExitGracePeriod,
+			5000,
+			120000,
 		),
 		handsFreeUpdateMaxChars: clampInt(
 			merged.handsFreeUpdateMaxChars,

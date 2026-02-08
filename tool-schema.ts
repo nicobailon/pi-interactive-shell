@@ -236,6 +236,9 @@ export const toolParameters = Type.Object({
 			quietThreshold: Type.Optional(
 				Type.Number({ description: "Silence duration before emitting update in on-quiet mode (default: 5000ms)" }),
 			),
+			gracePeriod: Type.Optional(
+				Type.Number({ description: "Startup grace period before autoExitOnQuiet can kill the session (default: 30000ms)" }),
+			),
 			updateMaxChars: Type.Optional(
 				Type.Number({ description: "Max chars per update (default: 1500)" }),
 			),
@@ -299,6 +302,7 @@ export interface ToolParams {
 		updateMode?: "on-quiet" | "interval";
 		updateInterval?: number;
 		quietThreshold?: number;
+		gracePeriod?: number;
 		updateMaxChars?: number;
 		maxTotalChars?: number;
 		autoExitOnQuiet?: boolean;

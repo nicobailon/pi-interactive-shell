@@ -70,6 +70,7 @@ export interface InteractiveShellOptions {
 	onHandsFreeUpdate?: (update: HandsFreeUpdate) => void;
 	// Auto-exit when output stops (for agents that don't exit on their own)
 	autoExitOnQuiet?: boolean;
+	autoExitGracePeriod?: number;
 	// Auto-kill timeout
 	timeout?: number;
 	// Existing PTY session (for attach flow -- skip creating a new PTY)
@@ -80,9 +81,9 @@ export type DialogChoice = "kill" | "background" | "transfer" | "cancel";
 export type OverlayState = "running" | "exited" | "detach-dialog" | "hands-free";
 
 // UI constants
-export const FOOTER_LINES = 6;
+export const FOOTER_LINES_COMPACT = 2;
+export const FOOTER_LINES_DIALOG = 6;
 export const HEADER_LINES = 4;
-export const CHROME_LINES = HEADER_LINES + FOOTER_LINES + 2;
 
 /** Format milliseconds to human-readable duration */
 export function formatDuration(ms: number): string {

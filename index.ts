@@ -494,6 +494,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 							autoExitOnQuiet: mode === "dispatch"
 								? handsFree?.autoExitOnQuiet !== false
 								: handsFree?.autoExitOnQuiet === true,
+							autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 							handoffPreviewEnabled: handoffPreview?.enabled,
 							handoffPreviewLines: handoffPreview?.lines,
 							handoffPreviewMaxChars: handoffPreview?.maxChars,
@@ -637,6 +638,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				const monitor = new HeadlessDispatchMonitor(session, config, {
 					autoExitOnQuiet: handsFree?.autoExitOnQuiet !== false,
 					quietThreshold: handsFree?.quietThreshold ?? config.handsFreeQuietThreshold,
+					gracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 					timeout,
 				}, makeMonitorCompletionCallback(pi, id, startTime));
 				headlessMonitors.set(id, monitor);
@@ -695,6 +697,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 							autoExitOnQuiet: mode === "dispatch"
 								? handsFree?.autoExitOnQuiet !== false
 								: handsFree?.autoExitOnQuiet === true,
+							autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 							handoffPreviewEnabled: handoffPreview?.enabled,
 							handoffPreviewLines: handoffPreview?.lines,
 							handoffPreviewMaxChars: handoffPreview?.maxChars,
@@ -760,6 +763,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 							handsFreeUpdateMaxChars: handsFree?.updateMaxChars,
 							handsFreeMaxTotalChars: handsFree?.maxTotalChars,
 							autoExitOnQuiet: handsFree?.autoExitOnQuiet,
+							autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 							onHandsFreeUpdate: mode === "hands-free"
 								? (update) => {
 									let statusText: string;
@@ -974,7 +978,7 @@ function setupDispatchCompletion(
 		command: string;
 		reason?: string;
 		timeout?: number;
-		handsFree?: { autoExitOnQuiet?: boolean; quietThreshold?: number };
+		handsFree?: { autoExitOnQuiet?: boolean; quietThreshold?: number; gracePeriod?: number };
 		overlayStartTime?: number;
 	},
 ): void {
@@ -1030,6 +1034,7 @@ function setupDispatchCompletion(
 					const monitor = new HeadlessDispatchMonitor(bgSession.session, config, {
 						autoExitOnQuiet: ctx.handsFree?.autoExitOnQuiet !== false,
 						quietThreshold: ctx.handsFree?.quietThreshold ?? config.handsFreeQuietThreshold,
+						gracePeriod: ctx.handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 						timeout: remainingTimeout,
 					}, makeMonitorCompletionCallback(pi, bgId, bgStartTime));
 					headlessMonitors.set(bgId, monitor);
