@@ -115,7 +115,7 @@ Attach to review full output: interactive_shell({ attach: "calm-reef" })
 
 The notification includes a brief tail (last 5 lines) and a reattach instruction. The PTY is preserved for 5 minutes so the agent can attach to review full scrollback.
 
-Dispatch defaults `autoExitOnQuiet: true` — the session gets a 30s startup grace period, then is killed after output goes silent (5s by default), which signals completion for task-oriented subagents. Opt out with `handsFree: { autoExitOnQuiet: false }` for long-running processes.
+Dispatch defaults `autoExitOnQuiet: true` — the session gets a 30s startup grace period, then is killed after output goes silent (5s by default), which signals completion for task-oriented subagents. Tune the grace period with `handsFree: { gracePeriod: 60000 }` or opt out entirely with `handsFree: { autoExitOnQuiet: false }`.
 
 The overlay still shows for the user, who can Ctrl+T to transfer output, Ctrl+B to background, take over by typing, or Ctrl+Q for more options.
 
@@ -160,6 +160,18 @@ interactive_shell({
   handsFree: { autoExitOnQuiet: true }
 })
 ```
+
+A 30s startup grace period prevents the session from being killed before the subprocess has time to produce output. Customize it per-call with `gracePeriod`:
+
+```typescript
+interactive_shell({
+  command: 'pi "Run the full test suite"',
+  mode: "hands-free",
+  handsFree: { autoExitOnQuiet: true, gracePeriod: 60000 }
+})
+```
+
+The default grace period is also configurable globally via `autoExitGracePeriod` in the config file.
 
 For multi-turn sessions where you need back-and-forth interaction, leave it disabled (default) and use `kill: true` when done.
 
@@ -300,6 +312,8 @@ Configuration files (project overrides global):
 | `handsFreeUpdateMaxChars` | 1500 | Max chars per update |
 | `handsFreeMaxTotalChars` | 100000 | Total char budget for updates |
 | `handoffPreviewEnabled` | true | Include tail in tool result |
+| `handoffPreviewLines` | 30 | Lines in tail preview (0-500) |
+| `handoffPreviewMaxChars` | 2000 | Max chars in tail preview (0-50KB) |
 | `handoffSnapshotEnabled` | false | Write transcript on detach/exit |
 | `ansiReemit` | true | Preserve ANSI colors in output |
 

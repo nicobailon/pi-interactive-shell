@@ -4,6 +4,12 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-02-08
+
+### Fixed
+- README: documented `handsFree.gracePeriod` tool parameter and startup grace period behavior in Auto-Exit on Quiet and Dispatch sections.
+- README: added missing `handoffPreviewLines` and `handoffPreviewMaxChars` to config settings table.
+
 ## [0.8.0] - 2026-02-08
 
 ### Added
@@ -15,6 +21,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ### Fixed
 - Dispatch/hands-free `autoExitOnQuiet` no longer kills sessions during startup silence; quiet timer now re-arms during grace period and applies auto-kill only after grace expires.
+- README config table missing `handoffPreviewLines` and `handoffPreviewMaxChars` entries despite appearing in the JSON example.
 
 ## [0.7.1] - 2026-02-03
 
