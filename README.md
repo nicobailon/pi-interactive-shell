@@ -329,6 +329,82 @@ interactive_shell → node-pty → subprocess
 
 Full PTY. The subprocess thinks it's in a real terminal.
 
+## Example Workflow: Plan, Implement, Review
+
+The `examples/prompts/` directory includes three prompt templates that chain together into a complete development workflow using Codex CLI. Each template instructs pi to gather context, generate a tailored meta prompt based on the [Codex prompting guide](https://developers.openai.com/cookbook/examples/gpt-5/gpt-5-2_prompting_guide.md), and launch Codex in an interactive overlay.
+
+### The Pipeline
+
+```
+Write a plan
+    ↓
+/codex-review-plan path/to/plan.md        ← Codex verifies every assumption against the codebase
+    ↓
+/codex-implement-plan path/to/plan.md     ← Codex implements the reviewed plan faithfully
+    ↓
+/codex-review-impl path/to/plan.md        ← Codex reviews the diff against the plan, fixes issues
+```
+
+### Installing the Templates
+
+Copy the prompt templates and Codex CLI skill to your pi config:
+
+```bash
+# Prompt templates (slash commands)
+cp ~/.pi/agent/extensions/interactive-shell/examples/prompts/*.md ~/.pi/agent/prompts/
+
+# Codex CLI skill (teaches pi how to use codex flags, sandbox caveats, etc.)
+cp -r ~/.pi/agent/extensions/interactive-shell/examples/skills/codex-cli ~/.pi/agent/skills/
+```
+
+### Usage
+
+Say you have a plan at `docs/auth-redesign-plan.md`:
+
+**Step 1: Review the plan** — Codex reads your plan, then verifies every file path, API shape, data flow, and integration point against the actual codebase. Fixes issues directly in the plan file.
+
+```
+/codex-review-plan docs/auth-redesign-plan.md
+/codex-review-plan docs/auth-redesign-plan.md pay attention to the migration steps
+```
+
+**Step 2: Implement the plan** — Codex reads all relevant code first, then implements bottom-up: shared utilities first, then dependent modules, then integration code. No stubs, no TODOs.
+
+```
+/codex-implement-plan docs/auth-redesign-plan.md
+/codex-implement-plan docs/auth-redesign-plan.md skip test files for now
+```
+
+**Step 3: Review the implementation** — Codex diffs the changes, reads every changed file in full (plus imports and dependents), traces code paths across file boundaries, and fixes every issue it finds. Pass the plan to verify completeness, or omit it to just review the diff.
+
+```
+/codex-review-impl docs/auth-redesign-plan.md              # review diff against plan
+/codex-review-impl docs/auth-redesign-plan.md check cleanup ordering
+/codex-review-impl                                          # just review the diff, no plan
+/codex-review-impl focus on error handling and race conditions
+```
+
+### How They Work
+
+These templates demonstrate a "meta-prompt generation" pattern:
+
+1. **Pi gathers context** — reads the plan, runs git diff, fetches the Codex prompting guide
+2. **Pi generates a calibrated prompt** — tailored to the specific plan/diff, following the guide's best practices
+3. **Pi launches Codex in the overlay** — with explicit flags (`-m gpt-5.3-codex -c model_reasoning_effort="high" -a never`) and hands off control
+
+The user watches Codex work in the overlay and can take over anytime (type to intervene, Ctrl+T to transfer output back to pi, Ctrl+Q for options).
+
+### Customizing
+
+These are starting points. Fork them and adjust:
+
+- **Model/flags** — swap `gpt-5.3-codex` for another model, change reasoning effort
+- **Review criteria** — add project-specific checks (security policies, style rules)
+- **Implementation rules** — change the 500-line file limit, add framework-specific patterns
+- **Other agents** — adapt the pattern for Claude (`claude "prompt"`), Gemini (`gemini -i "prompt"`), or any CLI
+
+See the [pi prompt templates docs](https://github.com/badlogic/pi-mono/) for the full `$1`, `$@` placeholder syntax.
+
 ## Advanced: Multi-Agent Workflows
 
 For orchestrating multi-agent chains (scout → planner → worker → reviewer) with file-based handoff and auto-continue support, see:

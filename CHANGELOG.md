@@ -4,6 +4,13 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-02-10
+
+### Added
+- `examples/prompts/` with three Codex CLI prompt templates: `codex-review-plan`, `codex-implement-plan`, `codex-review-impl`. Demonstrates a plan → implement → review workflow using meta-prompt generation and interactive shell overlays.
+- `examples/skills/codex-cli/` skill that teaches pi Codex CLI flags, config, sandbox caveats, and interactive_shell usage patterns.
+- README section documenting the workflow pipeline, installation, usage examples, and customization.
+
 ## [0.8.1] - 2026-02-08
 
 ### Fixed
