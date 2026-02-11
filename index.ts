@@ -495,6 +495,20 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 								? handsFree?.autoExitOnQuiet !== false
 								: handsFree?.autoExitOnQuiet === true,
 							autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
+							onHandsFreeUpdate: mode === "hands-free"
+								? (update) => {
+									pi.events.emit("interactive-shell:update", {
+										sessionId: reattachSessionId,
+										status: update.status,
+										runtime: update.runtime,
+										tail: update.tail,
+										tailTruncated: update.tailTruncated,
+										totalCharsSent: update.totalCharsSent,
+										budgetExhausted: update.budgetExhausted,
+										userTookOver: update.userTookOver,
+									});
+								}
+								: undefined,
 							handoffPreviewEnabled: handoffPreview?.enabled,
 							handoffPreviewLines: handoffPreview?.lines,
 							handoffPreviewMaxChars: handoffPreview?.maxChars,
@@ -698,6 +712,20 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 								? handsFree?.autoExitOnQuiet !== false
 								: handsFree?.autoExitOnQuiet === true,
 							autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
+							onHandsFreeUpdate: mode === "hands-free"
+								? (update) => {
+									pi.events.emit("interactive-shell:update", {
+										sessionId: generatedSessionId,
+										status: update.status,
+										runtime: update.runtime,
+										tail: update.tail,
+										tailTruncated: update.tailTruncated,
+										totalCharsSent: update.totalCharsSent,
+										budgetExhausted: update.budgetExhausted,
+										userTookOver: update.userTookOver,
+									});
+								}
+								: undefined,
 							handoffPreviewEnabled: handoffPreview?.enabled,
 							handoffPreviewLines: handoffPreview?.lines,
 							handoffPreviewMaxChars: handoffPreview?.maxChars,

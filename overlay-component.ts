@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import type { Component, Focusable, TUI } from "@mariozechner/pi-tui";
 import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { Theme } from "@mariozechner/pi-coding-agent";
@@ -84,11 +85,18 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const rows = Math.max(3, overlayHeight - (HEADER_LINES + FOOTER_LINES_COMPACT + 2));
 
 		const ptyEvents = {
-			onData: () => {
+			onData: (data: string) => {
 				this.debouncedRender();
 				if (this.state === "hands-free" && this.updateMode === "on-quiet") {
-					this.hasUnsentData = true;
-					this.resetQuietTimer();
+					// Only reset the quiet timer when there's visible content.
+					// TUI apps (e.g. Ink-based CLIs like Claude Code) emit periodic
+					// ANSI-only frames (cursor blink, redraws) that would prevent
+					// quiet detection from ever triggering.
+					const visible = stripVTControlCharacters(data);
+					if (visible.trim().length > 0) {
+						this.hasUnsentData = true;
+						this.resetQuietTimer();
+					}
 				}
 			},
 			onExit: () => {
