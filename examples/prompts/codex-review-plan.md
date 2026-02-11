@@ -1,18 +1,18 @@
 ---
 description: Launch Codex CLI in overlay to review an implementation plan against the codebase
 ---
-Read the Codex prompting guide at https://developers.openai.com/cookbook/examples/gpt-5/gpt-5-2_prompting_guide.md using fetch_content or web_search. Then read the plan at `$1`.
+Load the `codex-5.3-prompting` and `codex-cli` skills. Then read the plan at `$1`.
 
-Based on the prompting guide's best practices and the plan's content, generate a comprehensive meta prompt tailored for Codex CLI. The meta prompt should instruct Codex to:
+Based on the prompting skill's best practices and the plan's content, generate a comprehensive meta prompt tailored for Codex CLI. The meta prompt should instruct Codex to:
 
-1. Read and internalize the full plan
-2. Systematically review the plan against the reference docs/links/code
-3. Verify every assumption, file path, API shape, data flow, and integration point mentioned in the plan
-4. Check that the plan's approach is logically sound, complete, and accounts for edge cases
-5. Identify any gaps, contradictions, incorrect assumptions, or missing steps
-6. Make direct edits to the plan file to fix any issues found, adding inline notes where changes were made
+1. Read and internalize the full plan. Then read every codebase file the plan references — in full, not just the sections mentioned. Also read key files adjacent to those (imports, dependents) to understand the real state of the code the plan targets.
+2. Systematically review the plan against what the code actually looks like, not what the plan assumes it looks like.
+3. Verify every assumption, file path, API shape, data flow, and integration point mentioned in the plan against the actual codebase.
+4. Check that the plan's approach is logically sound, complete, and accounts for edge cases.
+5. Identify any gaps, contradictions, incorrect assumptions, or missing steps.
+6. Make targeted edits to the plan file to fix issues found, adding inline notes where changes were made. Fix what's wrong — do not restructure or rewrite sections that are correct.
 
-The meta prompt should be structured according to the Codex guide's recommendations (clear system context, explicit constraints, step-by-step instructions, expected output format).
+The meta prompt should follow the prompting skill's patterns (clear system context, explicit constraints, step-by-step instructions, expected output format). Instruct Codex not to ask clarifying questions — read the codebase to resolve ambiguities instead of asking. Keep progress updates brief and concrete. GPT-5.3-Codex is eager and may restructure the plan beyond what's needed; constrain edits to actual issues found.
 
 Then launch Codex CLI in the interactive shell overlay with that meta prompt using these flags: `-m gpt-5.3-codex -c model_reasoning_effort="xhigh" -a never`. Do NOT pass sandbox flags in interactive_shell. End your turn immediately after launching -- do not poll the session. The user will manage the overlay directly.
 

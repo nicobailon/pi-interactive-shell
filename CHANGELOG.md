@@ -4,6 +4,12 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Added
+- `examples/skills/codex-5.3-prompting/` skill with GPT-5.3-Codex prompting guide -- self-contained best practices for verbosity control, scope discipline, forced upfront reading, plan mode, mid-task steering, context management, and reasoning effort recommendations.
+
+### Changed
+- Example prompts (`codex-implement-plan`, `codex-review-impl`, `codex-review-plan`) updated for GPT-5.3-Codex: load `codex-5.3-prompting` and `codex-cli` skills instead of fetching the 5.2 guide URL at runtime, added scope fencing instructions to counter 5.3's aggressive refactoring, added "don't ask clarifying questions" and "brief updates" constraints, strengthened `codex-review-plan` to force reading codebase files referenced in the plan and constrain edit scope.
+
 ## [0.8.2] - 2026-02-10
 
 ### Added
