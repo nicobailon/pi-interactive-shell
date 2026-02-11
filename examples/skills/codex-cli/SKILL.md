@@ -66,19 +66,21 @@ Define profiles for different projects/modes with `[profiles.<name>]` sections. 
 
 Do NOT pass `-s` / `--sandbox` flags. Codex's `read-only` and `workspace-write` sandbox modes apply OS-level filesystem restrictions that break basic shell operations inside the PTY -- zsh can't even create temp files for here-documents, so every write attempt fails with "operation not permitted." The interactive shell overlay already provides supervision (user watches in real-time, Ctrl+Q to kill, Ctrl+T to transfer output), making Codex's sandbox redundant.
 
-Use explicit flags to control model and behavior per-run:
+Use explicit flags to control model and behavior per-run.
+
+For delegated fire-and-forget runs, prefer `mode: "dispatch"` so the agent is notified automatically when Codex completes.
 
 ```typescript
-// Interactive with prompt
+// Delegated run with completion notification (recommended default)
 interactive_shell({
   command: 'codex -m gpt-5.3-codex -a never "Review this codebase for security issues"',
-  mode: "hands-free"
+  mode: "dispatch"
 })
 
-// Override reasoning effort for a single run
+// Override reasoning effort for a single delegated run
 interactive_shell({
   command: 'codex -m gpt-5.3-codex -c model_reasoning_effort="xhigh" -a never "Complex refactor task"',
-  mode: "hands-free"
+  mode: "dispatch"
 })
 
 // Headless - use bash instead

@@ -49,7 +49,7 @@ Three modes control how the agent engages with a session:
 
 **Hands-free** returns immediately so the agent can do other work, but the agent must poll periodically to discover output and completion. Good for processes the agent needs to monitor and react to mid-flight, like watching build output and sending follow-up commands.
 
-**Dispatch** also returns immediately, but the agent doesn't poll at all. When the session completes — whether by natural exit, quiet detection, timeout, or user intervention — the agent gets woken up with a notification containing the tail output. This is the right mode for delegating a task to a subagent and moving on. Add `background: true` to skip the overlay entirely and run headless.
+**Dispatch** also returns immediately, but the agent doesn't poll at all. When the session completes — whether by natural exit, quiet detection, timeout, or user intervention — the agent gets woken up with a notification containing the tail output. This is the right mode for delegating a task to a subagent and moving on. For fire-and-forget delegated runs and QA checks, prefer dispatch by default. Add `background: true` to skip the overlay entirely and run headless.
 
 ## Quick Start
 

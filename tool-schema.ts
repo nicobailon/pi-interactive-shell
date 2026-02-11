@@ -14,6 +14,10 @@ MODES:
 - hands-free: Agent monitors with periodic updates, user can take over anytime by typing
 - dispatch: Agent is notified on completion via triggerTurn (no polling needed)
 
+RECOMMENDED DEFAULT FOR DELEGATED TASKS:
+- For fire-and-forget delegations and QA-style checks, prefer mode="dispatch".
+- Dispatch is the safest choice when the agent should continue immediately and be notified automatically on completion.
+
 The user will see the process in an overlay. They can:
 - Watch output in real-time
 - Scroll through output (Shift+Up/Down)

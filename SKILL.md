@@ -84,6 +84,8 @@ interactive_shell({
 
 Dispatch defaults `autoExitOnQuiet: true`. The agent can still query the sessionId if needed, but doesn't have to.
 
+For fire-and-forget delegated runs (including QA-style delegated checks), prefer dispatch as the default mode.
+
 #### Background Dispatch (Headless)
 No overlay opens. Multiple headless dispatches can run concurrently:
 

@@ -19,6 +19,8 @@ Based on the prompting skill's best practices and the plan's content, generate a
 
 The meta prompt should follow the prompting skill's patterns: clear system context, explicit scope and verbosity constraints, step-by-step instructions, and expected output format. Instruct Codex not to ask clarifying questions about things answerable by reading the plan or codebase — read first, then act. Keep progress updates brief and concrete (no narrating routine file reads or tool calls). Emphasize that the plan has already been thoroughly reviewed — the job is faithful execution, not second-guessing the design. Emphasize scope discipline — GPT-5.3-Codex is aggressive about refactoring adjacent code if not explicitly fenced in.
 
-Then launch Codex CLI in the interactive shell overlay with that meta prompt using these flags: `-m gpt-5.3-codex -c model_reasoning_effort="high" -a never`. Do NOT pass sandbox flags in interactive_shell. End your turn immediately after launching -- do not poll the session. The user will manage the overlay directly.
+Then launch Codex CLI in the interactive shell overlay with that meta prompt using these flags: `-m gpt-5.3-codex -c model_reasoning_effort="high" -a never`.
+
+Use `interactive_shell` with `mode: "dispatch"` for this delegated run (fire-and-forget with completion notification). Do NOT pass sandbox flags in interactive_shell. Dispatch mode only. End turn immediately. Do not poll. Wait for completion notification.
 
 $@

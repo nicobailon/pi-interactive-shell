@@ -1,25 +1,15 @@
 ---
 name: codex-5.3-prompting
-description: Prompting guide for GPT-5.3-Codex. Best practices for writing system prompts, meta prompts, and instructions targeting GPT-5.3-Codex behavior. Use when generating prompts for Codex 5.3 or tuning its behavior
+description: How to write system prompts and instructions for GPT-5.3-Codex. Use when constructing or tuning prompts targeting Codex 5.3.
 ---
 
 # GPT-5.3-Codex Prompting Guide
 
-GPT-5.3-Codex is OpenAI's latest coding-focused model (February 2026). It's faster than 5.2 (~25%), stronger on complex multi-file tasks, and better at mid-task steering. It's also less deliberate -- it moves quickly and can feel rushed or over-eager if prompts aren't tight. The tradeoff is speed and capability for less implicit patience, so explicit constraints matter more than they did with 5.2.
+GPT-5.3-Codex is fast, capable, and eager. It moves quickly and will skip reading, over-refactor, and drift scope if prompts aren't tight. Explicit constraints matter more than with GPT-5.2-Codex. Include the following blocks as needed when constructing system prompts.
 
-This guide covers prompt patterns that work well with 5.3.
+## Output shape
 
-## Key behavioral differences from 5.2
-
-- **Faster, less deliberate.** 5.3 executes quicker but is more prone to hasty mistakes on hard tasks if not constrained. It benefits from plan-first workflows where the full task is drafted before implementation begins.
-- **Stronger mid-task steering.** You can interrupt and redirect without losing context. Clear commands like "stop introducing legacy compatibility -- fix the root problem" work well.
-- **More aggressive refactoring.** 5.3 may delete or restructure code beyond what was asked. Scope discipline is critical.
-- **Better agentic autonomy.** Stronger on long multi-step runs, but monitor context usage -- if it drops below ~40%, start fresh to avoid repetition or confused questions.
-- **Responds well to structured, constrained prompts.** Jargon like "golden-path," "no fallbacks," "domain split" gets faster, more accurate responses.
-
-## Controlling verbosity and output shape
-
-Give clear, concrete length constraints. 5.3 is generally concise but still prompt-sensitive.
+Always include. Controls verbosity and response structure.
 
 ```
 <output_verbosity_spec>
@@ -33,9 +23,9 @@ Give clear, concrete length constraints. 5.3 is generally concise but still prom
 </output_verbosity_spec>
 ```
 
-## Preventing scope drift
+## Scope constraints
 
-5.3 is stronger at structured code but tends to produce more than asked for. Explicitly forbid extra features and uncontrolled styling, especially in frontend tasks.
+Always include. GPT-5.3-Codex will add features, refactor adjacent code, and invent UI elements if you don't fence it in.
 
 ```
 <design_and_scope_constraints>
@@ -48,11 +38,9 @@ Give clear, concrete length constraints. 5.3 is generally concise but still prom
 </design_and_scope_constraints>
 ```
 
-For 5.3 specifically, reinforce scope discipline harder than you would with 5.2. It's more likely to "helpfully" refactor adjacent code or add defensive patterns you didn't ask for.
+## Context loading
 
-## Force thorough reading upfront
-
-5.3 moves fast and sometimes starts writing before it fully understands the context. Force it to read first.
+Always include. GPT-5.3-Codex skips reading and starts writing if you don't force it.
 
 ```
 <context_loading>
@@ -63,11 +51,9 @@ For 5.3 specifically, reinforce scope discipline harder than you would with 5.2.
 </context_loading>
 ```
 
-This is more important with 5.3 than 5.2. The model is eager to start producing output and will skip reading steps if you let it.
+## Plan-first mode
 
-## Plan mode for complex tasks
-
-For large refactors or multi-file work, draft the full task before implementing. This reduces cascading errors significantly with 5.3.
+Include for multi-file work, large refactors, or any task with ordering dependencies.
 
 ```
 <plan_first>
@@ -81,13 +67,13 @@ For large refactors or multi-file work, draft the full task before implementing.
 </plan_first>
 ```
 
-## Long-context and recall
+## Long-context handling
 
-For inputs over ~10k tokens, force summarization and re-grounding to prevent "lost in the scroll" errors.
+Include when inputs exceed ~10k tokens (multi-chapter docs, long threads, multiple PDFs).
 
 ```
 <long_context_handling>
-- For inputs longer than ~10k tokens (multi-chapter docs, long threads, multiple PDFs):
+- For inputs longer than ~10k tokens:
   - First, produce a short internal outline of the key sections relevant to the task.
   - Re-state the constraints explicitly before answering.
   - Anchor claims to sections ("In the 'Data Retention' section...") rather than speaking generically.
@@ -95,9 +81,9 @@ For inputs over ~10k tokens, force summarization and re-grounding to prevent "lo
 </long_context_handling>
 ```
 
-## Handling ambiguity and hallucination risk
+## Uncertainty and ambiguity
 
-5.3 can be overconfident. Configure prompts for uncertain situations.
+Include when the task involves underspecified requirements or hallucination-prone domains.
 
 ```
 <uncertainty_and_ambiguity>
@@ -109,9 +95,9 @@ For inputs over ~10k tokens, force summarization and re-grounding to prevent "lo
 </uncertainty_and_ambiguity>
 ```
 
-## Agentic steerability and user updates
+## User updates
 
-5.3 is strong on agentic scaffolding. Keep updates brief and scope-disciplined.
+Include for agentic / long-running tasks.
 
 ```
 <user_updates_spec>
@@ -124,17 +110,9 @@ For inputs over ~10k tokens, force summarization and re-grounding to prevent "lo
 </user_updates_spec>
 ```
 
-## Mid-task steering (new in 5.3)
+## Tool usage
 
-5.3 handles interrupts and course corrections better than 5.2. When the model goes off track, be direct:
-
-- "Stop. Read the error message again and fix the actual cause."
-- "Don't add backwards compatibility. Just implement the new approach."
-- "You're overcomplicating this. Simplest valid implementation only."
-
-These work mid-conversation without losing prior context. With 5.2 you'd often need to start over; 5.3 can pivot in place.
-
-## Tool-calling and parallelism
+Include when the prompt involves tool-calling agents.
 
 ```
 <tool_usage_rules>
@@ -149,32 +127,23 @@ These work mid-conversation without losing prior context. With 5.2 you'd often n
 </tool_usage_rules>
 ```
 
-## Context management
-
-Monitor context usage in long sessions. With 5.3's speed, you burn through context faster.
-
-- If context drops below ~40%, start a new session to avoid degraded quality.
-- When starting a new session, keep your instructions functionally identical to avoid behavior drift.
-
 ## Reasoning effort
 
-GPT-5.3-Codex supports `model_reasoning_effort`: `low`, `medium`, `high`, `xhigh`.
+Set `model_reasoning_effort` via Codex CLI: `-c model_reasoning_effort="high"`
 
-| Task type | Recommended effort |
+| Task type | Effort |
 |---|---|
 | Simple code generation, formatting | `low` or `medium` |
 | Standard implementation from clear specs | `high` |
-| Complex refactors, plan review, architecture decisions | `xhigh` |
+| Complex refactors, plan review, architecture | `xhigh` |
 | Code review (thorough) | `high` or `xhigh` |
 
-Set via Codex CLI: `-c model_reasoning_effort="high"`
-
-## Quick reference: 5.3-specific prompting tips
+## Quick reference
 
 - **Force reading first.** "Read all necessary files before you ask any dumb question."
 - **Use plan mode.** Draft the full task with acceptance criteria before implementing.
-- **Steer aggressively mid-task.** Clear, direct commands to redirect without losing context.
-- **Constrain scope hard.** 5.3 will refactor aggressively if you don't fence it in.
+- **Steer aggressively mid-task.** GPT-5.3-Codex handles redirects without losing context. Be direct: "Stop. Fix the actual cause." / "Simplest valid implementation only."
+- **Constrain scope hard.** GPT-5.3-Codex will refactor aggressively if you don't fence it in.
 - **Watch context burn.** Faster model = faster context consumption. Start fresh at ~40%.
 - **Use domain jargon.** "Golden-path," "no fallbacks," "domain split" get faster responses.
 - **Download libraries locally.** Tell it to read them for better context than relying on training data.
