@@ -1040,6 +1040,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	}
 
 	render(width: number): string[] {
+		width = Math.max(4, width); // guard against narrow terminals (width<4 causes negative repeat counts)
 		const th = this.theme;
 		const border = (s: string) => th.fg("border", s);
 		const accent = (s: string) => th.fg("accent", s);
