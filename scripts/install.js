@@ -9,8 +9,10 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(__dirname, "..");
 
-const EXTENSION_DIR = join(homedir(), ".pi", "agent", "extensions", "interactive-shell");
-const SKILL_DIR = join(homedir(), ".pi", "agent", "skills", "interactive-shell");
+// Respect PI_CODING_AGENT_DIR if set, fall back to ~/.pi/agent
+const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+const EXTENSION_DIR = join(agentDir, "extensions", "interactive-shell");
+const SKILL_DIR = join(agentDir, "skills", "interactive-shell");
 
 function log(msg) {
 	console.log(`[pi-interactive-shell] ${msg}`);
