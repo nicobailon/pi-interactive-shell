@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
 
 export interface InteractiveShellConfig {
 	exitAutoCloseDelay: number;
@@ -62,7 +62,7 @@ const DEFAULT_CONFIG: InteractiveShellConfig = {
 
 export function loadConfig(cwd: string): InteractiveShellConfig {
 	const projectPath = join(cwd, ".pi", "interactive-shell.json");
-	const globalPath = join(homedir(), ".pi", "agent", "interactive-shell.json");
+	const globalPath = join(getAgentDir(), "interactive-shell.json");
 
 	let globalConfig: Partial<InteractiveShellConfig> = {};
 	let projectConfig: Partial<InteractiveShellConfig> = {};

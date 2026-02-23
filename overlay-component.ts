@@ -1,10 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { Component, Focusable, TUI } from "@mariozechner/pi-tui";
 import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { Theme } from "@mariozechner/pi-coding-agent";
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import { PtyTerminalSession } from "./pty-session.js";
 import { sessionManager, generateSessionId } from "./session-manager.js";
 import type { InteractiveShellConfig } from "./config.js";
@@ -719,7 +719,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const maxChars = this.options.handoffSnapshotMaxChars ?? this.config.handoffSnapshotMaxChars;
 		if (lines <= 0 || maxChars <= 0) return undefined;
 
-		const baseDir = join(homedir(), ".pi", "agent", "cache", "interactive-shell");
+		const baseDir = join(getAgentDir(), "cache", "interactive-shell");
 		mkdirSync(baseDir, { recursive: true });
 
 		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
