@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import type { Component, Focusable, TUI } from "@mariozechner/pi-tui";
 import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { Theme } from "@mariozechner/pi-coding-agent";
@@ -84,11 +85,16 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const rows = Math.max(3, overlayHeight - (HEADER_LINES + FOOTER_LINES_COMPACT + 2));
 
 		const ptyEvents = {
-			onData: () => {
+			onData: (data: string) => {
 				this.debouncedRender();
-				if (this.state === "hands-free" && this.updateMode === "on-quiet") {
-					this.hasUnsentData = true;
-					this.resetQuietTimer();
+				if (this.state === "hands-free" && (this.updateMode === "on-quiet" || this.options.autoExitOnQuiet)) {
+					const visible = stripVTControlCharacters(data);
+					if (visible.trim().length > 0) {
+						if (this.updateMode === "on-quiet") {
+							this.hasUnsentData = true;
+						}
+						this.resetQuietTimer();
+					}
 				}
 			},
 			onExit: () => {
@@ -427,13 +433,21 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			}
 		}, 2000);
 
+		if (this.options.autoExitOnQuiet) {
+			this.resetQuietTimer();
+		}
+
 		this.handsFreeInterval = setInterval(() => {
 			if (this.state === "hands-free") {
 				if (this.updateMode === "on-quiet") {
 					if (this.hasUnsentData && this.options.onHandsFreeUpdate) {
 						this.emitHandsFreeUpdate();
 						this.hasUnsentData = false;
-						this.stopQuietTimer();
+						if (this.options.autoExitOnQuiet) {
+							this.resetQuietTimer();
+						} else {
+							this.stopQuietTimer();
+						}
 					}
 				} else {
 					this.emitHandsFreeUpdate();
@@ -442,7 +456,6 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		}, this.currentUpdateInterval);
 	}
 
-	/** Reset the quiet timer - called on each data event in on-quiet mode */
 	private resetQuietTimer(): void {
 		this.stopQuietTimer();
 		this.quietTimer = setTimeout(() => {
@@ -510,7 +523,11 @@ export class InteractiveShellOverlay implements Component, Focusable {
 						if (this.hasUnsentData && this.options.onHandsFreeUpdate) {
 							this.emitHandsFreeUpdate();
 							this.hasUnsentData = false;
-							this.stopQuietTimer();
+							if (this.options.autoExitOnQuiet) {
+								this.resetQuietTimer();
+							} else {
+								this.stopQuietTimer();
+							}
 						}
 					} else {
 						this.emitHandsFreeUpdate();
@@ -526,9 +543,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		if (clamped === this.currentQuietThreshold) return;
 		this.currentQuietThreshold = clamped;
 
-		// If a quiet timer is active, restart it with the new threshold
-		// Use resetQuietTimer to ensure autoExitOnQuiet logic is included
-		if (this.quietTimer && this.updateMode === "on-quiet") {
+		if (this.quietTimer) {
 			this.resetQuietTimer();
 		}
 	}
@@ -624,8 +639,6 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.state = "running";
 		this.userTookOver = true;
 
-		// Notify agent that user took over (streaming mode)
-		// In non-blocking mode, keep session registered so agent can query status
 		if (this.options.onHandsFreeUpdate) {
 			this.options.onHandsFreeUpdate({
 				status: "user-takeover",
@@ -637,11 +650,12 @@ export class InteractiveShellOverlay implements Component, Focusable {
 				totalCharsSent: this.totalCharsSent,
 				budgetExhausted: this.budgetExhausted,
 			});
-			// Unregister and release ID in streaming mode - agent got notified, won't query
+		}
+		// In streaming mode (blocking tool call), unregister now since the agent
+		// gets the result via tool return. Otherwise keep registered for queries.
+		if (this.options.streamingMode) {
 			this.unregisterActiveSession(true);
 		}
-		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
-		// so agent can query and see "user-takeover" status
 
 		this.tui.requestRender();
 	}
@@ -761,10 +775,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.completionResult = result;
 		this.triggerCompleteCallbacks();
 
-		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
-		// so agent can query completion result. Agent's query will unregister.
-		// In streaming mode, unregister now since agent got final update.
-		if (this.options.onHandsFreeUpdate) {
+		// In streaming mode (blocking tool call), unregister now since the agent
+		// gets the result via tool return. Otherwise keep registered for queries.
+		if (this.options.streamingMode) {
 			this.unregisterActiveSession(true);
 		}
 
@@ -801,10 +814,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.completionResult = result;
 		this.triggerCompleteCallbacks();
 
-		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
-		// so agent can query completion result. Agent's query will unregister.
-		// Use releaseId=false because the background session now owns the ID.
-		if (this.options.onHandsFreeUpdate) {
+		// In streaming mode (blocking tool call), unregister now since the agent
+		// gets the result via tool return. releaseId=false because background owns the ID.
+		if (this.options.streamingMode) {
 			this.unregisterActiveSession(false);
 		}
 
@@ -836,9 +848,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.completionResult = result;
 		this.triggerCompleteCallbacks();
 
-		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
-		// so agent can query completion result. Agent's query will unregister.
-		if (this.options.onHandsFreeUpdate) {
+		// In streaming mode (blocking tool call), unregister now since the agent
+		// gets the result via tool return. Otherwise keep registered for queries.
+		if (this.options.streamingMode) {
 			this.unregisterActiveSession(true);
 		}
 
@@ -875,9 +887,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.completionResult = result;
 		this.triggerCompleteCallbacks();
 
-		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
-		// so agent can query completion result. Agent's query will unregister.
-		if (this.options.onHandsFreeUpdate) {
+		// In streaming mode (blocking tool call), unregister now since the agent
+		// gets the result via tool return. Otherwise keep registered for queries.
+		if (this.options.streamingMode) {
 			this.unregisterActiveSession(true);
 		}
 
@@ -929,9 +941,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.completionResult = result;
 		this.triggerCompleteCallbacks();
 
-		// In non-blocking mode (no onHandsFreeUpdate), keep session registered
-		// so agent can query completion result. Agent's query will unregister.
-		if (this.options.onHandsFreeUpdate) {
+		// In streaming mode (blocking tool call), unregister now since the agent
+		// gets the result via tool return. Otherwise keep registered for queries.
+		if (this.options.streamingMode) {
 			this.unregisterActiveSession(true);
 		}
 
@@ -1176,10 +1188,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		if (!this.completionResult) {
 			this.session.kill();
 			this.session.dispose();
-			// Release ID since session is dead and agent can't query anymore
 			this.unregisterActiveSession(true);
-		} else if (this.options.onHandsFreeUpdate) {
-			// Streaming mode already delivered result, safe to unregister and release
+		} else if (this.options.streamingMode) {
+			// Streaming mode already delivered result via tool return, safe to clean up
 			this.unregisterActiveSession(true);
 		}
 		// Non-blocking mode with completion: keep registered so agent can query

@@ -238,10 +238,10 @@ export const toolParameters = Type.Object({
 				Type.Number({ description: "Max interval between updates in ms (default: 60000)" }),
 			),
 			quietThreshold: Type.Optional(
-				Type.Number({ description: "Silence duration before emitting update in on-quiet mode (default: 5000ms)" }),
+				Type.Number({ description: "Silence duration before emitting update in on-quiet mode (default: 8000ms)" }),
 			),
 			gracePeriod: Type.Optional(
-				Type.Number({ description: "Startup grace period before autoExitOnQuiet can kill the session (default: 30000ms)" }),
+				Type.Number({ description: "Startup grace period before autoExitOnQuiet can kill the session (default: 15000ms)" }),
 			),
 			updateMaxChars: Type.Optional(
 				Type.Number({ description: "Max chars per update (default: 1500)" }),

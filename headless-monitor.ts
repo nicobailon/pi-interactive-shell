@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import type { PtyTerminalSession } from "./pty-session.js";
 import type { InteractiveShellConfig } from "./config.js";
 
@@ -40,6 +41,10 @@ export class HeadlessDispatchMonitor {
 	) {
 		this.subscribe();
 
+		if (options.autoExitOnQuiet) {
+			this.resetQuietTimer();
+		}
+
 		if (options.timeout && options.timeout > 0) {
 			this.timeoutTimer = setTimeout(() => {
 				this.handleCompletion(null, undefined, true);
@@ -57,9 +62,12 @@ export class HeadlessDispatchMonitor {
 
 	private subscribe(): void {
 		this.unsubscribe();
-		this.unsubData = this.session.addDataListener(() => {
+		this.unsubData = this.session.addDataListener((data) => {
 			if (this.options.autoExitOnQuiet) {
-				this.resetQuietTimer();
+				const visible = stripVTControlCharacters(data);
+				if (visible.trim().length > 0) {
+					this.resetQuietTimer();
+				}
 			}
 		});
 		this.unsubExit = this.session.addExitListener((exitCode, signal) => {

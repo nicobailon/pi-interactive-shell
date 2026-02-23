@@ -52,8 +52,8 @@ const DEFAULT_CONFIG: InteractiveShellConfig = {
 	// Hands-free mode defaults
 	handsFreeUpdateMode: "on-quiet" as const,
 	handsFreeUpdateInterval: 60000,
-	handsFreeQuietThreshold: 5000,
-	autoExitGracePeriod: 30000,
+	handsFreeQuietThreshold: 8000,
+	autoExitGracePeriod: 15000,
 	handsFreeUpdateMaxChars: 1500,
 	handsFreeMaxTotalChars: 100000,
 	// Query rate limiting (default 60 seconds between queries)

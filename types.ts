@@ -73,6 +73,9 @@ export interface InteractiveShellOptions {
 	autoExitGracePeriod?: number;
 	// Auto-kill timeout
 	timeout?: number;
+	// When true, unregister active session on completion (blocking tool call path).
+	// When false/undefined, keep registered so agent can query result later.
+	streamingMode?: boolean;
 	// Existing PTY session (for attach flow -- skip creating a new PTY)
 	existingSession?: import("./pty-session.js").PtyTerminalSession;
 }

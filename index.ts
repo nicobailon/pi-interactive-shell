@@ -3,7 +3,7 @@ import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { InteractiveShellOverlay } from "./overlay-component.js";
 import { ReattachOverlay } from "./reattach-overlay.js";
 import { PtyTerminalSession } from "./pty-session.js";
-import type { InteractiveShellResult } from "./types.js";
+import type { InteractiveShellResult, HandsFreeUpdate } from "./types.js";
 import { sessionManager, generateSessionId, releaseSessionId } from "./session-manager.js";
 import type { OutputOptions, OutputResult } from "./session-manager.js";
 import { loadConfig } from "./config.js";
@@ -132,6 +132,36 @@ function registerHeadlessActive(
 		getResult: () => monitor.getResult(),
 		onComplete: (cb) => monitor.registerCompleteCallback(cb),
 	});
+}
+
+function makeNonBlockingUpdateHandler(pi: ExtensionAPI): (update: HandsFreeUpdate) => void {
+	return (update) => {
+		pi.events.emit("interactive-shell:update", update);
+
+		if (update.status !== "running") {
+			const tail = update.tail.length > 0 ? `\n\n${update.tail.join("\n")}` : "";
+			let statusLine: string;
+			switch (update.status) {
+				case "exited":
+					statusLine = `Session ${update.sessionId} exited (${formatDurationMs(update.runtime)})`;
+					break;
+				case "killed":
+					statusLine = `Session ${update.sessionId} killed (${formatDurationMs(update.runtime)})`;
+					break;
+				case "user-takeover":
+					statusLine = `Session ${update.sessionId}: user took over (${formatDurationMs(update.runtime)})`;
+					break;
+				default:
+					statusLine = `Session ${update.sessionId} update (${formatDurationMs(update.runtime)})`;
+			}
+			pi.sendMessage({
+				customType: "interactive-shell-update",
+				content: statusLine + tail,
+				display: true,
+				details: update,
+			}, { triggerTurn: true });
+		}
+	};
 }
 
 let bgWidgetCleanup: (() => void) | null = null;
@@ -495,6 +525,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 								? handsFree?.autoExitOnQuiet !== false
 								: handsFree?.autoExitOnQuiet === true,
 							autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
+							onHandsFreeUpdate: mode === "hands-free"
+								? makeNonBlockingUpdateHandler(pi)
+								: undefined,
 							handoffPreviewEnabled: handoffPreview?.enabled,
 							handoffPreviewLines: handoffPreview?.lines,
 							handoffPreviewMaxChars: handoffPreview?.maxChars,
@@ -698,6 +731,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 								? handsFree?.autoExitOnQuiet !== false
 								: handsFree?.autoExitOnQuiet === true,
 							autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
+							onHandsFreeUpdate: mode === "hands-free"
+								? makeNonBlockingUpdateHandler(pi)
+								: undefined,
 							handoffPreviewEnabled: handoffPreview?.enabled,
 							handoffPreviewLines: handoffPreview?.lines,
 							handoffPreviewMaxChars: handoffPreview?.maxChars,
@@ -764,6 +800,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 							handsFreeMaxTotalChars: handsFree?.maxTotalChars,
 							autoExitOnQuiet: handsFree?.autoExitOnQuiet,
 							autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
+							streamingMode: mode === "hands-free",
 							onHandsFreeUpdate: mode === "hands-free"
 								? (update) => {
 									let statusText: string;
@@ -773,6 +810,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 											break;
 										case "exited":
 											statusText = `Session ${update.sessionId} exited`;
+											break;
+										case "killed":
+											statusText = `Session ${update.sessionId} killed`;
 											break;
 										default: {
 											const budgetInfo = update.budgetExhausted ? " [budget exhausted]" : "";
@@ -794,6 +834,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 											userTookOver: update.userTookOver,
 										},
 									});
+									pi.events.emit("interactive-shell:update", update);
 								}
 								: undefined,
 							handoffPreviewEnabled: handoffPreview?.enabled,

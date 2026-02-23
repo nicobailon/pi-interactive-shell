@@ -138,6 +138,18 @@ Set `model_reasoning_effort` via Codex CLI: `-c model_reasoning_effort="high"`
 | Complex refactors, plan review, architecture | `xhigh` |
 | Code review (thorough) | `high` or `xhigh` |
 
+## Backwards compatibility hedging
+
+GPT-5.3-Codex has a strong tendency to preserve old patterns, add compatibility shims, and provide fallback code "just in case" -- even when explicitly told not to worry about backwards compatibility. Vague instructions like "don't worry about backwards compatibility" get interpreted weakly; the model may still hedge.
+
+Use **"cutover"** to signal a clean, irreversible break. It's a precise industry term that conveys finality and intentional deprecation -- no dual-support phase, no gradual migration, no preserving old behavior.
+
+Instead of:
+> "Rewrite this and don't worry about backwards compatibility"
+
+Say:
+> "This is a cutover. No backwards compatibility. Rewrite using only Python 3.12+ features and current best practices. Do not preserve legacy code, polyfills, or deprecated patterns."
+
 ## Quick reference
 
 - **Force reading first.** "Read all necessary files before you ask any dumb question."
@@ -145,5 +157,5 @@ Set `model_reasoning_effort` via Codex CLI: `-c model_reasoning_effort="high"`
 - **Steer aggressively mid-task.** GPT-5.3-Codex handles redirects without losing context. Be direct: "Stop. Fix the actual cause." / "Simplest valid implementation only."
 - **Constrain scope hard.** GPT-5.3-Codex will refactor aggressively if you don't fence it in.
 - **Watch context burn.** Faster model = faster context consumption. Start fresh at ~40%.
-- **Use domain jargon.** "Golden-path," "no fallbacks," "domain split" get faster responses.
+- **Use domain jargon.** "Cutover," "golden-path," "no fallbacks," "domain split" get cleaner, faster responses.
 - **Download libraries locally.** Tell it to read them for better context than relying on training data.
