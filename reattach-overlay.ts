@@ -358,6 +358,7 @@ export class ReattachOverlay implements Component, Focusable {
 	}
 
 	render(width: number): string[] {
+		width = Math.max(4, width);
 		const th = this.theme;
 		const border = (s: string) => th.fg("border", s);
 		const accent = (s: string) => th.fg("accent", s);
