@@ -2,7 +2,7 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
-## [Unreleased]
+## [0.9.0] - 2026-02-23
 
 ### Added
 - `examples/skills/codex-5.3-prompting/` skill with GPT-5.3-Codex prompting guide -- self-contained best practices for verbosity control, scope discipline, forced upfront reading, plan mode, mid-task steering, context management, and reasoning effort recommendations.
