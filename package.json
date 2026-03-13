@@ -29,7 +29,7 @@
     "examples/",
     "banner.png",
     "README.md",
-    "SKILL.md",
+    "interactive-shell/",
     "CHANGELOG.md"
   ],
   "pi": {
