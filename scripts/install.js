@@ -78,7 +78,7 @@ function main() {
 	log(`Creating skill symlink at ${SKILL_DIR}`);
 	mkdirSync(SKILL_DIR, { recursive: true });
 	const skillLink = join(SKILL_DIR, "SKILL.md");
-	const skillTarget = join(EXTENSION_DIR, "SKILL.md");
+	const skillTarget = join(EXTENSION_DIR, "interactive-shell", "SKILL.md");
 
 	try {
 		// Remove existing entry if present (handles regular files, symlinks, and broken symlinks)

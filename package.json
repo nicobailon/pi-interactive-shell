@@ -29,7 +29,7 @@
     "examples/",
     "banner.png",
     "README.md",
-    "SKILL.md",
+    "interactive-shell/",
     "CHANGELOG.md"
   ],
   "pi": {
@@ -37,7 +37,7 @@
       "./index.ts"
     ],
     "skills": [
-      "./SKILL.md",
+      "./interactive-shell",
       "./examples/skills"
     ],
     "prompts": [
