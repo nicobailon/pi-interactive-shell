@@ -1,10 +1,7 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { Component, Focusable, TUI } from "@mariozechner/pi-tui";
 import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import { PtyTerminalSession } from "./pty-session.js";
 import { sessionManager, generateSessionId } from "./session-manager.js";
 import type { InteractiveShellConfig } from "./config.js";
@@ -19,6 +16,8 @@ import {
 	FOOTER_LINES_DIALOG,
 	formatDuration,
 } from "./types.js";
+import { captureCompletionOutput, captureTransferOutput, maybeBuildHandoffPreview, maybeWriteHandoffSnapshot } from "./handoff-utils.js";
+import { createSessionQueryState, getSessionOutput } from "./session-query.js";
 
 export class InteractiveShellOverlay implements Component, Focusable {
 	focused = false;
@@ -40,7 +39,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private userTookOver = false;
 	private handsFreeInterval: ReturnType<typeof setInterval> | null = null;
 	private handsFreeInitialTimeout: ReturnType<typeof setTimeout> | null = null;
-	private startTime = Date.now();
+	private startTime: number;
 	private sessionId: string | null = null;
 	private sessionUnregistered = false;
 	// Timeout
@@ -57,10 +56,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private hasUnsentData = false;
 	// Non-blocking mode: track status for agent queries
 	private completionResult: InteractiveShellResult | undefined;
-	// Rate limiting for queries
-	private lastQueryTime = 0;
-	// Incremental read position (for incremental: true queries)
-	private incrementalReadPosition = 0;
+	private queryState = createSessionQueryState();
 	// Completion callbacks for waiters
 	private completeCallbacks: Array<() => void> = [];
 	// Simple render throttle to reduce flicker
@@ -78,6 +74,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.options = options;
 		this.config = config;
 		this.done = done;
+		this.startTime = options.startedAt ?? Date.now();
 
 		const overlayWidth = Math.floor((tui.terminal.columns * this.config.overlayWidthPercent) / 100);
 		const overlayHeight = Math.floor((tui.terminal.rows * this.config.overlayHeightPercent) / 100);
@@ -209,136 +206,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 	// Public methods for non-blocking mode (agent queries)
 
-	// Default output limits per status query
-	private static readonly DEFAULT_STATUS_OUTPUT = 5 * 1024; // 5KB
-	private static readonly DEFAULT_STATUS_LINES = 20;
-	private static readonly MAX_STATUS_OUTPUT = 50 * 1024; // 50KB max
-	private static readonly MAX_STATUS_LINES = 200; // 200 lines max
-
 	/** Get rendered terminal output (last N lines, truncated if too large) */
 	getOutputSinceLastCheck(options: { skipRateLimit?: boolean; lines?: number; maxChars?: number; offset?: number; drain?: boolean; incremental?: boolean } | boolean = false): { output: string; truncated: boolean; totalBytes: number; totalLines?: number; hasMore?: boolean; rateLimited?: boolean; waitSeconds?: number } {
-		if (this.finished) {
-			if (this.completionResult?.completionOutput) {
-				const lines = this.completionResult.completionOutput.lines;
-				const output = lines.join("\n");
-				return {
-					output,
-					truncated: this.completionResult.completionOutput.truncated,
-					totalBytes: output.length,
-					totalLines: this.completionResult.completionOutput.totalLines,
-				};
-			}
-			return { output: "", truncated: false, totalBytes: 0 };
-		}
-
-		// Handle legacy boolean parameter
-		const opts = typeof options === "boolean" ? { skipRateLimit: options } : options;
-		const skipRateLimit = opts.skipRateLimit ?? false;
-		// Clamp lines and maxChars to valid ranges (1 to MAX)
-		const requestedLines = Math.max(1, Math.min(
-			opts.lines ?? InteractiveShellOverlay.DEFAULT_STATUS_LINES,
-			InteractiveShellOverlay.MAX_STATUS_LINES
-		));
-		const requestedMaxChars = Math.max(1, Math.min(
-			opts.maxChars ?? InteractiveShellOverlay.DEFAULT_STATUS_OUTPUT,
-			InteractiveShellOverlay.MAX_STATUS_OUTPUT
-		));
-
-		// Check rate limiting (unless skipped, e.g., for completed sessions)
-		if (!skipRateLimit) {
-			const now = Date.now();
-			const minIntervalMs = this.config.minQueryIntervalSeconds * 1000;
-			const elapsed = now - this.lastQueryTime;
-
-			if (this.lastQueryTime > 0 && elapsed < minIntervalMs) {
-				const waitSeconds = Math.ceil((minIntervalMs - elapsed) / 1000);
-				return {
-					output: "",
-					truncated: false,
-					totalBytes: 0,
-					rateLimited: true,
-					waitSeconds,
-				};
-			}
-
-			// Update last query time
-			this.lastQueryTime = now;
-		}
-
-		// Incremental mode: return next N lines agent hasn't seen yet
-		// Server tracks position - agent just keeps calling with incremental: true
-		if (opts.incremental) {
-			const result = this.session.getLogSlice({
-				offset: this.incrementalReadPosition,
-				limit: requestedLines,
-				stripAnsi: true,
-			});
-			// Use sliceLineCount directly - handles empty lines correctly
-			// (counting newlines in slice fails for empty lines like "")
-			const linesFromSlice = result.sliceLineCount;
-			// Apply maxChars limit (may truncate mid-line, but we still advance past it)
-			const truncatedByChars = result.slice.length > requestedMaxChars;
-			const output = truncatedByChars ? result.slice.slice(0, requestedMaxChars) : result.slice;
-			// Update position for next incremental read
-			this.incrementalReadPosition += linesFromSlice;
-			const hasMore = this.incrementalReadPosition < result.totalLines;
-			return {
-				output,
-				truncated: truncatedByChars,
-				totalBytes: output.length,
-				totalLines: result.totalLines,
-				hasMore,
-			};
-		}
-
-		// Drain mode: return only NEW output since last query (raw stream, not lines)
-		// This is more token-efficient than re-reading the tail each time
-		if (opts.drain) {
-			const newOutput = this.session.getRawStream({ sinceLast: true, stripAnsi: true });
-			// Truncate if exceeds maxChars
-			const truncated = newOutput.length > requestedMaxChars;
-			const output = truncated ? newOutput.slice(-requestedMaxChars) : newOutput;
-			return {
-				output,
-				truncated,
-				totalBytes: output.length,
-			};
-		}
-
-		// Offset mode: use getLogSlice for pagination through full output
-		if (opts.offset !== undefined) {
-			const result = this.session.getLogSlice({
-				offset: opts.offset,
-				limit: requestedLines,
-				stripAnsi: true,
-			});
-			// Apply maxChars limit
-			const truncatedByChars = result.slice.length > requestedMaxChars;
-			const output = truncatedByChars ? result.slice.slice(0, requestedMaxChars) : result.slice;
-			// Calculate hasMore based on whether there are more lines after this slice
-			const hasMore = (opts.offset + result.sliceLineCount) < result.totalLines;
-			return {
-				output,
-				truncated: truncatedByChars || result.sliceLineCount >= requestedLines,
-				totalBytes: output.length,
-				totalLines: result.totalLines,
-				hasMore,
-			};
-		}
-
-		// Default: Use rendered terminal output (tail)
-		// This gives clean, readable content without TUI animation garbage
-		const tailResult = this.session.getTailLines({
-			lines: requestedLines,
-			ansi: false,
-			maxChars: requestedMaxChars,
-		});
-
-		const output = tailResult.lines.join("\n");
-		const totalBytes = output.length;
-		const truncated = tailResult.lines.length >= requestedLines || tailResult.truncatedByChars;
-
-		return { output, truncated, totalBytes, totalLines: tailResult.totalLinesInBuffer };
+		return getSessionOutput(this.session, this.config, this.queryState, options, this.completionResult?.completionOutput);
 	}
 
 	/** Get current session status */
@@ -662,92 +532,23 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 	/** Capture output for dispatch completion notifications */
 	private captureCompletionOutput(): InteractiveShellResult["completionOutput"] {
-		const result = this.session.getTailLines({
-			lines: this.config.completionNotifyLines,
-			ansi: false,
-			maxChars: this.config.completionNotifyMaxChars,
-		});
-		return {
-			lines: result.lines,
-			totalLines: result.totalLinesInBuffer,
-			truncated: result.lines.length < result.totalLinesInBuffer || result.truncatedByChars,
-		};
+		return captureCompletionOutput(this.session, this.config);
 	}
 
 	/** Capture output for transfer action (Ctrl+T or dialog) */
 	private captureTransferOutput(): InteractiveShellResult["transferred"] {
-		const maxLines = this.config.transferLines;
-		const maxChars = this.config.transferMaxChars;
-
-		const result = this.session.getTailLines({
-			lines: maxLines,
-			ansi: false,
-			maxChars,
-		});
-
-		const truncated = result.lines.length < result.totalLinesInBuffer || result.truncatedByChars;
-
-		return {
-			lines: result.lines,
-			totalLines: result.totalLinesInBuffer,
-			truncated,
-		};
+		return captureTransferOutput(this.session, this.config);
 	}
 
 	private maybeBuildHandoffPreview(when: "exit" | "detach" | "kill" | "timeout" | "transfer"): InteractiveShellResult["handoffPreview"] | undefined {
-		const enabled = this.options.handoffPreviewEnabled ?? this.config.handoffPreviewEnabled;
-		if (!enabled) return undefined;
-
-		const lines = this.options.handoffPreviewLines ?? this.config.handoffPreviewLines;
-		const maxChars = this.options.handoffPreviewMaxChars ?? this.config.handoffPreviewMaxChars;
-		if (lines <= 0 || maxChars <= 0) return undefined;
-
-		const result = this.session.getTailLines({
-			lines,
-			ansi: false,
-			maxChars,
-		});
-
-		return { type: "tail", when, lines: result.lines };
+		return maybeBuildHandoffPreview(this.session, when, this.config, this.options);
 	}
 
 	private maybeWriteHandoffSnapshot(when: "exit" | "detach" | "kill" | "timeout" | "transfer"): InteractiveShellResult["handoff"] | undefined {
-		const enabled = this.options.handoffSnapshotEnabled ?? this.config.handoffSnapshotEnabled;
-		if (!enabled) return undefined;
-
-		const lines = this.options.handoffSnapshotLines ?? this.config.handoffSnapshotLines;
-		const maxChars = this.options.handoffSnapshotMaxChars ?? this.config.handoffSnapshotMaxChars;
-		if (lines <= 0 || maxChars <= 0) return undefined;
-
-		const baseDir = join(getAgentDir(), "cache", "interactive-shell");
-		mkdirSync(baseDir, { recursive: true });
-
-		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-		const pid = this.session.pid;
-		const filename = `snapshot-${timestamp}-pid${pid}.log`;
-		const transcriptPath = join(baseDir, filename);
-
-		const tailResult = this.session.getTailLines({
-			lines,
-			ansi: this.config.ansiReemit,
-			maxChars,
-		});
-
-		const header = [
-			`# interactive-shell snapshot (${when})`,
-			`time: ${new Date().toISOString()}`,
-			`command: ${this.options.command}`,
-			`cwd: ${this.options.cwd ?? ""}`,
-			`pid: ${pid}`,
-			`exitCode: ${this.session.exitCode ?? ""}`,
-			`signal: ${this.session.signal ?? ""}`,
-			`lines: ${tailResult.lines.length} (requested ${lines}, maxChars ${maxChars})`,
-			"",
-		].join("\n");
-
-		writeFileSync(transcriptPath, header + tailResult.lines.join("\n") + "\n", { encoding: "utf-8" });
-
-		return { type: "snapshot", when, transcriptPath, linesWritten: tailResult.lines.length };
+		return maybeWriteHandoffSnapshot(this.session, when, this.config, {
+			command: this.options.command,
+			cwd: this.options.cwd,
+		}, this.options);
 	}
 
 	private finishWithExit(): void {
@@ -798,7 +599,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const handoffPreview = this.maybeBuildHandoffPreview("detach");
 		const handoff = this.maybeWriteHandoffSnapshot("detach");
 		const addOptions = this.sessionId
-			? { id: this.sessionId, noAutoCleanup: this.options.mode === "dispatch" }
+			? { id: this.sessionId, noAutoCleanup: this.options.mode === "dispatch", startedAt: new Date(this.startTime) }
 			: undefined;
 		const id = sessionManager.add(this.options.command, this.session, this.options.name, this.options.reason, addOptions);
 		const result: InteractiveShellResult = {

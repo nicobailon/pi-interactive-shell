@@ -2,13 +2,17 @@ import { stripVTControlCharacters } from "node:util";
 import type { PtyTerminalSession } from "./pty-session.js";
 import type { InteractiveShellConfig } from "./config.js";
 
+/** Runtime options for monitoring a headless dispatch session. */
 export interface HeadlessMonitorOptions {
 	autoExitOnQuiet: boolean;
 	quietThreshold: number;
 	gracePeriod?: number;
 	timeout?: number;
+	/** Original session start time in ms since epoch, preserved when a foreground session moves headless. */
+	startedAt?: number;
 }
 
+/** Completion payload emitted when a headless dispatch session finishes. */
 export interface HeadlessCompletionInfo {
 	exitCode: number | null;
 	signal?: number;
@@ -22,7 +26,7 @@ export interface HeadlessCompletionInfo {
 }
 
 export class HeadlessDispatchMonitor {
-	readonly startTime = Date.now();
+	readonly startTime: number;
 	private _disposed = false;
 	private quietTimer: ReturnType<typeof setTimeout> | null = null;
 	private timeoutTimer: ReturnType<typeof setTimeout> | null = null;
@@ -39,6 +43,7 @@ export class HeadlessDispatchMonitor {
 		private options: HeadlessMonitorOptions,
 		private onComplete: (info: HeadlessCompletionInfo) => void,
 	) {
+		this.startTime = options.startedAt ?? Date.now();
 		this.subscribe();
 
 		if (options.autoExitOnQuiet) {

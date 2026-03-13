@@ -1,9 +1,6 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Component, Focusable, TUI } from "@mariozechner/pi-tui";
 import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import { PtyTerminalSession } from "./pty-session.js";
 import { sessionManager } from "./session-manager.js";
 import type { InteractiveShellConfig } from "./config.js";
@@ -15,6 +12,7 @@ import {
 	FOOTER_LINES_COMPACT,
 	FOOTER_LINES_DIALOG,
 } from "./types.js";
+import { captureCompletionOutput, captureTransferOutput, maybeBuildHandoffPreview, maybeWriteHandoffSnapshot } from "./handoff-utils.js";
 
 export class ReattachOverlay implements Component, Focusable {
 	focused = false;
@@ -103,87 +101,20 @@ export class ReattachOverlay implements Component, Focusable {
 	}
 
 	private captureCompletionOutput(): InteractiveShellResult["completionOutput"] {
-		const result = this.session.getTailLines({
-			lines: this.config.completionNotifyLines,
-			ansi: false,
-			maxChars: this.config.completionNotifyMaxChars,
-		});
-		return {
-			lines: result.lines,
-			totalLines: result.totalLinesInBuffer,
-			truncated: result.lines.length < result.totalLinesInBuffer || result.truncatedByChars,
-		};
+		return captureCompletionOutput(this.session, this.config);
 	}
 
 	/** Capture output for transfer action (Ctrl+T or dialog) */
 	private captureTransferOutput(): InteractiveShellResult["transferred"] {
-		const maxLines = this.config.transferLines;
-		const maxChars = this.config.transferMaxChars;
-
-		const result = this.session.getTailLines({
-			lines: maxLines,
-			ansi: false,
-			maxChars,
-		});
-
-		const truncated = result.lines.length < result.totalLinesInBuffer || result.truncatedByChars;
-
-		return {
-			lines: result.lines,
-			totalLines: result.totalLinesInBuffer,
-			truncated,
-		};
+		return captureTransferOutput(this.session, this.config);
 	}
 
 	private maybeBuildHandoffPreview(when: "exit" | "detach" | "kill" | "transfer"): InteractiveShellResult["handoffPreview"] | undefined {
-		if (!this.config.handoffPreviewEnabled) return undefined;
-		const lines = this.config.handoffPreviewLines;
-		const maxChars = this.config.handoffPreviewMaxChars;
-		if (lines <= 0 || maxChars <= 0) return undefined;
-
-		const result = this.session.getTailLines({
-			lines,
-			ansi: false,
-			maxChars,
-		});
-
-		return { type: "tail", when, lines: result.lines };
+		return maybeBuildHandoffPreview(this.session, when, this.config);
 	}
 
 	private maybeWriteHandoffSnapshot(when: "exit" | "detach" | "kill" | "transfer"): InteractiveShellResult["handoff"] | undefined {
-		if (!this.config.handoffSnapshotEnabled) return undefined;
-		const lines = this.config.handoffSnapshotLines;
-		const maxChars = this.config.handoffSnapshotMaxChars;
-		if (lines <= 0 || maxChars <= 0) return undefined;
-
-		const baseDir = join(getAgentDir(), "cache", "interactive-shell");
-		mkdirSync(baseDir, { recursive: true });
-
-		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-		const pid = this.session.pid;
-		const filename = `snapshot-${timestamp}-pid${pid}.log`;
-		const transcriptPath = join(baseDir, filename);
-
-		const tailResult = this.session.getTailLines({
-			lines,
-			ansi: this.config.ansiReemit,
-			maxChars,
-		});
-
-		const header = [
-			`# interactive-shell snapshot (${when})`,
-			`time: ${new Date().toISOString()}`,
-			`command: ${this.bgSession.command}`,
-			`pid: ${pid}`,
-			`exitCode: ${this.session.exitCode ?? ""}`,
-			`signal: ${this.session.signal ?? ""}`,
-			`lines: ${tailResult.lines.length} (requested ${lines}, maxChars ${maxChars})`,
-			"",
-		].join("\n");
-
-		writeFileSync(transcriptPath, header + tailResult.lines.join("\n") + "\n", { encoding: "utf-8" });
-
-		return { type: "snapshot", when, transcriptPath, linesWritten: tailResult.lines.length };
+		return maybeWriteHandoffSnapshot(this.session, when, this.config, { command: this.bgSession.command });
 	}
 
 	private finishAndClose(): void {

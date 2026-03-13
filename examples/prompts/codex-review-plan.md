@@ -1,7 +1,11 @@
 ---
 description: Launch Codex CLI in overlay to review an implementation plan against the codebase
 ---
-Load the `codex-5.3-prompting` and `codex-cli` skills. Then read the plan at `$1`.
+Determine which prompting skill to load based on model:
+- Default: Load `gpt-5-4-prompting` skill (for `gpt-5.4`)
+- If user explicitly requests Codex 5.3: Load `codex-5-3-prompting` skill (for `gpt-5.3-codex`)
+
+Also load the `codex-cli` skill. Then read the plan at `$1`.
 
 Based on the prompting skill's best practices and the plan's content, generate a comprehensive meta prompt tailored for Codex CLI. The meta prompt should instruct Codex to:
 
@@ -12,9 +16,13 @@ Based on the prompting skill's best practices and the plan's content, generate a
 5. Identify any gaps, contradictions, incorrect assumptions, or missing steps.
 6. Make targeted edits to the plan file to fix issues found, adding inline notes where changes were made. Fix what's wrong — do not restructure or rewrite sections that are correct.
 
-The meta prompt should follow the prompting skill's patterns (clear system context, explicit constraints, step-by-step instructions, expected output format). Instruct Codex not to ask clarifying questions — read the codebase to resolve ambiguities instead of asking. Keep progress updates brief and concrete. GPT-5.3-Codex is eager and may restructure the plan beyond what's needed; constrain edits to actual issues found.
+The meta prompt should follow the prompting skill's patterns (clear system context, explicit constraints, step-by-step instructions, expected output format). Instruct Codex not to ask clarifying questions — read the codebase to resolve ambiguities instead of asking. Keep progress updates brief and concrete. Emphasize scope discipline and verification requirements per the prompting skill.
 
-Then launch Codex CLI in the interactive shell overlay with that meta prompt using these flags: `-m gpt-5.3-codex -c model_reasoning_effort="xhigh" -a never`.
+Determine the model flag:
+- Default: `-m gpt-5.4`
+- If user explicitly requests Codex 5.3: `-m gpt-5.3-codex`
+
+Then launch Codex CLI in the interactive shell overlay with that meta prompt using the chosen model flag plus `-a never`.
 
 Use `interactive_shell` with `mode: "dispatch"` for this delegated run (fire-and-forget with completion notification). Do NOT pass sandbox flags in interactive_shell. Dispatch mode only. End turn immediately. Do not poll. Wait for completion notification.
 

@@ -191,35 +191,45 @@ export class ShellSessionManager {
 	add(command: string, session: PtyTerminalSession, name?: string, reason?: string, options?: { id?: string; noAutoCleanup?: boolean; startedAt?: Date }): string {
 		const id = options?.id ?? generateSessionId(name);
 		if (options?.id) usedIds.add(id);
-		this.sessions.set(id, {
+		const entry: BackgroundSession = {
 			id,
 			name: name || deriveSessionName(command),
 			command,
 			reason,
 			session,
 			startedAt: options?.startedAt ?? new Date(),
-		});
+		};
 
-		session.setEventHandlers({});
+		this.storeBackgroundEntry(entry, options?.noAutoCleanup === true);
+		return id;
+	}
 
-		if (!options?.noAutoCleanup) {
+	restore(entry: BackgroundSession, options?: { noAutoCleanup?: boolean }): void {
+		usedIds.add(entry.id);
+		this.storeBackgroundEntry(entry, options?.noAutoCleanup === true);
+	}
+
+	private storeBackgroundEntry(entry: BackgroundSession, noAutoCleanup: boolean): void {
+		this.sessions.set(entry.id, entry);
+		entry.session.setEventHandlers({});
+
+		if (!noAutoCleanup) {
 			const checkExit = setInterval(() => {
-				if (session.exited) {
+				if (entry.session.exited) {
 					clearInterval(checkExit);
-					this.exitWatchers.delete(id);
+					this.exitWatchers.delete(entry.id);
 					this.notifyChange();
 					const cleanupTimer = setTimeout(() => {
-						this.cleanupTimers.delete(id);
-						this.remove(id);
+						this.cleanupTimers.delete(entry.id);
+						this.remove(entry.id);
 					}, 30000);
-					this.cleanupTimers.set(id, cleanupTimer);
+					this.cleanupTimers.set(entry.id, cleanupTimer);
 				}
 			}, 1000);
-			this.exitWatchers.set(id, checkExit);
+			this.exitWatchers.set(entry.id, checkExit);
 		}
 
 		this.notifyChange();
-		return id;
 	}
 
 	take(id: string): BackgroundSession | undefined {

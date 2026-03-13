@@ -23,7 +23,7 @@ description: OpenAI Codex CLI reference. Use when running codex in interactive_s
 
 | Flag | Description |
 |------|-------------|
-| `-m, --model <model>` | Switch model (default: `gpt-5.3-codex`) |
+| `-m, --model <model>` | Switch model (default: `gpt-5.3-codex`). Options include `gpt-5.4` (newer, more thorough) and `gpt-5.3-codex` (faster) |
 | `-c <key=value>` | Override config.toml values (dotted paths, parsed as TOML) |
 | `-p, --profile <name>` | Use config profile from config.toml |
 | `-s, --sandbox <mode>` | Sandbox policy: `read-only`, `workspace-write`, `danger-full-access` |
@@ -71,15 +71,21 @@ Use explicit flags to control model and behavior per-run.
 For delegated fire-and-forget runs, prefer `mode: "dispatch"` so the agent is notified automatically when Codex completes.
 
 ```typescript
-// Delegated run with completion notification (recommended default)
+// Delegated run with gpt-5.4 (recommended for thorough work)
 interactive_shell({
-  command: 'codex -m gpt-5.3-codex -a never "Review this codebase for security issues"',
+  command: 'codex -m gpt-5.4 -a never "Review this codebase for security issues"',
   mode: "dispatch"
 })
 
-// Override reasoning effort for a single delegated run
+// Faster run with gpt-5.3-codex
 interactive_shell({
-  command: 'codex -m gpt-5.3-codex -c model_reasoning_effort="xhigh" -a never "Complex refactor task"',
+  command: 'codex -m gpt-5.3-codex -a never "Quick refactor task"',
+  mode: "dispatch"
+})
+
+// Override reasoning effort for complex tasks
+interactive_shell({
+  command: 'codex -m gpt-5.4 -c model_reasoning_effort="xhigh" -a never "Complex architecture review"',
   mode: "dispatch"
 })
 

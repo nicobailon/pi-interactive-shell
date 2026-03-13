@@ -5,7 +5,7 @@ description: Cheat sheet + workflow for launching interactive coding-agent CLIs 
 
 # Interactive Shell (Skill)
 
-Last verified: 2026-01-18
+Last verified: 2026-03-12
 
 ## Foreground vs Background Subagents
 
@@ -165,7 +165,7 @@ interactive_shell({
   reason: "Security review",
   handsFree: { autoExitOnQuiet: true }
 })
-// Session auto-kills after ~5s of quiet
+// Session auto-kills after ~8s of quiet (after the startup grace period)
 // Read results from file:
 // read("/tmp/security-review.md")
 ```

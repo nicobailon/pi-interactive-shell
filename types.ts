@@ -48,11 +48,14 @@ export interface HandsFreeUpdate {
 	budgetExhausted?: boolean;
 }
 
+/** Options for starting or reattaching an interactive shell session. */
 export interface InteractiveShellOptions {
 	command: string;
 	cwd?: string;
 	name?: string;
 	reason?: string;
+	/** Original session start time in ms since epoch, preserved across background/reattach transitions. */
+	startedAt?: number;
 	handoffPreviewEnabled?: boolean;
 	handoffPreviewLines?: number;
 	handoffPreviewMaxChars?: number;

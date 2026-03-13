@@ -101,7 +101,11 @@ function main() {
 	log("Restart pi to load the extension.");
 	log("");
 	log("Usage:");
-	log('  interactive_shell({ command: \'pi "Fix all bugs"\', mode: "hands-free" })');
+	log('  interactive_shell({ command: \'pi "Fix all bugs"\', mode: "dispatch" })');
+	log("");
+	log("Bundled example prompts live under extensions/interactive-shell/examples/prompts/");
+	log("Bundled example skills live under extensions/interactive-shell/examples/skills/");
+	log("Copy them into your prompts/skills directories if you want local slash commands or skill copies.");
 	log("");
 }
 

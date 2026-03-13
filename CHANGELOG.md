@@ -2,6 +2,33 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.10.0] - 2026-03-13
+
+### Added
+- **Test harness** - Added vitest with 20 tests covering session queries, key encoding, notification formatting, headless monitor lifecycle, session manager, config/docs parity, and module loading.
+- **`gpt-5-4-prompting` skill** - New bundled skill with GPT-5.4 prompting best practices for Codex workflows.
+
+### Changed
+- **Architecture refactor** - Extracted shared logic into focused modules for better maintainability:
+  - `session-query.ts` - Unified output/query logic (rate limiting, incremental, drain, offset modes)
+  - `notification-utils.ts` - Message formatting for dispatch/hands-free notifications
+  - `handoff-utils.ts` - Snapshot/preview capture on session exit/transfer
+  - `runtime-coordinator.ts` - Centralized overlay/monitor/widget state management
+  - `pty-log.ts` - Raw output trimming and line slicing
+  - `pty-protocol.ts` - DSR cursor position query handling
+  - `spawn-helper.ts` - macOS node-pty permission fix
+  - `background-widget.ts` - TUI widget for background sessions
+- README, `SKILL.md`, install output, and the packaged Codex workflow examples now tell the same story about dispatch being the recommended delegated mode, the current 8s quiet threshold / 15s grace-period defaults, and the bundled prompt-skill surface.
+- The Codex workflow docs now point at the packaged `gpt-5-4-prompting`, `codex-5-3-prompting`, and `codex-cli` skills instead of describing a runtime fetch of the old 5.2 prompting guide.
+- Example prompts and skill docs are aligned around `gpt-5.4` as the default Codex model, with `gpt-5.3-codex` remaining the explicit opt-in fallback.
+- Renamed `codex-5.3-prompting` → `codex-5-3-prompting` example skill (filesystem-friendly path).
+
+### Fixed
+- **Map iteration bug** - Fixed `disposeAllMonitors()` modifying Map during iteration, which could cause unpredictable behavior.
+- **Array iteration bug** - Fixed PTY listener notifications modifying arrays during iteration if a listener unsubscribed itself.
+- **Missing runtime dependency** - Added `@sinclair/typebox` to dependencies (was imported but not declared).
+- Documented the packaged prompt/skill onboarding path more clearly so users can either rely on the exported package metadata or copy the bundled examples into their own prompt and skill directories.
+
 ## [0.9.0] - 2026-02-23
 
 ### Added

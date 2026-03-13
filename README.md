@@ -115,7 +115,7 @@ Attach to review full output: interactive_shell({ attach: "calm-reef" })
 
 The notification includes a brief tail (last 5 lines) and a reattach instruction. The PTY is preserved for 5 minutes so the agent can attach to review full scrollback.
 
-Dispatch defaults `autoExitOnQuiet: true` — the session gets a 30s startup grace period, then is killed after output goes silent (5s by default), which signals completion for task-oriented subagents. Tune the grace period with `handsFree: { gracePeriod: 60000 }` or opt out entirely with `handsFree: { autoExitOnQuiet: false }`.
+Dispatch defaults `autoExitOnQuiet: true` — the session gets a 15s startup grace period, then is killed after output goes silent (8s by default), which signals completion for task-oriented subagents. Tune the grace period with `handsFree: { gracePeriod: 60000 }` or opt out entirely with `handsFree: { autoExitOnQuiet: false }`.
 
 The overlay still shows for the user, who can Ctrl+T to transfer output, Ctrl+B to background, take over by typing, or Ctrl+Q for more options.
 
@@ -151,7 +151,7 @@ interactive_shell({
 
 ### Auto-Exit on Quiet
 
-For fire-and-forget single-task delegations, enable auto-exit to kill the session after 5s of output silence:
+For fire-and-forget single-task delegations, enable auto-exit to kill the session after 8s of output silence:
 
 ```typescript
 interactive_shell({
@@ -161,7 +161,7 @@ interactive_shell({
 })
 ```
 
-A 30s startup grace period prevents the session from being killed before the subprocess has time to produce output. Customize it per-call with `gracePeriod`:
+A 15s startup grace period prevents the session from being killed before the subprocess has time to produce output. Customize it per-call with `gracePeriod`:
 
 ```typescript
 interactive_shell({
@@ -282,8 +282,8 @@ Configuration files (project overrides global):
   "completionNotifyMaxChars": 5000,
   "handsFreeUpdateMode": "on-quiet",
   "handsFreeUpdateInterval": 60000,
-  "handsFreeQuietThreshold": 5000,
-  "autoExitGracePeriod": 30000,
+  "handsFreeQuietThreshold": 8000,
+  "autoExitGracePeriod": 15000,
   "handsFreeUpdateMaxChars": 1500,
   "handsFreeMaxTotalChars": 100000,
   "handoffPreviewEnabled": true,
@@ -306,8 +306,8 @@ Configuration files (project overrides global):
 | `completionNotifyLines` | 50 | Lines in dispatch completion notification (10-500) |
 | `completionNotifyMaxChars` | 5000 | Max chars in completion notification (1KB-50KB) |
 | `handsFreeUpdateMode` | "on-quiet" | "on-quiet" or "interval" |
-| `handsFreeQuietThreshold` | 5000 | Silence duration before update (ms) |
-| `autoExitGracePeriod` | 30000 | Startup grace before `autoExitOnQuiet` kill (ms) |
+| `handsFreeQuietThreshold` | 8000 | Silence duration before update (ms) |
+| `autoExitGracePeriod` | 15000 | Startup grace before `autoExitOnQuiet` kill (ms) |
 | `handsFreeUpdateInterval` | 60000 | Max interval between updates (ms) |
 | `handsFreeUpdateMaxChars` | 1500 | Max chars per update |
 | `handsFreeMaxTotalChars` | 100000 | Total char budget for updates |
@@ -331,7 +331,7 @@ Full PTY. The subprocess thinks it's in a real terminal.
 
 ## Example Workflow: Plan, Implement, Review
 
-The `examples/prompts/` directory includes three prompt templates that chain together into a complete development workflow using Codex CLI. Each template instructs pi to gather context, generate a tailored meta prompt based on the [Codex prompting guide](https://developers.openai.com/cookbook/examples/gpt-5/gpt-5-2_prompting_guide.md), and launch Codex in an interactive overlay.
+The `examples/prompts/` directory includes three prompt templates that chain together into a complete development workflow using Codex CLI. Each template now loads the bundled `gpt-5-4-prompting` skill by default, falls back to `codex-5-3-prompting` when the user explicitly asks for Codex 5.3, and launches Codex in an interactive overlay.
 
 ### The Pipeline
 
@@ -347,14 +347,22 @@ Write a plan
 
 ### Installing the Templates
 
-Copy the prompt templates and Codex CLI skill to your pi config:
+Install the package first so pi can discover the bundled prompt and skill directories via the package metadata:
+
+```bash
+pi install npm:pi-interactive-shell
+```
+
+If you want your own slash commands and local skill copies, copy the examples into your agent config:
 
 ```bash
 # Prompt templates (slash commands)
 cp ~/.pi/agent/extensions/interactive-shell/examples/prompts/*.md ~/.pi/agent/prompts/
 
-# Codex CLI skill (teaches pi how to use codex flags, sandbox caveats, etc.)
+# Skills used by the templates
 cp -r ~/.pi/agent/extensions/interactive-shell/examples/skills/codex-cli ~/.pi/agent/skills/
+cp -r ~/.pi/agent/extensions/interactive-shell/examples/skills/gpt-5-4-prompting ~/.pi/agent/skills/
+cp -r ~/.pi/agent/extensions/interactive-shell/examples/skills/codex-5-3-prompting ~/.pi/agent/skills/
 ```
 
 ### Usage
@@ -388,9 +396,9 @@ Say you have a plan at `docs/auth-redesign-plan.md`:
 
 These templates demonstrate a "meta-prompt generation" pattern:
 
-1. **Pi gathers context** — reads the plan, runs git diff, fetches the Codex prompting guide
-2. **Pi generates a calibrated prompt** — tailored to the specific plan/diff, following the guide's best practices
-3. **Pi launches Codex in the overlay** — with explicit flags (`-m gpt-5.3-codex -c model_reasoning_effort="high" -a never`) and hands off control
+1. **Pi gathers context** — reads the plan, runs git diff, and loads the local `gpt-5-4-prompting` or `codex-5-3-prompting` skill
+2. **Pi generates a calibrated prompt** — tailored to the specific plan/diff, following the selected skill's best practices
+3. **Pi launches Codex in the overlay** — defaulting to `-m gpt-5.4 -a never` and switching to `-m gpt-5.3-codex -a never` only when the user explicitly asks for Codex 5.3
 
 The user watches Codex work in the overlay and can take over anytime (type to intervene, Ctrl+T to transfer output back to pi, Ctrl+Q for options).
 

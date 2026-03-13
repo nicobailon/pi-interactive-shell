@@ -1,7 +1,11 @@
 ---
 description: Launch Codex CLI in overlay to fully implement an existing plan/spec document
 ---
-Load the `codex-5.3-prompting` and `codex-cli` skills. Then read the plan at `$1`.
+Determine which prompting skill to load based on model:
+- Default: Load `gpt-5-4-prompting` skill (for `gpt-5.4`)
+- If user explicitly requests Codex 5.3: Load `codex-5-3-prompting` skill (for `gpt-5.3-codex`)
+
+Also load the `codex-cli` skill. Then read the plan at `$1`.
 
 Analyze the plan to understand: how many files are created vs modified, whether there's a prescribed implementation order or prerequisites, what existing code is referenced, and roughly how large the implementation is.
 
@@ -17,9 +21,13 @@ Based on the prompting skill's best practices and the plan's content, generate a
 8. After implementing all files, do a self-review pass: re-read the plan from top to bottom and verify every requirement, every edge case, every design decision is addressed in the code. Check for: missing imports, type mismatches, unreachable code paths, inconsistent field names between modules, and any plan requirement that was overlooked.
 9. Do NOT commit or push. Write a summary listing every file created or modified, what was implemented in each, and any plan ambiguities that required judgment calls.
 
-The meta prompt should follow the prompting skill's patterns: clear system context, explicit scope and verbosity constraints, step-by-step instructions, and expected output format. Instruct Codex not to ask clarifying questions about things answerable by reading the plan or codebase — read first, then act. Keep progress updates brief and concrete (no narrating routine file reads or tool calls). Emphasize that the plan has already been thoroughly reviewed — the job is faithful execution, not second-guessing the design. Emphasize scope discipline — GPT-5.3-Codex is aggressive about refactoring adjacent code if not explicitly fenced in.
+The meta prompt should follow the prompting skill's patterns: clear system context, explicit scope and verbosity constraints, step-by-step instructions, and expected output format. Instruct Codex not to ask clarifying questions about things answerable by reading the plan or codebase — read first, then act. Keep progress updates brief and concrete (no narrating routine file reads or tool calls). Emphasize that the plan has already been thoroughly reviewed — the job is faithful execution, not second-guessing the design. Emphasize scope discipline and verification requirements per the prompting skill.
 
-Then launch Codex CLI in the interactive shell overlay with that meta prompt using these flags: `-m gpt-5.3-codex -c model_reasoning_effort="high" -a never`.
+Determine the model flag:
+- Default: `-m gpt-5.4`
+- If user explicitly requests Codex 5.3: `-m gpt-5.3-codex`
+
+Then launch Codex CLI in the interactive shell overlay with that meta prompt using the chosen model flag plus `-a never`.
 
 Use `interactive_shell` with `mode: "dispatch"` for this delegated run (fire-and-forget with completion notification). Do NOT pass sandbox flags in interactive_shell. Dispatch mode only. End turn immediately. Do not poll. Wait for completion notification.
 

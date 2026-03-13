@@ -1,7 +1,7 @@
 {
   "name": "pi-interactive-shell",
-  "version": "0.9.0",
-  "description": "Run AI coding agents as foreground subagents in pi TUI overlays with hands-free monitoring",
+  "version": "0.10.0",
+  "description": "Run AI coding agents in pi TUI overlays with interactive, hands-free, and dispatch supervision",
   "type": "module",
   "bin": {
     "pi-interactive-shell": "./scripts/install.js"
@@ -17,6 +17,14 @@
     "tool-schema.ts",
     "headless-monitor.ts",
     "types.ts",
+    "background-widget.ts",
+    "handoff-utils.ts",
+    "notification-utils.ts",
+    "pty-log.ts",
+    "pty-protocol.ts",
+    "runtime-coordinator.ts",
+    "session-query.ts",
+    "spawn-helper.ts",
     "scripts/",
     "examples/",
     "banner.png",
@@ -28,15 +36,24 @@
     "extensions": [
       "./index.ts"
     ],
+    "skills": [
+      "./SKILL.md",
+      "./examples/skills"
+    ],
+    "prompts": [
+      "./examples/prompts"
+    ],
     "video": "https://github.com/nicobailon/pi-interactive-shell/raw/refs/heads/main/pi-interactive-shell-extension.mp4"
   },
   "dependencies": {
-    "node-pty": "^1.1.0",
+    "@sinclair/typebox": "^0.34.40",
+    "@xterm/addon-serialize": "^0.13.0",
     "@xterm/headless": "^5.5.0",
-    "@xterm/addon-serialize": "^0.13.0"
+    "node-pty": "^1.1.0"
   },
   "scripts": {
-    "postinstall": "node ./scripts/fix-spawn-helper.cjs"
+    "postinstall": "node ./scripts/fix-spawn-helper.cjs",
+    "test": "vitest run"
   },
   "keywords": [
     "pi-package",
@@ -61,5 +78,8 @@
   "bugs": {
     "url": "https://github.com/nicobailon/pi-interactive-shell/issues"
   },
-  "homepage": "https://github.com/nicobailon/pi-interactive-shell#readme"
+  "homepage": "https://github.com/nicobailon/pi-interactive-shell#readme",
+  "devDependencies": {
+    "vitest": "^3.2.4"
+  }
 }

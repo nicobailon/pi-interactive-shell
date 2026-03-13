@@ -1,5 +1,5 @@
 ---
-name: codex-5.3-prompting
+name: codex-5-3-prompting
 description: How to write system prompts and instructions for GPT-5.3-Codex. Use when constructing or tuning prompts targeting Codex 5.3.
 ---
 

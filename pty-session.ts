@@ -1,15 +1,13 @@
-import { chmodSync, statSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import * as pty from "node-pty";
 import type { IBufferCell, Terminal as XtermTerminal } from "@xterm/headless";
 import xterm from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
+import { sliceLogOutput, trimRawOutput } from "./pty-log.js";
+import { splitAroundDsr, buildCursorPositionResponse } from "./pty-protocol.js";
+import { ensureSpawnHelperExec } from "./spawn-helper.js";
 
 const Terminal = xterm.Terminal;
-const require = createRequire(import.meta.url);
-let spawnHelperChecked = false;
 
 // Regex patterns for sanitizing terminal output (used by sanitizeLine for viewport rendering)
 const OSC_REGEX = /\x1b\][^\x07]*(?:\x07|\x1b\\)/g;
@@ -19,79 +17,6 @@ const CSI_REGEX = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const ESC_SINGLE_REGEX = /\x1b[@-_]/g;
 const CONTROL_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1A\x1C-\x1F\x7F]/g;
 
-// DSR (Device Status Report) - cursor position query: ESC[6n or ESC[?6n
-const DSR_PATTERN = /\x1b\[\??6n/g;
-
-// Maximum raw output buffer size (1MB) - prevents unbounded memory growth
-const MAX_RAW_OUTPUT_SIZE = 1024 * 1024;
-
-interface DsrSplit {
-	segments: Array<{ text: string; dsrAfter: boolean }>;
-	hasDsr: boolean;
-}
-
-function splitAroundDsr(input: string): DsrSplit {
-	const segments: Array<{ text: string; dsrAfter: boolean }> = [];
-	let lastIndex = 0;
-	let hasDsr = false;
-
-	// Find all DSR requests and split around them
-	const regex = new RegExp(DSR_PATTERN.source, "g");
-	let match;
-	while ((match = regex.exec(input)) !== null) {
-		hasDsr = true;
-		// Text before this DSR
-		if (match.index > lastIndex) {
-			segments.push({ text: input.slice(lastIndex, match.index), dsrAfter: true });
-		} else {
-			// DSR at start or consecutive DSRs - add empty segment to trigger response
-			segments.push({ text: "", dsrAfter: true });
-		}
-		lastIndex = match.index + match[0].length;
-	}
-
-	// Remaining text after last DSR (or entire string if no DSR)
-	if (lastIndex < input.length) {
-		segments.push({ text: input.slice(lastIndex), dsrAfter: false });
-	}
-
-	return { segments, hasDsr };
-}
-
-function buildCursorPositionResponse(row = 1, col = 1): string {
-	return `\x1b[${row};${col}R`;
-}
-
-function ensureSpawnHelperExec(): void {
-	if (spawnHelperChecked) return;
-	spawnHelperChecked = true;
-	if (process.platform !== "darwin") return;
-
-	let pkgPath: string;
-	try {
-		pkgPath = require.resolve("node-pty/package.json");
-	} catch {
-		return;
-	}
-
-	const base = dirname(pkgPath);
-	const targets = [
-		join(base, "prebuilds", "darwin-arm64", "spawn-helper"),
-		join(base, "prebuilds", "darwin-x64", "spawn-helper"),
-	];
-
-	for (const target of targets) {
-		try {
-			const stats = statSync(target);
-			const mode = stats.mode | 0o111;
-			if ((stats.mode & 0o111) !== 0o111) {
-				chmodSync(target, mode);
-			}
-		} catch {
-			continue;
-		}
-	}
-}
 
 function sanitizeLine(line: string): string {
 	let out = line;
@@ -234,13 +159,9 @@ export class PtyTerminalSession {
 
 	// Trim raw output buffer if it exceeds max size
 	private trimRawOutputIfNeeded(): void {
-		if (this.rawOutput.length > MAX_RAW_OUTPUT_SIZE) {
-			const keepSize = Math.floor(MAX_RAW_OUTPUT_SIZE / 2);
-			const trimAmount = this.rawOutput.length - keepSize;
-			this.rawOutput = this.rawOutput.substring(trimAmount);
-			// Adjust stream position to account for trimmed content
-			this.lastStreamPosition = Math.max(0, this.lastStreamPosition - trimAmount);
-		}
+		const trimmed = trimRawOutput(this.rawOutput, this.lastStreamPosition);
+		this.rawOutput = trimmed.rawOutput;
+		this.lastStreamPosition = trimmed.lastStreamPosition;
 	}
 
 	constructor(options: PtySessionOptions, events: PtySessionEvents = {}) {
@@ -367,14 +288,16 @@ export class PtyTerminalSession {
 
 	private notifyDataListeners(data: string): void {
 		this.dataHandler?.(data);
-		for (const listener of this.additionalDataListeners) {
+		// Copy array to avoid issues if a listener unsubscribes during iteration
+		for (const listener of [...this.additionalDataListeners]) {
 			listener(data);
 		}
 	}
 
 	private notifyExitListeners(exitCode: number, signal?: number): void {
 		this.exitHandler?.(exitCode, signal);
-		for (const listener of this.additionalExitListeners) {
+		// Copy array to avoid issues if a listener unsubscribes during iteration
+		for (const listener of [...this.additionalExitListeners]) {
 			listener(exitCode, signal);
 		}
 	}
@@ -626,53 +549,7 @@ export class PtyTerminalSession {
 		totalChars: number;
 		sliceLineCount: number;
 	} {
-		let text = this.rawOutput;
-
-		// Strip ANSI by default
-		if (options.stripAnsi !== false && text) {
-			text = stripVTControlCharacters(text);
-		}
-
-		if (!text) {
-			return { slice: "", totalLines: 0, totalChars: 0, sliceLineCount: 0 };
-		}
-
-		// Normalize line endings and split
-		const normalized = text.replace(/\r\n/g, "\n");
-		const lines = normalized.split("\n");
-		// Remove trailing empty line from split
-		if (lines.length > 0 && lines[lines.length - 1] === "") {
-			lines.pop();
-		}
-
-		const totalLines = lines.length;
-		const totalChars = text.length;
-
-		// Calculate start position
-		let start: number;
-		if (typeof options.offset === "number" && Number.isFinite(options.offset)) {
-			start = Math.max(0, Math.floor(options.offset));
-		} else if (options.limit !== undefined) {
-			// No offset but limit provided - return tail (last N lines)
-			const tailCount = Math.max(0, Math.floor(options.limit));
-			start = Math.max(totalLines - tailCount, 0);
-		} else {
-			start = 0;
-		}
-
-		// Calculate end position
-		const end = typeof options.limit === "number" && Number.isFinite(options.limit)
-			? start + Math.max(0, Math.floor(options.limit))
-			: undefined;
-
-		const selectedLines = lines.slice(start, end);
-
-		return {
-			slice: selectedLines.join("\n"),
-			totalLines,
-			totalChars,
-			sliceLineCount: selectedLines.length,
-		};
+		return sliceLogOutput(this.rawOutput, options);
 	}
 
 	scrollUp(lines: number): void {
