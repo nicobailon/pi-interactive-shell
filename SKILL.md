@@ -1,5 +1,5 @@
 ---
-name: interactive-shell
+name: pi-interactive-shell
 description: Cheat sheet + workflow for launching interactive coding-agent CLIs (Claude Code, Gemini CLI, Codex CLI, Cursor CLI, and pi itself) via the interactive_shell overlay or headless dispatch. Use for TUI agents and long-running processes that need supervision, fire-and-forget delegation, or headless background execution. Regular bash commands should use the bash tool instead.
 ---
 

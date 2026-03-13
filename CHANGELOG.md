@@ -2,6 +2,11 @@
 
 All notable changes to the `pi-interactive-shell` extension will be documented in this file.
 
+## [0.10.1] - 2026-03-13
+
+### Fixed
+- **Skill name mismatch** - SKILL.md declared `name: interactive-shell` but pi expects it to match the parent directory `pi-interactive-shell`. Fixed skill name to match package name.
+
 ## [0.10.0] - 2026-03-13
 
 ### Added
