@@ -4,6 +4,8 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-04-04
+
 ### Added
 - **Focus switching** — configurable `focusShortcut` (default `alt+\``) toggles focus between overlay and main chat. Same shortcut inside the overlay unfocuses back. Overlay uses `nonCapturing` mode with handle-based focus control.
 - **`/spawn` command** — launch pi in an overlay with `/spawn` (fresh session) or `/spawn fork` (fork current session with platform-aware shell quoting).
@@ -25,6 +27,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 - `runtime-coordinator.ts` manages overlay focus via `OverlayHandle` (focus, unfocus, set, clear).
 - Config parse errors now pass the full error object to `console.error` instead of `String(error)`.
 - Shutdown kill failure preserves slug reservation to prevent ID collision with potentially still-running sessions.
+- Removed legacy `session_switch` lifecycle setup and rely on immutable-session `session_start` reinitialization for background widget setup.
 
 ### Fixed
 - Duplicate completion notifications on monitored attach + transfer (transfer now marks `agentHandledCompletion` before monitor fires).
