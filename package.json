@@ -1,6 +1,6 @@
 {
   "name": "pi-interactive-shell",
-  "version": "0.10.4",
+  "version": "0.10.5",
   "description": "Run AI coding agents in pi TUI overlays with interactive, hands-free, and dispatch supervision",
   "type": "module",
   "bin": {

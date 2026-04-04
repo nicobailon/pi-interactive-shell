@@ -4,6 +4,18 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.10.5] - 2026-04-04
+
+### Added
+- `spawnShortcut` config setting for the fresh-session overlay shortcut. Defaults to `alt+shift+p` and is pinned at startup like `focusShortcut`, so changes apply on reload or restart.
+
+### Changed
+- Fresh-session shortcut registration now reads from config at startup instead of a hardcoded constant, so custom `spawnShortcut` values are applied consistently.
+- Docs and config parity tests now cover `spawnShortcut` defaults and README alignment.
+
+### Fixed
+- Overlay row/header rendering now clamps metadata and row content at narrow widths, preventing visual overflow when focus badge + PID metadata are wider than the available space.
+
 ## [0.10.4] - 2026-04-04
 
 ### Fixed

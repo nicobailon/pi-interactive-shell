@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 type OverlayOptionsCapture = { command: string; reason?: string } | null;
 
-async function setupExtensionHarness() {
+async function setupExtensionHarness(configOverrides: Partial<{ focusShortcut: string; spawnShortcut: string }> = {}) {
 	let lastOverlayOptions: OverlayOptionsCapture = null;
 
 	vi.resetModules();
@@ -14,6 +14,38 @@ async function setupExtensionHarness() {
 		truncateToWidth: (value: string) => value,
 		visibleWidth: (value: string) => value.length,
 	}));
+	vi.doMock("../config.js", async () => {
+		const actual = await vi.importActual<typeof import("../config.js")>("../config.js");
+		return {
+			...actual,
+			loadConfig: vi.fn(() => ({
+				exitAutoCloseDelay: 10,
+				overlayWidthPercent: 95,
+				overlayHeightPercent: 60,
+				focusShortcut: configOverrides.focusShortcut ?? "alt+shift+f",
+				spawnShortcut: configOverrides.spawnShortcut ?? "alt+shift+p",
+				scrollbackLines: 5000,
+				ansiReemit: true,
+				handoffPreviewEnabled: true,
+				handoffPreviewLines: 30,
+				handoffPreviewMaxChars: 2000,
+				handoffSnapshotEnabled: false,
+				handoffSnapshotLines: 200,
+				handoffSnapshotMaxChars: 12000,
+				transferLines: 200,
+				transferMaxChars: 20000,
+				completionNotifyLines: 50,
+				completionNotifyMaxChars: 5000,
+				handsFreeUpdateMode: "on-quiet",
+				handsFreeUpdateInterval: 60000,
+				handsFreeQuietThreshold: 8000,
+				autoExitGracePeriod: 15000,
+				handsFreeUpdateMaxChars: 1500,
+				handsFreeMaxTotalChars: 100000,
+				minQueryIntervalSeconds: 60,
+			})),
+		};
+	});
 	vi.doMock("../overlay-component.js", () => ({
 		InteractiveShellOverlay: class MockInteractiveShellOverlay {
 			constructor(_tui: unknown, _theme: unknown, options: { command: string; reason?: string }) {
@@ -82,6 +114,7 @@ describe("/spawn command and shortcut", () => {
 	afterEach(() => {
 		vi.doUnmock("@mariozechner/pi-coding-agent");
 		vi.doUnmock("@mariozechner/pi-tui");
+		vi.doUnmock("../config.js");
 		vi.doUnmock("../overlay-component.js");
 	});
 
@@ -129,7 +162,7 @@ describe("/spawn command and shortcut", () => {
 		);
 	});
 
-	it("Alt+Shift+P shortcut spawns fresh pi session", async () => {
+	it("spawnShortcut config registers the fresh pi overlay shortcut", async () => {
 		const harness = await setupExtensionHarness();
 		const shortcut = harness.shortcuts.get("alt+shift+p");
 		expect(shortcut).toBeDefined();
@@ -137,6 +170,12 @@ describe("/spawn command and shortcut", () => {
 		await shortcut!.handler(harness.ctx as any);
 		expect(harness.custom).toHaveBeenCalledTimes(1);
 		expect(harness.getLastOverlayOptions()).toMatchObject({ command: "pi" });
+	});
+
+	it("non-default spawnShortcut is honored", async () => {
+		const harness = await setupExtensionHarness({ spawnShortcut: "alt+shift+s" });
+		expect(harness.shortcuts.get("alt+shift+s")).toBeDefined();
+		expect(harness.shortcuts.get("alt+shift+p")).toBeUndefined();
 	});
 
 	it("/spawn forwards transfer output back into the main agent conversation", async () => {

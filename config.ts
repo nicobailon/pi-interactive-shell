@@ -7,6 +7,7 @@ export interface InteractiveShellConfig {
 	overlayWidthPercent: number;
 	overlayHeightPercent: number;
 	focusShortcut: string;
+	spawnShortcut: string;
 	scrollbackLines: number;
 	ansiReemit: boolean;
 	handoffPreviewEnabled: boolean;
@@ -37,6 +38,7 @@ const DEFAULT_CONFIG: InteractiveShellConfig = {
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 60,
 	focusShortcut: "alt+shift+f",
+	spawnShortcut: "alt+shift+p",
 	scrollbackLines: 5000,
 	ansiReemit: true,
 	handoffPreviewEnabled: true,
@@ -94,6 +96,7 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 		// Height: 20-90% range (default 60%)
 		overlayHeightPercent: clampInt(merged.overlayHeightPercent, DEFAULT_CONFIG.overlayHeightPercent, 20, 90),
 		focusShortcut: resolveShortcut(merged.focusShortcut, DEFAULT_CONFIG.focusShortcut),
+		spawnShortcut: resolveShortcut(merged.spawnShortcut, DEFAULT_CONFIG.spawnShortcut),
 		scrollbackLines: clampInt(merged.scrollbackLines, DEFAULT_CONFIG.scrollbackLines, 200, 50000),
 		ansiReemit: merged.ansiReemit !== false,
 		handoffPreviewEnabled: merged.handoffPreviewEnabled !== false,

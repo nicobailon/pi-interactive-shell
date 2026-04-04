@@ -7,6 +7,7 @@ const config: InteractiveShellConfig = {
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 60,
 	focusShortcut: "alt+shift+f",
+	spawnShortcut: "alt+shift+p",
 	scrollbackLines: 5000,
 	ansiReemit: true,
 	handoffPreviewEnabled: true,

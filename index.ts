@@ -125,8 +125,6 @@ function emitTransferredOutput(
 
 type SpawnMode = "fresh" | "fork";
 
-const SPAWN_SHORTCUT = "alt+shift+p";
-
 function parseSpawnMode(args: string): SpawnMode | undefined {
 	const normalized = args.trim().toLowerCase();
 	switch (normalized) {
@@ -235,7 +233,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			coordinator.focusOverlay();
 		},
 	});
-	pi.registerShortcut(SPAWN_SHORTCUT, {
+	pi.registerShortcut(startupConfig.spawnShortcut, {
 		description: "Spawn pi in a fresh interactive shell overlay",
 		handler: (ctx) => spawnPiOverlay(ctx, "fresh"),
 	});

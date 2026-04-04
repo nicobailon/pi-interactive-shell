@@ -942,7 +942,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			const vis = visibleWidth(s);
 			return s + " ".repeat(Math.max(0, w - vis));
 		};
-		const row = (content: string) => border(`${borderGlyphs.vertical} `) + pad(content, innerWidth) + border(` ${borderGlyphs.vertical}`);
+		const row = (content: string) => border(`${borderGlyphs.vertical} `) + pad(truncateToWidth(content, innerWidth, ""), innerWidth) + border(` ${borderGlyphs.vertical}`);
 		const emptyRow = () => row("");
 
 		const lines: string[] = [];
@@ -950,15 +950,23 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		// Sanitize command: collapse newlines and whitespace to single spaces for display
 		const sanitizedCommand = this.options.command.replace(/\s+/g, " ").trim();
 		const focusBadgeLabel = this.focused ? " SHELL FOCUSED " : " EDITOR FOCUSED ";
-		const focusBadge = th.bg("selectedBg", th.bold(th.fg(this.focused ? "accent" : "muted", focusBadgeLabel)));
+		const compactFocusBadgeLabel = this.focused ? " SHELL " : " EDITOR ";
+		const makeFocusBadge = (label: string) => th.bg("selectedBg", th.bold(th.fg(this.focused ? "accent" : "muted", label)));
 		const pid = dim(`PID: ${this.session.pid}`);
-		const titleMeta = `${focusBadge} ${pid}`;
-		const title = truncateToWidth(sanitizedCommand, Math.max(8, innerWidth - visibleWidth(titleMeta) - 1), "...");
+		let titleMeta = `${makeFocusBadge(focusBadgeLabel)} ${pid}`;
+		if (visibleWidth(titleMeta) > innerWidth - 4) {
+			titleMeta = `${makeFocusBadge(compactFocusBadgeLabel)} ${pid}`;
+		}
+		if (visibleWidth(titleMeta) > innerWidth - 2) {
+			titleMeta = makeFocusBadge(compactFocusBadgeLabel);
+		}
+		titleMeta = truncateToWidth(titleMeta, innerWidth, "");
+		const title = truncateToWidth(sanitizedCommand, Math.max(0, innerWidth - visibleWidth(titleMeta) - 1), "...");
 		lines.push(border(borderGlyphs.topLeft + borderGlyphs.horizontal.repeat(width - 2) + borderGlyphs.topRight));
 		lines.push(
 			row(
 				accent(title) +
-					" ".repeat(Math.max(1, innerWidth - visibleWidth(title) - visibleWidth(titleMeta))) +
+					" ".repeat(Math.max(0, innerWidth - visibleWidth(title) - visibleWidth(titleMeta))) +
 					titleMeta,
 			),
 		);

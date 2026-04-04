@@ -261,9 +261,9 @@ User can also `/spawn` (fresh pi session), `/spawn fork` (fork current session i
 | Ctrl+B | Background session (dismiss overlay, keep running) |
 | Ctrl+Q | Session menu (transfer/background/kill/cancel) |
 | Shift+Up/Down | Scroll history |
-| Alt+Backtick (default) | Toggle focus between overlay and main chat |
+| Alt+Shift+F (default) | Toggle focus between overlay and main chat |
 | Ctrl+G | Return to agent monitoring (only during takeover) |
-| Alt+Shift+P | Spawn fresh `pi` session overlay |
+| Alt+Shift+P (default) | Spawn fresh `pi` session overlay |
 | Any key (hands-free) | Take over control |
 
 ## Config
@@ -272,11 +272,14 @@ Configuration files (project overrides global):
 - **Global:** `~/.pi/agent/interactive-shell.json`
 - **Project:** `.pi/interactive-shell.json`
 
+Shortcut settings are pinned at startup. If you change `focusShortcut` or `spawnShortcut`, reload or restart Pi to apply them.
+
 ```json
 {
   "overlayWidthPercent": 95,
   "overlayHeightPercent": 60,
   "focusShortcut": "alt+shift+f",
+  "spawnShortcut": "alt+shift+p",
   "scrollbackLines": 5000,
   "exitAutoCloseDelay": 10,
   "minQueryIntervalSeconds": 60,
@@ -303,6 +306,7 @@ Configuration files (project overrides global):
 | `overlayWidthPercent` | 95 | Overlay width (10-100%) |
 | `overlayHeightPercent` | 60 | Overlay height (20-90%) |
 | `focusShortcut` | "alt+shift+f" | Toggle focus between overlay and main chat |
+| `spawnShortcut` | "alt+shift+p" | Spawn a fresh `pi` session overlay |
 | `scrollbackLines` | 5000 | Terminal scrollback buffer |
 | `exitAutoCloseDelay` | 10 | Seconds before auto-close after exit |
 | `minQueryIntervalSeconds` | 60 | Rate limit between agent queries |

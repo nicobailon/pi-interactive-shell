@@ -28,11 +28,13 @@ describe("config + docs parity", () => {
 			handsFreeQuietThreshold: 999999,
 			overlayWidthPercent: 5,
 			focusShortcut: "alt+f",
+			spawnShortcut: "alt+s",
 		}), { encoding: "utf-8" });
 		writeFileSync(projectPath, JSON.stringify({
 			autoExitGracePeriod: 1,
 			overlayHeightPercent: 150,
 			focusShortcut: "   ",
+			spawnShortcut: "   ",
 		}), { encoding: "utf-8" });
 
 		const { loadConfig } = await loadConfigModule(agentDir);
@@ -42,6 +44,7 @@ describe("config + docs parity", () => {
 		expect(config.autoExitGracePeriod).toBe(5000);
 		expect(config.overlayHeightPercent).toBe(90);
 		expect(config.focusShortcut).toBe("alt+shift+f");
+		expect(config.spawnShortcut).toBe("alt+shift+p");
 
 		rmSync(root, { recursive: true, force: true });
 	});
@@ -57,8 +60,11 @@ describe("config + docs parity", () => {
 		expect(defaults.handsFreeQuietThreshold).toBe(8000);
 		expect(defaults.autoExitGracePeriod).toBe(15000);
 		expect(defaults.focusShortcut).toBe("alt+shift+f");
+		expect(defaults.spawnShortcut).toBe("alt+shift+p");
 		expect(readme).toContain(`"focusShortcut": "${defaults.focusShortcut}"`);
+		expect(readme).toContain(`"spawnShortcut": "${defaults.spawnShortcut}"`);
 		expect(readme).toContain("Toggle focus between overlay and main chat");
+		expect(readme).toContain("Spawn a fresh `pi` session overlay");
 		expect(readme).toContain("/spawn fork");
 		expect(readme).toContain("Alt+Shift+P");
 		expect(readme).toContain(`"handsFreeQuietThreshold": ${defaults.handsFreeQuietThreshold}`);
