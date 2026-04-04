@@ -7,6 +7,7 @@ import type { InteractiveShellResult, HandsFreeUpdate } from "./types.js";
 import { sessionManager, generateSessionId } from "./session-manager.js";
 import { loadConfig } from "./config.js";
 import type { InteractiveShellConfig } from "./config.js";
+import { parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.js";
 import { translateInput } from "./key-encoding.js";
 import { TOOL_NAME, TOOL_LABEL, TOOL_DESCRIPTION, toolParameters, type ToolParams } from "./tool-schema.js";
 import { formatDuration, formatDurationMs } from "./types.js";
@@ -123,58 +124,25 @@ function emitTransferredOutput(
 	});
 }
 
-type SpawnMode = "fresh" | "fork";
-
-function parseSpawnMode(args: string): SpawnMode | undefined {
-	const normalized = args.trim().toLowerCase();
-	switch (normalized) {
-		case "":
-		case "fresh":
-		case "new":
-			return "fresh";
-		case "fork":
-			return "fork";
-		default:
-			return undefined;
-	}
-}
-
-function shellQuote(value: string): string {
-	if (process.platform === "win32") {
-		return `"${value.replace(/"/g, '""')}"`;
-	}
-	return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function buildSpawnPiCommand(mode: SpawnMode, getSessionFile: () => string | undefined):
-	| { ok: true; command: string; reason: string }
-	| { ok: false; error: string } {
-	if (mode === "fork") {
-		const sourceSessionFile = getSessionFile();
-		if (!sourceSessionFile) {
-			return { ok: false, error: "Cannot fork the current session because it is not persisted (likely --no-session mode)." };
-		}
-		return {
-			ok: true,
-			command: `pi --fork ${shellQuote(sourceSessionFile)}`,
-			reason: "spawn pi (fork current session)",
-		};
-	}
-
-	return {
-		ok: true,
-		command: "pi",
-		reason: "spawn pi (fresh session)",
-	};
+function appendWorktreeNotice(text: string, worktreePath: string | undefined): string {
+	if (!worktreePath) return text;
+	return `${text}\nWorktree left in place: ${worktreePath}`;
 }
 
 export default function interactiveShellExtension(pi: ExtensionAPI) {
 	const startupConfig = loadConfig(process.cwd());
 	let terminalInputCleanup: (() => void) | null = null;
-	const loadRuntimeConfig = (cwd: string): InteractiveShellConfig => ({
-		...loadConfig(cwd),
-		focusShortcut: startupConfig.focusShortcut,
-	});
+	const loadRuntimeConfig = (cwd: string): InteractiveShellConfig => {
+		const config = loadConfig(cwd);
+		return {
+			...config,
+			focusShortcut: startupConfig.focusShortcut,
+			spawn: {
+				...config.spawn,
+				shortcut: startupConfig.spawn.shortcut,
+			},
+		};
+	};
 	const disposeStaleMonitor = (id: string, monitor: HeadlessDispatchMonitor | undefined): void => {
 		if (!monitor || monitor.disposed) return;
 		coordinator.disposeMonitor(id);
@@ -194,34 +162,37 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			handle.focus();
 		},
 	});
-	const spawnPiOverlay = async (ctx: ExtensionContext, mode: SpawnMode): Promise<void> => {
+	const spawnOverlay = async (ctx: ExtensionContext, request?: SpawnRequest): Promise<void> => {
 		if (coordinator.isOverlayOpen()) {
 			ctx.ui.notify("An overlay is already open. Close it first.", "error");
 			return;
 		}
 
-		const spawn = buildSpawnPiCommand(mode, () => ctx.sessionManager.getSessionFile());
+		const config = loadRuntimeConfig(ctx.cwd);
+		const spawn = resolveSpawn(config, ctx.cwd, request, () => ctx.sessionManager.getSessionFile());
 		if (!spawn.ok) {
 			ctx.ui.notify(spawn.error, "error");
 			return;
 		}
 
-		const config = loadRuntimeConfig(ctx.cwd);
 		if (!coordinator.beginOverlay()) {
-			ctx.ui.notify("An overlay is already open. Close it first.", "error");
+			ctx.ui.notify(appendWorktreeNotice("An overlay is already open. Close it first.", spawn.spawn.worktreePath), "error");
 			return;
 		}
 		try {
 			const result = await ctx.ui.custom<InteractiveShellResult>(
 				(tui, theme, _kb, done) =>
 					new InteractiveShellOverlay(tui, theme, {
-						command: spawn.command,
-						cwd: ctx.cwd,
-						reason: spawn.reason,
+						command: spawn.spawn.command,
+						cwd: spawn.spawn.cwd,
+						reason: spawn.spawn.reason,
 						onUnfocus: () => coordinator.unfocusOverlay(),
 					}, config, done),
 				createOverlayUiOptions(config),
 			);
+			if (spawn.spawn.worktreePath) {
+				ctx.ui.notify(`Worktree left in place: ${spawn.spawn.worktreePath}`, "info");
+			}
 			emitTransferredOutput(pi, result);
 		} finally {
 			coordinator.endOverlay();
@@ -233,9 +204,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			coordinator.focusOverlay();
 		},
 	});
-	pi.registerShortcut(startupConfig.spawnShortcut, {
-		description: "Spawn pi in a fresh interactive shell overlay",
-		handler: (ctx) => spawnPiOverlay(ctx, "fresh"),
+	pi.registerShortcut(startupConfig.spawn.shortcut, {
+		description: "Spawn the configured default agent in a fresh interactive shell overlay",
+		handler: (ctx) => spawnOverlay(ctx),
 	});
 
 	pi.on("session_start", (_event, ctx) => {
@@ -281,6 +252,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
 			const {
 				command,
+				spawn,
 				sessionId,
 				kill,
 				outputLines,
@@ -311,6 +283,19 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			const effectiveInput = hasStructuredInput
 				? { text: input, keys: inputKeys, hex: inputHex, paste: inputPaste }
 				: input;
+
+			if (spawn && command) {
+				return {
+					content: [{ type: "text", text: "Use either 'command' or 'spawn', not both." }],
+					isError: true,
+				};
+			}
+			if (spawn && (sessionId || attach || listBackground || dismissBackground)) {
+				return {
+					content: [{ type: "text", text: "'spawn' is only valid when starting a new session." }],
+					isError: true,
+				};
+			}
 
 			// ── Branch 1: Interact with existing session ──
 			if (sessionId) {
@@ -674,26 +659,77 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			}
 
 			// ── Branch 4: Start new session ──
-			if (!command) {
+			if (!command && !spawn) {
 				return {
-					content: [{ type: "text", text: "One of 'command', 'sessionId', 'attach', 'listBackground', or 'dismissBackground' is required." }],
+					content: [{ type: "text", text: "One of 'command', 'spawn', 'sessionId', 'attach', 'listBackground', or 'dismissBackground' is required." }],
 					isError: true,
 				};
 			}
 
-			const effectiveCwd = cwd ?? ctx.cwd;
+			let effectiveCwd = cwd ?? ctx.cwd;
 			const config = loadRuntimeConfig(effectiveCwd);
 			const isNonBlocking = mode === "hands-free" || mode === "dispatch";
+
+			if (background && mode !== "dispatch") {
+				return {
+					content: [{ type: "text", text: "background: true requires mode='dispatch' for new sessions." }],
+					isError: true,
+				};
+			}
+			if (!(mode === "dispatch" && background)) {
+				if (!ctx.hasUI) {
+					return {
+						content: [{ type: "text", text: "Interactive shell requires interactive TUI mode" }],
+						isError: true,
+					};
+				}
+				if (coordinator.isOverlayOpen()) {
+					return {
+						content: [{ type: "text", text: "An interactive shell overlay is already open. Wait for it to close or kill the active session before starting a new one." }],
+						isError: true,
+						details: { error: "overlay_already_open" },
+					};
+				}
+			}
+
+			let effectiveCommand = command;
+			let effectiveReason = reason;
+			let spawnWorktreePath: string | undefined;
+			let spawnAgent: string | undefined;
+			let spawnMode: string | undefined;
+			if (spawn) {
+				const resolvedSpawn = resolveSpawn(config, effectiveCwd, spawn, () => ctx.sessionManager.getSessionFile());
+				if (!resolvedSpawn.ok) {
+					return {
+						content: [{ type: "text", text: resolvedSpawn.error }],
+						isError: true,
+					};
+				}
+				effectiveCommand = resolvedSpawn.spawn.command;
+				effectiveCwd = resolvedSpawn.spawn.cwd;
+				effectiveReason = effectiveReason
+					? `${effectiveReason} • ${resolvedSpawn.spawn.reason}`
+					: resolvedSpawn.spawn.reason;
+				spawnWorktreePath = resolvedSpawn.spawn.worktreePath;
+				spawnAgent = resolvedSpawn.spawn.agent;
+				spawnMode = resolvedSpawn.spawn.mode;
+			}
+			if (!effectiveCommand) {
+				return {
+					content: [{ type: "text", text: "Failed to resolve the command to launch." }],
+					isError: true,
+				};
+			}
 
 			// ── Branch 4a: Headless dispatch ──
 			if (mode === "dispatch" && background) {
 				const id = generateSessionId(name);
 				const session = new PtyTerminalSession(
-					{ command, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
+					{ command: effectiveCommand, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
 				);
 
 				const startTime = Date.now();
-				sessionManager.add(command, session, name, reason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
+				sessionManager.add(effectiveCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
 
 				const monitor = new HeadlessDispatchMonitor(session, config, {
 					autoExitOnQuiet: handsFree?.autoExitOnQuiet !== false,
@@ -702,34 +738,11 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					timeout,
 					startedAt: startTime,
 				}, makeMonitorCompletionCallback(pi, id, startTime));
-				registerHeadlessActive(id, command, reason, session, monitor, startTime, config);
+				registerHeadlessActive(id, effectiveCommand, effectiveReason, session, monitor, startTime, config);
 
 				return {
-					content: [{ type: "text", text: `Session dispatched in background (id: ${id}).\nYou'll be notified when it completes. User can /attach ${id} to watch.` }],
-					details: { sessionId: id, backgroundId: id, mode: "dispatch", background: true },
-				};
-			}
-
-			// Validate: background only valid with dispatch for new sessions
-			if (background) {
-				return {
-					content: [{ type: "text", text: "background: true requires mode='dispatch' for new sessions." }],
-					isError: true,
-				};
-			}
-
-			if (!ctx.hasUI) {
-				return {
-					content: [{ type: "text", text: "Interactive shell requires interactive TUI mode" }],
-					isError: true,
-				};
-			}
-
-			if (coordinator.isOverlayOpen()) {
-				return {
-					content: [{ type: "text", text: "An interactive shell overlay is already open. Wait for it to close or kill the active session before starting a new one." }],
-					isError: true,
-					details: { error: "overlay_already_open" },
+					content: [{ type: "text", text: appendWorktreeNotice(`Session dispatched in background (id: ${id}).\nYou'll be notified when it completes. User can /attach ${id} to watch.`, spawnWorktreePath) }],
+					details: { sessionId: id, backgroundId: id, mode: "dispatch", background: true, spawnAgent, spawnMode, spawnWorktreePath },
 				};
 			}
 
@@ -739,9 +752,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			if (isNonBlocking && generatedSessionId) {
 				if (!coordinator.beginOverlay()) {
 					return {
-						content: [{ type: "text", text: "An interactive shell overlay is already open. Wait for it to close or kill the active session before starting a new one." }],
+						content: [{ type: "text", text: appendWorktreeNotice("An interactive shell overlay is already open. Wait for it to close or kill the active session before starting a new one.", spawnWorktreePath) }],
 						isError: true,
-						details: { error: "overlay_already_open" },
+						details: { error: "overlay_already_open", spawnAgent, spawnMode, spawnWorktreePath },
 					};
 				}
 				const overlayStartTime = Date.now();
@@ -751,10 +764,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					overlayPromise = ctx.ui.custom<InteractiveShellResult>(
 						(tui, theme, _kb, done) =>
 							new InteractiveShellOverlay(tui, theme, {
-								command,
+								command: effectiveCommand,
 								cwd: effectiveCwd,
 								name,
-								reason,
+								reason: effectiveReason,
 								mode,
 								sessionId: generatedSessionId,
 								startedAt: overlayStartTime,
@@ -789,8 +802,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				setupDispatchCompletion(pi, overlayPromise, config, {
 					id: generatedSessionId,
 					mode: mode!,
-					command,
-					reason,
+					command: effectiveCommand,
+					reason: effectiveReason,
 					timeout,
 					handsFree,
 					overlayStartTime,
@@ -798,26 +811,26 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 				if (mode === "dispatch") {
 					return {
-						content: [{ type: "text", text: `Session dispatched (id: ${generatedSessionId}).\nYou'll be notified when it completes.\nYou can still query with interactive_shell({ sessionId: "${generatedSessionId}" }) if needed.` }],
-						details: { sessionId: generatedSessionId, status: "running", command, reason, mode },
+						content: [{ type: "text", text: appendWorktreeNotice(`Session dispatched (id: ${generatedSessionId}).\nYou'll be notified when it completes.\nYou can still query with interactive_shell({ sessionId: "${generatedSessionId}" }) if needed.`, spawnWorktreePath) }],
+						details: { sessionId: generatedSessionId, status: "running", command: effectiveCommand, reason: effectiveReason, mode, spawnAgent, spawnMode, spawnWorktreePath },
 					};
 				}
 				return {
-					content: [{ type: "text", text: `Session started: ${generatedSessionId}\nCommand: ${command}\n\nUse interactive_shell({ sessionId: "${generatedSessionId}" }) to check status/output.\nUse interactive_shell({ sessionId: "${generatedSessionId}", kill: true }) to end when done.` }],
-					details: { sessionId: generatedSessionId, status: "running", command, reason },
+					content: [{ type: "text", text: appendWorktreeNotice(`Session started: ${generatedSessionId}\nCommand: ${effectiveCommand}\n\nUse interactive_shell({ sessionId: "${generatedSessionId}" }) to check status/output.\nUse interactive_shell({ sessionId: "${generatedSessionId}", kill: true }) to end when done.`, spawnWorktreePath) }],
+					details: { sessionId: generatedSessionId, status: "running", command: effectiveCommand, reason: effectiveReason, spawnAgent, spawnMode, spawnWorktreePath },
 				};
 			}
 
 			// ── Blocking (interactive) path ──
 			if (!coordinator.beginOverlay()) {
 				return {
-					content: [{ type: "text", text: "An interactive shell overlay is already open. Wait for it to close or kill the active session before starting a new one." }],
+					content: [{ type: "text", text: appendWorktreeNotice("An interactive shell overlay is already open. Wait for it to close or kill the active session before starting a new one.", spawnWorktreePath) }],
 					isError: true,
-					details: { error: "overlay_already_open" },
+					details: { error: "overlay_already_open", spawnAgent, spawnMode, spawnWorktreePath },
 				};
 			}
 			onUpdate?.({
-				content: [{ type: "text", text: `Opening: ${command}` }],
+				content: [{ type: "text", text: appendWorktreeNotice(`Opening: ${effectiveCommand}`, spawnWorktreePath) }],
 				details: { exitCode: null, backgrounded: false, cancelled: false },
 			});
 
@@ -826,10 +839,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				result = await ctx.ui.custom<InteractiveShellResult>(
 					(tui, theme, _kb, done) =>
 						new InteractiveShellOverlay(tui, theme, {
-							command,
+							command: effectiveCommand,
 							cwd: effectiveCwd,
 							name,
-							reason,
+							reason: effectiveReason,
 							mode,
 							sessionId: generatedSessionId,
 							handsFreeUpdateMode: handsFree?.updateMode,
@@ -894,19 +907,22 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				coordinator.endOverlay();
 			}
 
-			return { content: [{ type: "text", text: summarizeInteractiveResult(command, result, timeout, reason) }], details: result };
+			return {
+				content: [{ type: "text", text: appendWorktreeNotice(summarizeInteractiveResult(effectiveCommand, result, timeout, effectiveReason), spawnWorktreePath) }],
+				details: { ...result, spawnAgent, spawnMode, spawnWorktreePath },
+			};
 		},
 	});
 
 	pi.registerCommand("spawn", {
-		description: "Spawn pi in an interactive shell overlay (/spawn [fresh|fork])",
+		description: "Spawn the configured default agent, pi, codex, or claude in an interactive shell overlay",
 		handler: async (args, ctx) => {
-			const mode = parseSpawnMode(args);
-			if (!mode) {
-				ctx.ui.notify("Usage: /spawn [fresh|fork]", "error");
+			const parsed = parseSpawnArgs(args);
+			if (!parsed.ok) {
+				ctx.ui.notify(`${parsed.error}\nUsage: /spawn [pi|codex|claude] [fresh|fork] [--worktree]`, "error");
 				return;
 			}
-			await spawnPiOverlay(ctx, mode);
+			await spawnOverlay(ctx, parsed.request);
 		},
 	});
 
@@ -1091,12 +1107,17 @@ function setupDispatchCompletion(
 					details: { sessionId: id, backgroundId: result.backgroundId },
 				}, { triggerTurn: true });
 			}
-			sessionManager.unregisterActive(id, false);
 
 			const bgId = result.backgroundId!;
 			const existingMonitor = coordinator.getMonitor(id);
 			const bgSession = sessionManager.get(bgId);
-			if (!bgSession) return;
+			if (!bgSession) {
+				sessionManager.unregisterActive(id, true);
+				coordinator.disposeMonitor(id);
+				return;
+			}
+
+			sessionManager.unregisterActive(id, bgId !== id);
 
 			if (existingMonitor && !existingMonitor.disposed) {
 				coordinator.deleteMonitor(id);

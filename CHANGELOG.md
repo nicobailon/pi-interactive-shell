@@ -4,6 +4,24 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-04-04
+
+### Added
+- Multi-agent spawn support for `pi`, Codex CLI, and Claude Code. `/spawn` can now launch the configured default agent, accept explicit agent overrides like `/spawn codex`, and support `--worktree` for spawning into a separate git worktree.
+- First-class `spawn` params on the `interactive_shell` tool so the agent can use the same spawn abstraction directly instead of building raw command strings by hand.
+- Regression coverage for dispatch background recovery when a backgrounded session cannot be looked up after overlay teardown.
+
+### Changed
+- Spawn config now lives under a nested `spawn` object with `defaultAgent`, `shortcut`, `commands`, `defaultArgs`, `worktree`, and `worktreeBaseDir`.
+- The spawn shortcut now launches the configured default spawn agent instead of always launching Pi.
+- Pi-only fork validation is shared between `/spawn` and the `interactive_shell` tool, so `fork` now fails fast with a clear error for Codex and Claude.
+- README and tool schema examples now document structured spawn usage, multi-agent `/spawn` commands, and worktree settings.
+
+### Fixed
+- Pi fork now validates the persisted source session before creating a worktree, so failed fork attempts no longer leave stray worktrees behind.
+- Dispatch background recovery now releases the source session and disposes stale monitor state if the expected background session entry is missing after handoff.
+- Generated worktree paths now include enough uniqueness to avoid collisions during rapid repeated spawns.
+
 ## [0.10.5] - 2026-04-04
 
 ### Added

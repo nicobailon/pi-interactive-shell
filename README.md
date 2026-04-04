@@ -57,6 +57,19 @@ Three modes control how the agent engages with a session:
 
 The examples below show agent-side tool calls. They are not chat commands for end users.
 
+### Structured Spawn
+
+For Pi, Codex, and Claude, the agent can use structured spawn params instead of building command strings by hand:
+
+```typescript
+interactive_shell({ spawn: { agent: "pi" }, mode: "interactive" })
+interactive_shell({ spawn: { agent: "codex" }, mode: "dispatch" })
+interactive_shell({ spawn: { agent: "claude", worktree: true }, mode: "hands-free" })
+interactive_shell({ spawn: { mode: "fork" }, mode: "interactive" }) // Pi-only
+```
+
+Raw `command` is still supported for arbitrary CLIs and custom launch strings.
+
 ### Interactive
 
 ```typescript
@@ -255,7 +268,7 @@ interactive_shell({ dismissBackground: true })               // all sessions
 interactive_shell({ dismissBackground: "calm-reef" })        // specific session
 ```
 
-User can also `/spawn` (fresh pi session), `/spawn fork` (fork current session into a new pi session), `/attach` or `/attach <id>` to reattach, and `/dismiss` or `/dismiss <id>` to clean up from the chat. The keyboard spawn shortcut is separate from `/spawn` and is configurable via `spawnShortcut`.
+User can also `/spawn` to launch the configured default spawn agent, `/spawn codex`, `/spawn claude`, `/spawn pi`, `/spawn fork`, or `/spawn pi fork`. Add `--worktree` to spawn in a separate git worktree, for example `/spawn codex --worktree` or `/spawn pi fork --worktree`. `fork` is Pi-only. Worktrees are left in place and the overlay will tell you where they were created. `/attach` or `/attach <id>` reattaches, and `/dismiss` or `/dismiss <id>` cleans up from the chat. The keyboard spawn shortcut is separate from `/spawn` and uses `spawn.shortcut`.
 
 ## Keys
 
@@ -267,7 +280,7 @@ User can also `/spawn` (fresh pi session), `/spawn fork` (fork current session i
 | Shift+Up/Down | Scroll history |
 | Alt+Shift+F (default) | Toggle focus between overlay and main chat (`focusShortcut`) |
 | Ctrl+G | Return to agent monitoring (only during takeover) |
-| Alt+Shift+P (default) | Spawn fresh `pi` session overlay (`spawnShortcut`) |
+| Alt+Shift+P (default) | Launch the configured default spawn agent (`spawn.shortcut`) |
 | Any key (hands-free) | Take over control |
 
 ## Config
@@ -276,14 +289,29 @@ Configuration files (project overrides global):
 - **Global:** `~/.pi/agent/interactive-shell.json`
 - **Project:** `.pi/interactive-shell.json`
 
-Shortcut settings are pinned at startup. If you change `focusShortcut` or `spawnShortcut`, reload or restart Pi to apply them.
+Shortcut settings are pinned at startup. If you change `focusShortcut` or `spawn.shortcut`, reload or restart Pi to apply them.
 
 ```json
 {
   "overlayWidthPercent": 95,
   "overlayHeightPercent": 60,
   "focusShortcut": "alt+shift+f",
-  "spawnShortcut": "alt+shift+p",
+  "spawn": {
+    "defaultAgent": "pi",
+    "shortcut": "alt+shift+p",
+    "commands": {
+      "pi": "pi",
+      "codex": "codex",
+      "claude": "claude"
+    },
+    "defaultArgs": {
+      "pi": [],
+      "codex": [],
+      "claude": []
+    },
+    "worktree": false,
+    "worktreeBaseDir": "../repo-worktrees"
+  },
   "scrollbackLines": 5000,
   "exitAutoCloseDelay": 10,
   "minQueryIntervalSeconds": 60,
@@ -310,7 +338,12 @@ Shortcut settings are pinned at startup. If you change `focusShortcut` or `spawn
 | `overlayWidthPercent` | 95 | Overlay width (10-100%) |
 | `overlayHeightPercent` | 60 | Overlay height (20-90%) |
 | `focusShortcut` | "alt+shift+f" | Toggle focus between overlay and main chat |
-| `spawnShortcut` | "alt+shift+p" | Spawn a fresh `pi` session overlay |
+| `spawn.defaultAgent` | "pi" | Configured default spawn agent for `/spawn`, the spawn shortcut, and agent-side structured spawn |
+| `spawn.shortcut` | "alt+shift+p" | Keyboard shortcut that launches the configured default spawn agent |
+| `spawn.commands.<agent>` | `pi` / `codex` / `claude` | Executable or path override per spawn agent |
+| `spawn.defaultArgs.<agent>` | `[]` | Extra default CLI args per spawn agent |
+| `spawn.worktree` | `false` | Launch spawns in a separate git worktree by default |
+| `spawn.worktreeBaseDir` | unset | Optional base directory for generated worktrees |
 | `scrollbackLines` | 5000 | Terminal scrollback buffer |
 | `exitAutoCloseDelay` | 10 | Seconds before auto-close after exit |
 | `minQueryIntervalSeconds` | 60 | Rate limit between agent queries |

@@ -113,6 +113,8 @@ include it in the command using the CLI's own prompt flags.
 Examples:
 - pi "Scan the current codebase"
 - claude "Check the current directory and summarize"
+- interactive_shell({ spawn: { agent: "codex" }, mode: "dispatch" })
+- interactive_shell({ spawn: { mode: "fork" } }) // pi-only fork of the current persisted session
 - gemini (interactive, idle)
 - aider --yes-always (hands-free, auto-approve)
 - pi --help (with timeout: 5000 to capture help output)`;
@@ -120,7 +122,29 @@ Examples:
 export const toolParameters = Type.Object({
 	command: Type.Optional(
 		Type.String({
-			description: "The CLI agent command (e.g., 'pi \"Fix the bug\"'). Required to start a new session.",
+			description: "The raw CLI command to run (e.g., 'pi \"Fix the bug\"'). Use this for arbitrary CLIs. Mutually exclusive with 'spawn'.",
+		}),
+	),
+	spawn: Type.Optional(
+		Type.Object({
+			agent: Type.Optional(Type.Union([
+				Type.Literal("pi"),
+				Type.Literal("codex"),
+				Type.Literal("claude"),
+			], {
+				description: "Spawn agent to launch. Defaults to the configured spawn.defaultAgent.",
+			})),
+			mode: Type.Optional(Type.Union([
+				Type.Literal("fresh"),
+				Type.Literal("fork"),
+			], {
+				description: "Spawn mode. 'fork' is only supported for pi and requires a persisted current session.",
+			})),
+			worktree: Type.Optional(Type.Boolean({
+				description: "Launch in a separate git worktree. Defaults to spawn.worktree from config.",
+			})),
+		}, {
+			description: "Structured spawn request for pi, codex, or claude. Use this instead of building the command string manually when you want the extension's spawn defaults, Pi-only fork behavior, or worktree support.",
 		}),
 	),
 	sessionId: Type.Optional(
@@ -282,6 +306,7 @@ export const toolParameters = Type.Object({
 /** Parsed tool parameters type */
 export interface ToolParams {
 	command?: string;
+	spawn?: { agent?: "pi" | "codex" | "claude"; mode?: "fresh" | "fork"; worktree?: boolean };
 	sessionId?: string;
 	kill?: boolean;
 	outputLines?: number;

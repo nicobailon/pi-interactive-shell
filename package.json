@@ -1,6 +1,6 @@
 {
   "name": "pi-interactive-shell",
-  "version": "0.10.5",
+  "version": "0.10.6",
   "description": "Run AI coding agents in pi TUI overlays with interactive, hands-free, and dispatch supervision",
   "type": "module",
   "bin": {
@@ -24,6 +24,7 @@
     "pty-protocol.ts",
     "runtime-coordinator.ts",
     "session-query.ts",
+    "spawn.ts",
     "spawn-helper.ts",
     "scripts/",
     "examples/",

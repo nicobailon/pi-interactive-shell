@@ -28,13 +28,25 @@ describe("config + docs parity", () => {
 			handsFreeQuietThreshold: 999999,
 			overlayWidthPercent: 5,
 			focusShortcut: "alt+f",
-			spawnShortcut: "alt+s",
+			spawn: {
+				defaultAgent: "codex",
+				shortcut: "alt+s",
+				commands: { codex: "/opt/codex/bin/codex" },
+				defaultArgs: { codex: ["--no-alt-screen"] },
+				worktree: true,
+				worktreeBaseDir: "../worktrees",
+			},
 		}), { encoding: "utf-8" });
 		writeFileSync(projectPath, JSON.stringify({
 			autoExitGracePeriod: 1,
 			overlayHeightPercent: 150,
 			focusShortcut: "   ",
-			spawnShortcut: "   ",
+			spawn: {
+				shortcut: "   ",
+				defaultAgent: "claude",
+				defaultArgs: { claude: ["--allowedTools", "Bash"] },
+				worktree: false,
+			},
 		}), { encoding: "utf-8" });
 
 		const { loadConfig } = await loadConfigModule(agentDir);
@@ -44,7 +56,13 @@ describe("config + docs parity", () => {
 		expect(config.autoExitGracePeriod).toBe(5000);
 		expect(config.overlayHeightPercent).toBe(90);
 		expect(config.focusShortcut).toBe("alt+shift+f");
-		expect(config.spawnShortcut).toBe("alt+shift+p");
+		expect(config.spawn.defaultAgent).toBe("claude");
+		expect(config.spawn.shortcut).toBe("alt+shift+p");
+		expect(config.spawn.commands.codex).toBe("/opt/codex/bin/codex");
+		expect(config.spawn.defaultArgs.codex).toEqual(["--no-alt-screen"]);
+		expect(config.spawn.defaultArgs.claude).toEqual(["--allowedTools", "Bash"]);
+		expect(config.spawn.worktree).toBe(false);
+		expect(config.spawn.worktreeBaseDir).toBe("../worktrees");
 
 		rmSync(root, { recursive: true, force: true });
 	});
@@ -60,12 +78,15 @@ describe("config + docs parity", () => {
 		expect(defaults.handsFreeQuietThreshold).toBe(8000);
 		expect(defaults.autoExitGracePeriod).toBe(15000);
 		expect(defaults.focusShortcut).toBe("alt+shift+f");
-		expect(defaults.spawnShortcut).toBe("alt+shift+p");
+		expect(defaults.spawn.defaultAgent).toBe("pi");
+		expect(defaults.spawn.shortcut).toBe("alt+shift+p");
 		expect(readme).toContain(`"focusShortcut": "${defaults.focusShortcut}"`);
-		expect(readme).toContain(`"spawnShortcut": "${defaults.spawnShortcut}"`);
+		expect(readme).toContain(`"defaultAgent": "${defaults.spawn.defaultAgent}"`);
+		expect(readme).toContain(`"shortcut": "${defaults.spawn.shortcut}"`);
 		expect(readme).toContain("Toggle focus between overlay and main chat");
-		expect(readme).toContain("Spawn a fresh `pi` session overlay");
-		expect(readme).toContain("/spawn fork");
+		expect(readme).toContain("configured default spawn agent");
+		expect(readme).toContain("/spawn codex");
+		expect(readme).toContain("--worktree");
 		expect(readme).toContain("Alt+Shift+P");
 		expect(readme).toContain(`"handsFreeQuietThreshold": ${defaults.handsFreeQuietThreshold}`);
 		expect(readme).toContain(`"autoExitGracePeriod": ${defaults.autoExitGracePeriod}`);
