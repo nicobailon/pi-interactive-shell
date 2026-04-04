@@ -251,6 +251,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		name: TOOL_NAME,
 		label: TOOL_LABEL,
 		description: TOOL_DESCRIPTION,
+		promptSnippet:
+			"Use this only to delegate tasks to interactive CLI coding agents (pi/claude/gemini/codex/aider). Prefer mode='dispatch' for fire-and-forget delegations.",
 		parameters: toolParameters,
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {

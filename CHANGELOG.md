@@ -4,6 +4,11 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-04-04
+
+### Changed
+- Added a `promptSnippet` for `interactive_shell` so Pi 0.59+ includes the tool in the default prompt tool list and keeps delegation guidance explicit (`dispatch` preferred by default).
+
 ## [0.10.2] - 2026-04-04
 
 ### Added
