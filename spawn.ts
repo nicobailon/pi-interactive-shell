@@ -4,11 +4,18 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import type { InteractiveShellConfig, SpawnAgent } from "./config.js";
 
 export type SpawnMode = "fresh" | "fork";
+export type SpawnMonitorMode = "hands-free" | "dispatch";
 
 export interface SpawnRequest {
 	agent?: SpawnAgent;
 	mode?: SpawnMode;
 	worktree?: boolean;
+	prompt?: string;
+}
+
+export interface ParsedSpawnArgs {
+	request: SpawnRequest;
+	monitorMode?: SpawnMonitorMode;
 }
 
 export interface ResolvedSpawn {
@@ -21,39 +28,88 @@ export interface ResolvedSpawn {
 }
 
 export function parseSpawnArgs(args: string):
-	| { ok: true; request: SpawnRequest }
+	| { ok: true; parsed: ParsedSpawnArgs }
 	| { ok: false; error: string } {
-	const tokens = args.split(/\s+/).filter(Boolean);
+	const tokenized = tokenizeSpawnArgs(args);
+	if (!tokenized.ok) {
+		return tokenized;
+	}
+
 	let agent: SpawnAgent | undefined;
 	let mode: SpawnMode | undefined;
+	let monitorMode: SpawnMonitorMode | undefined;
 	let worktree = false;
+	const promptTokens: string[] = [];
 
-	for (const token of tokens) {
-		if (token === "--worktree") {
+	for (const token of tokenized.tokens) {
+		if (!token.quoted && token.value === "--worktree") {
 			if (worktree) {
 				return { ok: false, error: "Duplicate flag: --worktree" };
 			}
 			worktree = true;
 			continue;
 		}
-		if (token === "pi" || token === "codex" || token === "claude") {
+		if (!token.quoted && (token.value === "--hands-free" || token.value === "--dispatch")) {
+			const nextMonitorMode = token.value === "--hands-free" ? "hands-free" : "dispatch";
+			if (monitorMode) {
+				return monitorMode === nextMonitorMode
+					? { ok: false, error: `Duplicate flag: ${token.value}` }
+					: { ok: false, error: "Cannot combine --hands-free and --dispatch." };
+			}
+			monitorMode = nextMonitorMode;
+			continue;
+		}
+		if (!token.quoted && (token.value === "pi" || token.value === "codex" || token.value === "claude")) {
 			if (agent) {
-				return { ok: false, error: `Duplicate spawn agent: ${token}` };
+				return { ok: false, error: `Duplicate spawn agent: ${token.value}` };
 			}
-			agent = token;
+			agent = token.value;
 			continue;
 		}
-		if (token === "fresh" || token === "fork") {
+		if (!token.quoted && (token.value === "fresh" || token.value === "fork")) {
 			if (mode) {
-				return { ok: false, error: `Duplicate spawn mode: ${token}` };
+				return { ok: false, error: `Duplicate spawn mode: ${token.value}` };
 			}
-			mode = token;
+			mode = token.value;
 			continue;
 		}
-		return { ok: false, error: `Unknown /spawn argument: ${token}` };
+		if (!token.quoted && token.value.startsWith("--")) {
+			return { ok: false, error: `Unknown /spawn argument: ${token.value}` };
+		}
+		if (!token.quoted) {
+			return { ok: false, error: `Unknown /spawn argument: ${token.value}` };
+		}
+		promptTokens.push(token.value);
 	}
 
-	return { ok: true, request: { agent, mode, worktree: worktree || undefined } };
+	if (promptTokens.length > 1) {
+		return {
+			ok: false,
+			error: "Prompt text must be quoted as a single argument, for example /spawn claude \"review the diffs\" --dispatch.",
+		};
+	}
+
+	const prompt = promptTokens[0];
+	if (prompt !== undefined && !monitorMode) {
+		return {
+			ok: false,
+			error: "Prompt-bearing /spawn requires --hands-free or --dispatch.",
+		};
+	}
+	if (monitorMode && prompt === undefined) {
+		return {
+			ok: false,
+			error: "Monitored /spawn requires a quoted prompt, for example /spawn claude \"review the diffs\" --dispatch.",
+		};
+	}
+
+	return {
+		ok: true,
+		parsed: {
+			request: { agent, mode, worktree: worktree || undefined, prompt },
+			monitorMode,
+		},
+	};
 }
 
 export function resolveSpawn(
@@ -67,6 +123,11 @@ export function resolveSpawn(
 	const agent = request?.agent ?? config.spawn.defaultAgent;
 	const mode = request?.mode ?? "fresh";
 	const worktree = request?.worktree ?? config.spawn.worktree;
+	const prompt = request?.prompt?.trim();
+
+	if (request?.prompt !== undefined && !prompt) {
+		return { ok: false, error: "Spawn prompt cannot be empty." };
+	}
 
 	if (mode === "fork" && agent !== "pi") {
 		return { ok: false, error: `Cannot fork ${agent}. Fork is only supported for pi sessions.` };
@@ -98,7 +159,9 @@ export function resolveSpawn(
 	if (sourceSessionFile) {
 		args.push("--fork", sourceSessionFile);
 	}
-
+	if (prompt) {
+		args.push(prompt);
+	}
 	if (worktreePath) {
 		reason += ` • worktree: ${worktreePath}`;
 	}
@@ -189,4 +252,62 @@ function shellQuote(value: string): string {
 		return `"${value.replace(/"/g, '""')}"`;
 	}
 	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+type ParsedToken = { value: string; quoted: boolean };
+
+function tokenizeSpawnArgs(args: string):
+	| { ok: true; tokens: ParsedToken[] }
+	| { ok: false; error: string } {
+	const tokens: ParsedToken[] = [];
+	let current = "";
+	let currentQuoted = false;
+	let quote: '"' | "'" | null = null;
+
+	for (let i = 0; i < args.length; i++) {
+		const char = args[i];
+		if (!char) continue;
+
+		if (quote) {
+			if (char === quote) {
+				quote = null;
+				currentQuoted = true;
+				continue;
+			}
+			if (char === "\\" && i + 1 < args.length) {
+				current += args[++i] ?? "";
+				continue;
+			}
+			current += char;
+			continue;
+		}
+
+		if (/\s/.test(char)) {
+			if (current.length > 0 || currentQuoted) {
+				tokens.push({ value: current, quoted: currentQuoted });
+				current = "";
+				currentQuoted = false;
+			}
+			continue;
+		}
+		if (char === '"' || char === "'") {
+			quote = char;
+			currentQuoted = true;
+			continue;
+		}
+		if (char === "\\" && i + 1 < args.length) {
+			current += args[++i] ?? "";
+			continue;
+		}
+		current += char;
+	}
+
+	if (quote) {
+		return { ok: false, error: "Unterminated quote in /spawn arguments." };
+	}
+	if (current.length > 0 || currentQuoted) {
+		tokens.push({ value: current, quoted: currentQuoted });
+	}
+
+	return { ok: true, tokens };
 }

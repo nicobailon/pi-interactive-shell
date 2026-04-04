@@ -40,23 +40,52 @@ describe("spawn helpers", () => {
 		vi.resetModules();
 	});
 
-	it("parses canonical agent tokens, mode, and worktree flag", async () => {
+	it("parses canonical agent tokens, mode, worktree flag, prompt, and monitor mode", async () => {
 		const { parseSpawnArgs } = await import("../spawn.js");
+		expect(parseSpawnArgs('claude "review the diffs" --dispatch')).toEqual({
+			ok: true,
+			parsed: {
+				request: { agent: "claude", mode: undefined, worktree: undefined, prompt: "review the diffs" },
+				monitorMode: "dispatch",
+			},
+		});
 		expect(parseSpawnArgs("codex fork --worktree")).toEqual({
 			ok: true,
-			request: { agent: "codex", mode: "fork", worktree: true },
+			parsed: {
+				request: { agent: "codex", mode: "fork", worktree: true, prompt: undefined },
+				monitorMode: undefined,
+			},
 		});
-		expect(parseSpawnArgs("claude")).toEqual({
+		expect(parseSpawnArgs('"fix the failing tests" --hands-free')).toEqual({
 			ok: true,
-			request: { agent: "claude", mode: undefined, worktree: undefined },
+			parsed: {
+				request: { agent: undefined, mode: undefined, worktree: undefined, prompt: "fix the failing tests" },
+				monitorMode: "hands-free",
+			},
 		});
 	});
 
-	it("rejects unknown tokens", async () => {
+	it("rejects invalid prompt-bearing combinations and unknown tokens", async () => {
 		const { parseSpawnArgs } = await import("../spawn.js");
 		expect(parseSpawnArgs("claude-code")).toEqual({
 			ok: false,
 			error: "Unknown /spawn argument: claude-code",
+		});
+		expect(parseSpawnArgs('claude "review the diffs"')).toEqual({
+			ok: false,
+			error: "Prompt-bearing /spawn requires --hands-free or --dispatch.",
+		});
+		expect(parseSpawnArgs("claude --dispatch")).toEqual({
+			ok: false,
+			error: "Monitored /spawn requires a quoted prompt, for example /spawn claude \"review the diffs\" --dispatch.",
+		});
+		expect(parseSpawnArgs("claude review the diffs --dispatch")).toEqual({
+			ok: false,
+			error: "Unknown /spawn argument: review",
+		});
+		expect(parseSpawnArgs('claude "review" --dispatch --hands-free')).toEqual({
+			ok: false,
+			error: "Cannot combine --hands-free and --dispatch.",
 		});
 	});
 
@@ -76,6 +105,40 @@ describe("spawn helpers", () => {
 				reason: "spawn codex (fresh session)",
 				worktreePath: undefined,
 			},
+		});
+	});
+
+	it("appends prompt text using each CLI's native startup form", async () => {
+		const { resolveSpawn } = await import("../spawn.js");
+		expect(resolveSpawn(config, "/tmp/project", { agent: "claude", prompt: "review the diffs" }, () => "/tmp/project/session.jsonl")).toEqual({
+			ok: true,
+			spawn: {
+				agent: "claude",
+				mode: "fresh",
+				command: "claude 'review the diffs'",
+				cwd: "/tmp/project",
+				reason: "spawn claude (fresh session)",
+				worktreePath: undefined,
+			},
+		});
+		expect(resolveSpawn(config, "/tmp/project", { agent: "pi", mode: "fork", prompt: "continue from here" }, () => "/tmp/project/session.jsonl")).toEqual({
+			ok: true,
+			spawn: {
+				agent: "pi",
+				mode: "fork",
+				command: "pi --fork /tmp/project/session.jsonl 'continue from here'",
+				cwd: "/tmp/project",
+				reason: "spawn pi (fork current session)",
+				worktreePath: undefined,
+			},
+		});
+	});
+
+	it("rejects empty structured spawn prompts", async () => {
+		const { resolveSpawn } = await import("../spawn.js");
+		expect(resolveSpawn(config, "/tmp/project", { agent: "codex", prompt: "   " }, () => "/tmp/project/session.jsonl")).toEqual({
+			ok: false,
+			error: "Spawn prompt cannot be empty.",
 		});
 	});
 

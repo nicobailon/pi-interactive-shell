@@ -64,11 +64,12 @@ For Pi, Codex, and Claude, the agent can use structured spawn params instead of 
 ```typescript
 interactive_shell({ spawn: { agent: "pi" }, mode: "interactive" })
 interactive_shell({ spawn: { agent: "codex" }, mode: "dispatch" })
+interactive_shell({ spawn: { agent: "claude", prompt: "Review the diffs" }, mode: "dispatch" })
 interactive_shell({ spawn: { agent: "claude", worktree: true }, mode: "hands-free" })
 interactive_shell({ spawn: { mode: "fork" }, mode: "interactive" }) // Pi-only
 ```
 
-Raw `command` is still supported for arbitrary CLIs and custom launch strings.
+Structured `spawn` uses the same resolver and config defaults as the user-facing `/spawn` command. Raw `command` is still supported for arbitrary CLIs and custom launch strings.
 
 ### Interactive
 
@@ -103,7 +104,7 @@ interactive_shell({ sessionId: "calm-reef", kill: true })
 // → { status: "killed", output: "..." }
 ```
 
-The overlay opens for the user to watch. The agent checks in periodically. User can type anything to take over control.
+The overlay opens for the user to watch. The agent checks in periodically. User can type anything to take over control. After taking over a monitored hands-free or dispatch session, press `Ctrl+G` to return control to the agent.
 
 ### Dispatch
 
@@ -134,7 +135,7 @@ The notification includes a brief tail (last 5 lines) and a reattach instruction
 
 Dispatch defaults `autoExitOnQuiet: true` — the session gets a 15s startup grace period, then is killed after output goes silent (8s by default), which signals completion for task-oriented subagents. Tune the grace period with `handsFree: { gracePeriod: 60000 }` or opt out entirely with `handsFree: { autoExitOnQuiet: false }`.
 
-The overlay still shows for the user, who can Ctrl+T to transfer output, Ctrl+B to background, take over by typing, or Ctrl+Q for more options.
+The overlay still shows for the user, who can Ctrl+T to transfer output, Ctrl+B to background, take over by typing, or Ctrl+Q for more options. `Ctrl+G` only becomes meaningful after the user has taken over a monitored hands-free or dispatch session.
 
 ### Background Dispatch (Headless)
 
@@ -268,7 +269,17 @@ interactive_shell({ dismissBackground: true })               // all sessions
 interactive_shell({ dismissBackground: "calm-reef" })        // specific session
 ```
 
-User can also `/spawn` to launch the configured default spawn agent, `/spawn codex`, `/spawn claude`, `/spawn pi`, `/spawn fork`, or `/spawn pi fork`. Add `--worktree` to spawn in a separate git worktree, for example `/spawn codex --worktree` or `/spawn pi fork --worktree`. `fork` is Pi-only. Worktrees are left in place and the overlay will tell you where they were created. `/attach` or `/attach <id>` reattaches, and `/dismiss` or `/dismiss <id>` cleans up from the chat. The keyboard spawn shortcut is separate from `/spawn` and uses `spawn.shortcut`.
+User can also `/spawn` to launch the configured default spawn agent, `/spawn codex`, `/spawn claude`, `/spawn pi`, `/spawn fork`, or `/spawn pi fork`. Add `--worktree` to spawn in a separate git worktree, for example `/spawn codex --worktree` or `/spawn pi fork --worktree`. Plain `/spawn claude` stays a normal interactive overlay. `fork` is Pi-only. Worktrees are left in place and the overlay will tell you where they were created. `/attach` or `/attach <id>` reattaches, and `/dismiss` or `/dismiss <id>` cleans up from the chat. The keyboard spawn shortcut is separate from `/spawn` and uses `spawn.shortcut`.
+
+### Prompt-Bearing `/spawn`
+
+Quoted prompt text plus `--hands-free` or `--dispatch` turns `/spawn` into a monitored delegated run instead of a plain interactive overlay. This shares the same resolver and defaults as structured `interactive_shell({ spawn: ... })`. Plain `/spawn` stays interactive. `Ctrl+G` only applies after you take over one of these monitored sessions.
+
+```bash
+/spawn claude "review the diffs" --dispatch
+/spawn codex "fix the failing tests" --hands-free
+/spawn pi fork "continue from here" --dispatch
+```
 
 ## Keys
 
@@ -279,7 +290,7 @@ User can also `/spawn` to launch the configured default spawn agent, `/spawn cod
 | Ctrl+Q | Session menu (transfer/background/kill/cancel) |
 | Shift+Up/Down | Scroll history |
 | Alt+Shift+F (default) | Toggle focus between overlay and main chat (`focusShortcut`) |
-| Ctrl+G | Return to agent monitoring (only during takeover) |
+| Ctrl+G | Return to agent monitoring (only after taking over a monitored hands-free or dispatch session) |
 | Alt+Shift+P (default) | Launch the configured default spawn agent (`spawn.shortcut`) |
 | Any key (hands-free) | Take over control |
 

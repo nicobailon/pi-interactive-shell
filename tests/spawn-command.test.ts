@@ -183,6 +183,19 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		});
 	});
 
+	it("/spawn supports monitored prompt-bearing launches with the shared resolver", async () => {
+		const harness = await setupExtensionHarness({ spawn: { defaultAgent: "pi" } });
+		const spawn = harness.commands.get("spawn");
+		expect(spawn).toBeDefined();
+
+		await spawn!.handler('"review the diffs" --dispatch', harness.ctx as any);
+		expect(harness.getLastOverlayOptions()).toMatchObject({
+			command: "pi 'review the diffs'",
+			reason: "spawn pi (fresh session)",
+		});
+		expect(harness.notify).not.toHaveBeenCalledWith(expect.stringContaining("requires"), "error");
+	});
+
 	it("/spawn pi fork quotes the current session file safely for the active shell", async () => {
 		const harness = await setupExtensionHarness();
 		harness.ctx.sessionManager.getSessionFile = () => "/tmp/project/it's session.jsonl";
@@ -244,6 +257,23 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(result.content[0].text).toContain("Session ended successfully");
 	});
 
+	it("interactive_shell structured spawn supports native startup prompts", async () => {
+		const harness = await setupExtensionHarness();
+		const tool = harness.getTool();
+		expect(tool).toBeTruthy();
+
+		const result = await tool!.execute("call-1", {
+			spawn: { agent: "claude", prompt: "review the diffs" },
+			mode: "dispatch",
+		}, undefined, undefined, harness.ctx as any);
+
+		expect(harness.getLastOverlayOptions()).toMatchObject({
+			command: "claude 'review the diffs'",
+			reason: "spawn claude (fresh session)",
+		});
+		expect(result.content[0].text).toContain("Session dispatched");
+	});
+
 	it("interactive_shell structured spawn keeps the same pi-only fork rule", async () => {
 		const harness = await setupExtensionHarness();
 		const tool = harness.getTool();
@@ -256,6 +286,16 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toBe("Cannot fork claude. Fork is only supported for pi sessions.");
+	});
+
+	it("interactive_shell preserves the full missing-input guidance for new sessions", async () => {
+		const harness = await setupExtensionHarness();
+		const tool = harness.getTool();
+		expect(tool).toBeTruthy();
+
+		const result = await tool!.execute("call-1", {}, undefined, undefined, harness.ctx as any);
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toBe("One of 'command', 'spawn', 'sessionId', 'attach', 'listBackground', or 'dismissBackground' is required.");
 	});
 
 	it("/spawn forwards transfer output back into the main agent conversation", async () => {

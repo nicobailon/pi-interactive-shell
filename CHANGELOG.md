@@ -4,6 +4,17 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.10.7] - 2026-04-04
+
+### Added
+- Prompt-bearing monitored spawn for `/spawn`, so users can launch delegated hands-free or dispatch sessions like `/spawn claude "review the diffs" --dispatch` without dropping down to raw tool calls.
+- Native startup prompt support on structured `interactive_shell` spawn params via `spawn.prompt` for Pi, Codex, and Claude.
+
+### Changed
+- `/spawn` now parses quoted positional prompt text plus `--hands-free` or `--dispatch`, while plain `/spawn` remains an interactive overlay launch.
+- README and tool docs now spell out that `/spawn` and structured `spawn` share the same resolver semantics, and that `Ctrl+G` only applies after taking over a genuinely monitored session.
+- README now includes a dedicated prompt-bearing `/spawn` subsection so the interactive vs monitored split is easier to find.
+
 ## [0.10.6] - 2026-04-04
 
 ### Added

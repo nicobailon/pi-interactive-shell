@@ -86,7 +86,11 @@ describe("config + docs parity", () => {
 		expect(readme).toContain("Toggle focus between overlay and main chat");
 		expect(readme).toContain("configured default spawn agent");
 		expect(readme).toContain("/spawn codex");
+		expect(readme).toContain('/spawn claude "review the diffs" --dispatch');
+		expect(readme).toContain('spawn: { agent: "claude", prompt: "Review the diffs" }');
 		expect(readme).toContain("--worktree");
+		expect(readme).toContain("Ctrl+G");
+		expect(readme).toContain("only after taking over a monitored hands-free or dispatch session");
 		expect(readme).toContain("Alt+Shift+P");
 		expect(readme).toContain(`"handsFreeQuietThreshold": ${defaults.handsFreeQuietThreshold}`);
 		expect(readme).toContain(`"autoExitGracePeriod": ${defaults.autoExitGracePeriod}`);
