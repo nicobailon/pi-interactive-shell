@@ -12,9 +12,9 @@ import { translateInput } from "./key-encoding.js";
 import { TOOL_NAME, TOOL_LABEL, TOOL_DESCRIPTION, toolParameters, type ToolParams } from "./tool-schema.js";
 import { formatDuration, formatDurationMs } from "./types.js";
 import { HeadlessDispatchMonitor } from "./headless-monitor.js";
-import type { HeadlessCompletionInfo } from "./headless-monitor.js";
+import type { HeadlessCompletionInfo, MonitorMatchInfo } from "./headless-monitor.js";
 import { setupBackgroundWidget } from "./background-widget.js";
-import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildResultNotification, summarizeInteractiveResult } from "./notification-utils.js";
+import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildMonitorEventNotification, buildResultNotification, summarizeInteractiveResult } from "./notification-utils.js";
 import { createSessionQueryState, getSessionOutput } from "./session-query.js";
 import { InteractiveShellCoordinator } from "./runtime-coordinator.js";
 
@@ -45,6 +45,70 @@ function makeMonitorCompletionCallback(
 	};
 }
 
+function makeSilentMonitorCompletionCallback(id: string): (info: HeadlessCompletionInfo) => void {
+	return () => {
+		sessionManager.unregisterActive(id, false);
+		coordinator.deleteMonitor(id);
+		sessionManager.scheduleCleanup(id, 5 * 60 * 1000);
+	};
+}
+
+function makeMonitorEventCallback(
+	pi: ExtensionAPI,
+	sessionId: string,
+): (event: MonitorMatchInfo) => void {
+	return (event) => {
+		const content = buildMonitorEventNotification(sessionId, event.matchedText, event.line);
+		pi.sendMessage({
+			customType: "interactive-shell-monitor-event",
+			content,
+			display: true,
+			details: {
+				sessionId,
+				eventType: "Monitor Event",
+				matchedText: event.matchedText,
+				line: event.line,
+			},
+		}, { triggerTurn: true });
+		pi.events.emit("interactive-shell:monitor-event", {
+			sessionId,
+			eventType: "Monitor Event",
+			matchedText: event.matchedText,
+			line: event.line,
+		});
+	};
+}
+
+function escapeRegexLiteral(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseMonitorFilter(rawFilter: string):
+	| { ok: true; regex: RegExp }
+	| { ok: false; error: string } {
+	const trimmed = rawFilter.trim();
+	if (!trimmed) {
+		return { ok: false, error: "monitorFilter cannot be empty when mode='monitor'." };
+	}
+
+	let pattern = escapeRegexLiteral(trimmed);
+	let flags = "";
+	const regexLiteral = /^\/(.+)\/([A-Za-z]*)$/.exec(trimmed);
+	if (regexLiteral && /^[dgimsuvy]*$/i.test(regexLiteral[2])) {
+		pattern = regexLiteral[1];
+		flags = regexLiteral[2].replace(/[gy]/gi, "");
+	}
+
+	try {
+		return { ok: true, regex: new RegExp(pattern, flags) };
+	} catch (error) {
+		if (error instanceof Error) {
+			return { ok: false, error: `Invalid monitorFilter regex: ${rawFilter} (${error.message})` };
+		}
+		return { ok: false, error: `Invalid monitorFilter regex: ${rawFilter}` };
+	}
+}
+
 function registerHeadlessActive(
 	id: string,
 	command: string,
@@ -53,6 +117,7 @@ function registerHeadlessActive(
 	monitor: HeadlessDispatchMonitor,
 	startTime: number,
 	config: InteractiveShellConfig,
+	status: "running" | "monitoring" = "running",
 ): void {
 	const queryState = createSessionQueryState();
 	coordinator.setMonitor(id, monitor);
@@ -70,7 +135,7 @@ function registerHeadlessActive(
 		},
 		background: () => {},
 		getOutput: (opts) => getSessionOutput(session, config, queryState, opts, getCompletionOutput()),
-		getStatus: () => session.exited ? "exited" : "running",
+		getStatus: () => session.exited ? "exited" : status,
 		getRuntime: () => Date.now() - startTime,
 		getResult: () => monitor.getResult(),
 		onComplete: (cb) => monitor.registerCompleteCallback(cb),
@@ -205,15 +270,16 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		cwd?: string;
 		name?: string;
 		reason?: string;
-		mode?: "interactive" | "hands-free" | "dispatch";
+		mode?: "interactive" | "hands-free" | "dispatch" | "monitor";
 		background?: boolean;
 		handsFree?: ToolParams["handsFree"];
 		handoffPreview?: ToolParams["handoffPreview"];
 		handoffSnapshot?: ToolParams["handoffSnapshot"];
 		timeout?: number;
+		monitorFilter?: string;
 		onUpdate?: (update: { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }) => void;
 	}): Promise<{ content: Array<{ type: "text"; text: string }>; details?: any; isError?: boolean }> => {
-		const { ctx, command, spawn, cwd, name, reason, mode, background, handsFree, handoffPreview, handoffSnapshot, timeout, onUpdate } = params;
+		const { ctx, command, spawn, cwd, name, reason, mode, background, handsFree, handoffPreview, handoffSnapshot, timeout, monitorFilter, onUpdate } = params;
 		if (!command && !spawn) {
 			return {
 				content: [{ type: "text", text: "One of 'command' or 'spawn' is required." }],
@@ -223,16 +289,17 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 		let effectiveCwd = cwd ?? ctx.cwd;
 		const config = loadRuntimeConfig(effectiveCwd);
-		const isNonBlocking = mode === "hands-free" || mode === "dispatch";
+		const isMonitorMode = mode === "monitor";
+		const isNonBlocking = mode === "hands-free" || mode === "dispatch" || isMonitorMode;
 		const hasUI = ctx.hasUI !== false;
 
-		if (background && mode !== "dispatch") {
+		if (background && mode !== "dispatch" && mode !== "monitor") {
 			return {
-				content: [{ type: "text", text: "background: true requires mode='dispatch' for new sessions." }],
+				content: [{ type: "text", text: "background: true requires mode='dispatch' or mode='monitor' for new sessions." }],
 				isError: true,
 			};
 		}
-		if (!(mode === "dispatch" && background)) {
+		if (!isMonitorMode && !(mode === "dispatch" && background)) {
 			if (!hasUI) {
 				return {
 					content: [{ type: "text", text: "Interactive shell requires interactive TUI mode" }],
@@ -274,6 +341,45 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			return {
 				content: [{ type: "text", text: "Failed to resolve the command to launch." }],
 				isError: true,
+			};
+		}
+
+		if (isMonitorMode) {
+			if (!monitorFilter) {
+				return {
+					content: [{ type: "text", text: "mode='monitor' requires monitorFilter." }],
+					isError: true,
+				};
+			}
+			const parsedFilter = parseMonitorFilter(monitorFilter);
+			if (!parsedFilter.ok) {
+				return {
+					content: [{ type: "text", text: parsedFilter.error }],
+					isError: true,
+				};
+			}
+
+			const id = generateSessionId(name);
+			const session = new PtyTerminalSession(
+				{ command: effectiveCommand, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
+			);
+			const startTime = Date.now();
+			sessionManager.add(effectiveCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
+
+			const monitor = new HeadlessDispatchMonitor(session, config, {
+				autoExitOnQuiet: handsFree?.autoExitOnQuiet === true,
+				quietThreshold: handsFree?.quietThreshold ?? config.handsFreeQuietThreshold,
+				gracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
+				timeout,
+				startedAt: startTime,
+				monitorFilter: parsedFilter.regex,
+				onMonitorEvent: makeMonitorEventCallback(pi, id),
+			}, makeSilentMonitorCompletionCallback(id));
+			registerHeadlessActive(id, effectiveCommand, effectiveReason, session, monitor, startTime, config, "monitoring");
+
+			return {
+				content: [{ type: "text", text: appendWorktreeNotice(`Monitor started in background (id: ${id}).\nFilter: ${monitorFilter}\nYou'll be notified immediately when a line matches.`, spawnWorktreePath) }],
+				details: { sessionId: id, backgroundId: id, mode: "monitor", monitorFilter, background: true, spawnAgent, spawnMode, spawnWorktreePath },
 			};
 		}
 
@@ -544,6 +650,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				handoffPreview,
 				handoffSnapshot,
 				timeout,
+				monitorFilter,
 			} = params as ToolParams;
 
 			const hasStructuredInput = inputKeys?.length || inputHex?.length || inputPaste;
@@ -948,6 +1055,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				reason,
 				mode,
 				background,
+				monitorFilter,
 				handsFree,
 				handoffPreview,
 				handoffSnapshot,

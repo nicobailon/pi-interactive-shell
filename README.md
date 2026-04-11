@@ -36,22 +36,20 @@ The `interactive-shell` skill is automatically symlinked to `~/.pi/agent/skills/
 
 ## Modes
 
-Three modes control how the agent engages with a session:
-
-| | Interactive | Hands-Free | Dispatch |
+| Mode | Agent waits? | How output reaches agent | Best for |
 |---|---|---|---|
-| **Agent blocked?** | Yes — tool call waits | No — returns immediately | No — returns immediately |
-| **How agent gets output** | Tool return value | Polls with `sessionId` | Notification via `triggerTurn` |
-| **Overlay visible?** | Yes | Yes | Yes (or headless with `background: true`) |
-| **User can interact?** | Always | Type to take over | Type to take over |
-| **Concurrent sessions?** | No | One overlay + queries | Multiple headless, one overlay |
-| **Best for** | Editors, REPLs, SSH | Dev servers, builds | Delegating to other agents |
+| **Interactive** (default) | Yes — blocks until exit | Tool return value | Editors, REPLs, SSH — when you need the result now |
+| **Hands-free** | No | Poll with `sessionId` | Dev servers, builds — when you want to watch progress and send follow-up commands |
+| **Dispatch** | No | Notification on completion via `triggerTurn` | Delegating tasks to subagents — fire and forget |
+| **Monitor** | No | Notification when a line matches `monitorFilter` | Watchers, logs, tests — wake only when something specific happens |
 
-**Interactive** is the default. The agent's tool call blocks until the session ends — use this when the agent needs the result right away, or when the user drives the session (editors, database shells).
+**Interactive** — The overlay opens, user controls the session, agent waits for it to close. Use for editors (`vim`), database shells (`psql`), or any task where the agent needs the final result immediately.
 
-**Hands-free** returns immediately so the agent can do other work, but the agent must poll periodically to discover output and completion. Good for processes the agent needs to monitor and react to mid-flight, like watching build output and sending follow-up commands.
+**Hands-free** — The overlay opens but returns immediately. The agent polls periodically with `sessionId` to check status and get new output. Good for long-running builds or dev servers where you want to react mid-flight (send input, check logs, kill when ready).
 
-**Dispatch** also returns immediately, but the agent doesn't poll at all. When the session completes — whether by natural exit, quiet detection, timeout, or user intervention — the agent gets woken up with a notification containing the tail output. This is the right mode for delegating a task to a subagent and moving on. For fire-and-forget delegated runs and QA checks, prefer dispatch by default. Add `background: true` to skip the overlay entirely and run headless.
+**Dispatch** — Returns immediately. No polling. The agent gets woken up via `triggerTurn` only when the session completes (natural exit, timeout, quiet detection, or user kill). The notification includes a tail of the output. This is the default for delegating work to subagents. Add `background: true` to skip the overlay entirely.
+
+**Monitor** — Returns immediately. No polling, no completion notification. The agent gets woken up only when a cleaned output line matches `monitorFilter`. Use for watching logs or test output for specific events (`FAIL`, `error`, `Compiled successfully`). Runs headless; attach to inspect if needed.
 
 ## Quick Start
 
@@ -153,6 +151,35 @@ interactive_shell({
 ```
 
 Multiple headless dispatches can run concurrently alongside a single interactive overlay. This is how you parallelize subagent work — fire off three background dispatches and process results as each completion notification arrives.
+
+### Monitor (Event-Driven)
+
+Wake the agent immediately when output matches a pattern — no polling, no waiting for completion.
+
+```typescript
+// Watch tests for failures
+interactive_shell({
+  command: 'npm test --watch',
+  mode: "monitor",
+  monitorFilter: "FAIL"
+})
+
+// Watch dev server for errors (case-insensitive)
+interactive_shell({
+  command: 'npm run dev',
+  mode: "monitor",
+  monitorFilter: "/error|warn/i"
+})
+```
+
+Monitor mode is for **watching ongoing processes** where you care about specific output patterns, not completion. Unlike dispatch, you get woken up on the **first match**, not when the process exits. Use it for:
+- Test watchers — catch failures as they happen
+- Dev servers — alert on compile errors
+- Log tails — react to specific events
+
+`monitorFilter` accepts plain text (literal substring) or `/regex/flags`. ANSI escape codes are stripped before matching, so colors don't break your patterns. The notification includes the matched line and the matched text.
+
+Monitor sessions run headless and can be managed like other background sessions (`listBackground`, `/attach`, `dismissBackground`).
 
 ### Timeout
 
@@ -274,6 +301,8 @@ interactive_shell({ attach: "calm-reef", mode: "dispatch" })    // dispatch (not
 interactive_shell({ dismissBackground: true })               // all sessions
 interactive_shell({ dismissBackground: "calm-reef" })        // specific session
 ```
+
+Monitor sessions work the same way — they're headless background sessions that happen to wake you on matches instead of completion.
 
 User can also `/spawn` to launch the configured default spawn agent, `/spawn codex`, `/spawn claude`, `/spawn pi`, `/spawn fork`, or `/spawn pi fork`. Add `--worktree` to spawn in a separate git worktree, for example `/spawn codex --worktree` or `/spawn pi fork --worktree`. Plain `/spawn claude` stays a normal interactive overlay. `fork` is Pi-only. Worktrees are left in place and the overlay will tell you where they were created. `/attach` or `/attach <id>` reattaches, and `/dismiss` or `/dismiss <id>` cleans up from the chat. The keyboard spawn shortcut is separate from `/spawn` and uses `spawn.shortcut`.
 

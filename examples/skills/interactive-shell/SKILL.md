@@ -1,11 +1,11 @@
 ---
 name: interactive-shell
-description: Cheat sheet + workflow for launching interactive coding-agent CLIs (Claude Code, Gemini CLI, Codex CLI, Cursor CLI, and pi itself) via the interactive_shell overlay or headless dispatch. Use for TUI agents and long-running processes that need supervision, fire-and-forget delegation, or headless background execution. Regular bash commands should use the bash tool instead.
+description: Cheat sheet + workflow for launching interactive coding-agent CLIs (Claude Code, Gemini CLI, Codex CLI, Cursor CLI, and pi itself) via the interactive_shell overlay, headless dispatch, or monitor mode. Use for TUI agents and long-running processes that need supervision, fire-and-forget delegation, or event-driven background monitoring. Regular bash commands should use the bash tool instead.
 ---
 
 # Interactive Shell (Skill)
 
-Last verified: 2026-04-05
+Last verified: 2026-04-11
 
 ## Foreground vs Background Subagents
 
@@ -23,6 +23,8 @@ Pi has two ways to delegate work to other AI coding agents:
 **Foreground subagents** run in an overlay where the user watches (and can intervene). Use `interactive_shell` with `mode: "hands-free"` to monitor while receiving periodic updates, or `mode: "dispatch"` to be notified on completion without polling.
 
 **Dispatch subagents** also use `interactive_shell` but with `mode: "dispatch"`. The agent fires the session and moves on. When the session completes, the agent is woken up via `triggerTurn` with the output in context. Add `background: true` for headless execution (no overlay).
+
+**Monitor mode** (`mode: "monitor"`) runs headless and event-driven. It wakes the agent only when a cleaned output line matches `monitorFilter`, so there is no polling loop.
 
 **Background subagents** run invisibly via the `subagent` tool. Pi-only, but captures full output and supports parallel execution.
 
@@ -122,6 +124,25 @@ interactive_shell({
 // → No overlay. User can /attach to watch. Agent notified on completion.
 ```
 
+### Monitor (Event-Driven, Headless)
+Run a background process and wake the agent only when output lines match `monitorFilter`.
+
+```typescript
+interactive_shell({
+  command: 'npm test --watch',
+  mode: "monitor",
+  monitorFilter: "FAIL"
+})
+
+interactive_shell({
+  command: 'npm run dev',
+  mode: "monitor",
+  monitorFilter: "/error|warn/i"
+})
+```
+
+Use monitor mode for log watchers and long-running checks where polling would be noisy or expensive.
+
 ### Hands-Free (Foreground Subagent) - NON-BLOCKING
 Agent works autonomously, **returns immediately** with sessionId. You query for status/output and kill when done.
 
@@ -165,7 +186,7 @@ interactive_shell({ sessionId: "calm-reef" })
 ```
 
 Returns:
-- `status`: "running" | "user-takeover" | "exited" | "killed" | "backgrounded"
+- `status`: "running" | "monitoring" | "user-takeover" | "exited" | "killed" | "backgrounded"
 - `output`: Last 20 lines of rendered terminal (clean, no TUI animation noise)
 - `runtime`: Time elapsed in ms
 
@@ -476,6 +497,9 @@ interactive_shell({ attach: "calm-reef", mode: "dispatch" })    // dispatch (not
 // Dismiss background sessions (kill running, remove exited)
 interactive_shell({ dismissBackground: true })               // all
 interactive_shell({ dismissBackground: "calm-reef" })        // specific
+
+// Start an event-driven monitor session (headless)
+interactive_shell({ command: 'npm test --watch', mode: "monitor", monitorFilter: "FAIL" })
 ```
 
 ## Local Testing Hygiene
@@ -529,6 +553,16 @@ interactive_shell({
   mode: "dispatch",
   background: true,
   reason: "Fixing lint"
+})
+```
+
+**Monitor watcher (event-driven, no polling):**
+```typescript
+interactive_shell({
+  command: 'npm run dev',
+  mode: "monitor",
+  monitorFilter: "/error|warn/i",
+  reason: "Wake me on server warnings"
 })
 ```
 

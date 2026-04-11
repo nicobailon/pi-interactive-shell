@@ -9,7 +9,7 @@ export interface BackgroundSession {
 	startedAt: Date;
 }
 
-export type ActiveSessionStatus = "running" | "user-takeover" | "exited" | "killed" | "backgrounded";
+export type ActiveSessionStatus = "running" | "monitoring" | "user-takeover" | "exited" | "killed" | "backgrounded";
 
 export interface ActiveSessionResult {
 	exitCode: number | null;

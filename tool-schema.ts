@@ -13,6 +13,7 @@ MODES:
 - interactive (default): User supervises and controls the session
 - hands-free: Agent monitors with periodic updates, user can take over anytime by typing
 - dispatch: Agent is notified on completion via triggerTurn (no polling needed)
+- monitor: Run in background and wake the agent only when output lines match monitorFilter
 
 RECOMMENDED DEFAULT FOR DELEGATED TASKS:
 - For fire-and-forget delegations and QA-style checks, prefer mode="dispatch".
@@ -91,6 +92,11 @@ You can still query with sessionId if needed, but it's not required.
 BACKGROUND DISPATCH (HEADLESS):
 Start a session without any overlay. Process runs headlessly, agent notified on completion:
 - interactive_shell({ command: 'pi "fix bugs"', mode: "dispatch", background: true })
+
+MONITOR MODE (EVENT-DRIVEN, HEADLESS):
+Run a background process and wake the agent only when a cleaned output line matches monitorFilter:
+- interactive_shell({ command: 'npm test --watch', mode: "monitor", monitorFilter: "FAIL" })
+- interactive_shell({ command: 'npm run dev', mode: "monitor", monitorFilter: "/error|warn/i" })
 
 AGENT-INITIATED BACKGROUND:
 Dismiss an existing overlay, keep the process running in background:
@@ -237,13 +243,23 @@ export const toolParameters = Type.Object({
 		}),
 	),
 	mode: Type.Optional(
+		Type.Union([
+			Type.Literal("interactive"),
+			Type.Literal("hands-free"),
+			Type.Literal("dispatch"),
+			Type.Literal("monitor"),
+		], {
+			description: "Mode: 'interactive' (default, user controls), 'hands-free' (agent monitors, user can take over), 'dispatch' (agent notified on completion, no polling needed), or 'monitor' (background event monitor that wakes the agent only on matching lines).",
+		}),
+	),
+	monitorFilter: Type.Optional(
 		Type.String({
-			description: "Mode: 'interactive' (default, user controls), 'hands-free' (agent monitors, user can take over), or 'dispatch' (agent notified on completion, no polling needed)",
+			description: "Filter used only in mode='monitor'. Accepts plain text (literal substring match) or /regex/flags. The agent is woken only when a cleaned output line matches this filter.",
 		}),
 	),
 	background: Type.Optional(
 		Type.Boolean({
-			description: "Run without overlay (with mode='dispatch') or dismiss existing overlay (with sessionId). Process runs in background, user can /attach.",
+			description: "Run without overlay (with mode='dispatch' or mode='monitor') or dismiss existing overlay (with sessionId). Process runs in background, user can /attach.",
 		}),
 	),
 	attach: Type.Optional(
@@ -333,8 +349,9 @@ export interface ToolParams {
 	cwd?: string;
 	name?: string;
 	reason?: string;
-	mode?: "interactive" | "hands-free" | "dispatch";
+	mode?: "interactive" | "hands-free" | "dispatch" | "monitor";
 	background?: boolean;
+	monitorFilter?: string;
 	attach?: string;
 	listBackground?: boolean;
 	dismissBackground?: boolean | string;

@@ -62,8 +62,8 @@ export interface InteractiveShellOptions {
 	handoffSnapshotEnabled?: boolean;
 	handoffSnapshotLines?: number;
 	handoffSnapshotMaxChars?: number;
-	// Hands-free / dispatch mode
-	mode?: "interactive" | "hands-free" | "dispatch";
+	// Hands-free / dispatch / monitor mode
+	mode?: "interactive" | "hands-free" | "dispatch" | "monitor";
 	sessionId?: string; // Pre-generated sessionId for non-blocking modes
 	handsFreeUpdateMode?: "on-quiet" | "interval";
 	handsFreeUpdateInterval?: number;

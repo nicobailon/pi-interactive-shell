@@ -25,6 +25,10 @@ export function buildResultNotification(sessionId: string, result: InteractiveSh
 	return parts.join("");
 }
 
+export function buildMonitorEventNotification(sessionId: string, matchedText: string, line: string): string {
+	return `Monitor Event (${sessionId})\nMatched: ${matchedText}\nLine: ${line}`;
+}
+
 export function buildHandsFreeUpdateMessage(update: HandsFreeUpdate): { content: string; details: HandsFreeUpdate } | null {
 	if (update.status === "running") return null;
 

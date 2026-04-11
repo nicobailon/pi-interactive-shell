@@ -2,12 +2,20 @@ import { stripVTControlCharacters } from "node:util";
 import type { PtyTerminalSession } from "./pty-session.js";
 import type { InteractiveShellConfig } from "./config.js";
 
+/** Output line that matched a monitor filter. */
+export interface MonitorMatchInfo {
+	line: string;
+	matchedText: string;
+}
+
 /** Runtime options for monitoring a headless dispatch session. */
 export interface HeadlessMonitorOptions {
 	autoExitOnQuiet: boolean;
 	quietThreshold: number;
 	gracePeriod?: number;
 	timeout?: number;
+	monitorFilter?: RegExp;
+	onMonitorEvent?: (event: MonitorMatchInfo) => void;
 	/** Original session start time in ms since epoch, preserved when a foreground session moves headless. */
 	startedAt?: number;
 }
@@ -34,6 +42,8 @@ export class HeadlessDispatchMonitor {
 	private completeCallbacks: Array<() => void> = [];
 	private unsubData: (() => void) | null = null;
 	private unsubExit: (() => void) | null = null;
+	private monitorLineBuffer = "";
+	private emittedMonitorLines = new Set<string>();
 
 	get disposed(): boolean { return this._disposed; }
 
@@ -68,11 +78,12 @@ export class HeadlessDispatchMonitor {
 	private subscribe(): void {
 		this.unsubscribe();
 		this.unsubData = this.session.addDataListener((data) => {
-			if (this.options.autoExitOnQuiet) {
-				const visible = stripVTControlCharacters(data);
-				if (visible.trim().length > 0) {
-					this.resetQuietTimer();
-				}
+			const visible = stripVTControlCharacters(data);
+			if (this.options.autoExitOnQuiet && visible.trim().length > 0) {
+				this.resetQuietTimer();
+			}
+			if (this.options.monitorFilter && this.options.onMonitorEvent) {
+				this.processMonitorData(visible, false);
 			}
 		});
 		this.unsubExit = this.session.addExitListener((exitCode, signal) => {
@@ -87,6 +98,36 @@ export class HeadlessDispatchMonitor {
 		this.unsubData = null;
 		this.unsubExit?.();
 		this.unsubExit = null;
+	}
+
+	private processMonitorData(visible: string, flushTrailing: boolean): void {
+		if (!visible && !flushTrailing) return;
+		const combined = this.monitorLineBuffer + visible;
+		const parts = combined.split(/\r\n|\n|\r/g);
+		if (flushTrailing) {
+			this.monitorLineBuffer = "";
+		} else {
+			this.monitorLineBuffer = parts.pop() ?? "";
+		}
+
+		for (const line of parts) {
+			if (!line) continue;
+			const pattern = this.options.monitorFilter;
+			if (!pattern) continue;
+			pattern.lastIndex = 0;
+			const match = pattern.exec(line);
+			if (!match) continue;
+			if (this.emittedMonitorLines.has(line)) continue;
+			this.emittedMonitorLines.add(line);
+			try {
+				this.options.onMonitorEvent?.({
+					line,
+					matchedText: match[0],
+				});
+			} catch (error) {
+				console.error("interactive-shell: monitor event callback error:", error);
+			}
+		}
 	}
 
 	private resetQuietTimer(): void {
@@ -132,6 +173,9 @@ export class HeadlessDispatchMonitor {
 
 	private handleCompletion(exitCode: number | null, signal?: number, timedOut?: boolean, cancelled?: boolean): void {
 		if (this._disposed) return;
+		if (this.options.monitorFilter && this.options.onMonitorEvent) {
+			this.processMonitorData("", true);
+		}
 		this._disposed = true;
 		this.stopQuietTimer();
 		if (this.timeoutTimer) { clearTimeout(this.timeoutTimer); this.timeoutTimer = null; }
@@ -150,6 +194,9 @@ export class HeadlessDispatchMonitor {
 
 	handleExternalCompletion(exitCode: number | null, signal?: number, completionOutput?: HeadlessCompletionInfo["completionOutput"]): void {
 		if (this._disposed) return;
+		if (this.options.monitorFilter && this.options.onMonitorEvent) {
+			this.processMonitorData("", true);
+		}
 		this._disposed = true;
 		this.stopQuietTimer();
 		if (this.timeoutTimer) { clearTimeout(this.timeoutTimer); this.timeoutTimer = null; }

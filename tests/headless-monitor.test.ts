@@ -126,4 +126,40 @@ describe("HeadlessDispatchMonitor", () => {
 		});
 		expect(monitor.getResult()?.completionOutput?.lines).toEqual(["final"]);
 	});
+
+	it("emits monitor events from ANSI-stripped line output", () => {
+		const session = createSession();
+		const onMonitorEvent = vi.fn();
+		new HeadlessDispatchMonitor(session, config, {
+			autoExitOnQuiet: false,
+			quietThreshold: 1000,
+			monitorFilter: /ERROR:\s+.+/,
+			onMonitorEvent,
+		}, vi.fn());
+
+		session.emitData("\u001b[31mERROR:\u001b[0m failed to compile\n");
+		expect(onMonitorEvent).toHaveBeenCalledWith({
+			line: "ERROR: failed to compile",
+			matchedText: "ERROR: failed to compile",
+		});
+	});
+
+	it("dedupes exact matching lines within one monitor session", () => {
+		const session = createSession();
+		const onMonitorEvent = vi.fn();
+		new HeadlessDispatchMonitor(session, config, {
+			autoExitOnQuiet: false,
+			quietThreshold: 1000,
+			monitorFilter: /Test Files/,
+			onMonitorEvent,
+		}, vi.fn());
+
+		session.emitData("Test Files  1 passed (1)\n");
+		session.emitData("Test Files  1 passed (1)\n");
+		expect(onMonitorEvent).toHaveBeenCalledTimes(1);
+		expect(onMonitorEvent).toHaveBeenCalledWith({
+			line: "Test Files  1 passed (1)",
+			matchedText: "Test Files",
+		});
+	});
 });

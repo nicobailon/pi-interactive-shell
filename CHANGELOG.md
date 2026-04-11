@@ -4,6 +4,23 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-04-11
+
+### Added
+- New `mode: "monitor"` for `interactive_shell` to run headless background commands and wake the agent only when output lines match `monitorFilter`.
+- New `monitorFilter` tool parameter supporting plain-text substring matching and `/regex/flags` matching.
+- Monitor event notifications now wake the agent with `triggerTurn` and include `sessionId`, matched text, and the matched line.
+- Regression coverage for monitor mode startup validation and ANSI-stripped line matching.
+- Regression coverage for suppressing repeated wakeups when the exact same cleaned matching line is emitted more than once in a single monitor session.
+
+### Changed
+- README, tool help, and the bundled `examples/skills/interactive-shell/SKILL.md` now document monitor mode usage, event-driven behavior, and monitor session lifecycle with existing background-session APIs.
+- Monitor mode now suppresses repeated wakeups for the exact same cleaned matching line within a single monitor session, while still waking on distinct matching lines.
+
+### Fixed
+- Slash-prefixed plain-text filters like `/tmp/log` are now treated as literal text instead of being misparsed as regex literals.
+- Invalid monitor regex errors now preserve the underlying parser message for easier debugging.
+
 ## [0.10.8] - 2026-04-09
 
 ### Added

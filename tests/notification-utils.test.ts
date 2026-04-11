@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildIdlePromptWarning, buildResultNotification } from "../notification-utils.js";
+import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildIdlePromptWarning, buildMonitorEventNotification, buildResultNotification } from "../notification-utils.js";
 
 describe("notification utilities", () => {
 	it("formats compact dispatch notifications with a trimmed tail", () => {
@@ -56,6 +56,13 @@ describe("notification utilities", () => {
 			tailTruncated: false,
 			userTookOver: true,
 		})?.content).toContain("Session calm-reef: user took over (1s)");
+	});
+
+	it("formats monitor event notifications", () => {
+		const text = buildMonitorEventNotification("calm-reef", "ERROR: failed", "ERROR: failed to compile");
+		expect(text).toContain("Monitor Event (calm-reef)");
+		expect(text).toContain("Matched: ERROR: failed");
+		expect(text).toContain("Line: ERROR: failed to compile");
 	});
 
 	it("warns when reason implies work but command launches an idle agent", () => {
