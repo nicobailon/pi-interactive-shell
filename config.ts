@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
 
-export type SpawnAgent = "pi" | "codex" | "claude";
+export type SpawnAgent = "pi" | "codex" | "claude" | "agent";
 
 export interface SpawnConfig {
 	defaultAgent: SpawnAgent;
@@ -47,11 +47,13 @@ const DEFAULT_SPAWN_CONFIG: SpawnConfig = {
 		pi: "pi",
 		codex: "codex",
 		claude: "claude",
+		agent: "agent",
 	},
 	defaultArgs: {
 		pi: [],
 		codex: [],
 		claude: [],
+		agent: [],
 	},
 	worktree: false,
 	worktreeBaseDir: undefined,
@@ -191,12 +193,14 @@ function mergeSpawnConfig(globalValue: unknown, projectValue: unknown): SpawnCon
 		pi: resolveCommand(projectCommands?.pi ?? globalCommands?.pi, DEFAULT_SPAWN_CONFIG.commands.pi),
 		codex: resolveCommand(projectCommands?.codex ?? globalCommands?.codex, DEFAULT_SPAWN_CONFIG.commands.codex),
 		claude: resolveCommand(projectCommands?.claude ?? globalCommands?.claude, DEFAULT_SPAWN_CONFIG.commands.claude),
+		agent: resolveCommand(projectCommands?.agent ?? globalCommands?.agent, DEFAULT_SPAWN_CONFIG.commands.agent),
 	};
 
 	const mergedDefaultArgs = {
 		pi: resolveStringArray(projectArgs?.pi ?? globalArgs?.pi, DEFAULT_SPAWN_CONFIG.defaultArgs.pi),
 		codex: resolveStringArray(projectArgs?.codex ?? globalArgs?.codex, DEFAULT_SPAWN_CONFIG.defaultArgs.codex),
 		claude: resolveStringArray(projectArgs?.claude ?? globalArgs?.claude, DEFAULT_SPAWN_CONFIG.defaultArgs.claude),
+		agent: resolveStringArray(projectArgs?.agent ?? globalArgs?.agent, DEFAULT_SPAWN_CONFIG.defaultArgs.agent),
 	};
 
 	return {
@@ -214,7 +218,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function resolveSpawnAgent(value: unknown, fallback: SpawnAgent): SpawnAgent {
-	return value === "pi" || value === "codex" || value === "claude" ? value : fallback;
+	return value === "pi" || value === "codex" || value === "claude" || value === "agent" ? value : fallback;
 }
 
 function resolveCommand(value: unknown, fallback: string): string {

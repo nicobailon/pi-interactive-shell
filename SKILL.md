@@ -68,13 +68,14 @@ interactive_shell({ spawn: { mode: "fork" }, mode: "interactive" }) // Pi-only
 
 Structured `spawn` uses the same resolver and defaults as the user-facing `/spawn` command. Raw `command` is still the right choice for arbitrary CLIs and custom launch strings.
 
-For users in chat, `/spawn` now supports the configured default agent plus explicit overrides like `/spawn codex`, `/spawn claude`, `/spawn pi`, `/spawn fork`, and `/spawn pi fork`. Add `--worktree` to run in a separate git worktree.
+For users in chat, `/spawn` now supports the configured default agent plus explicit overrides like `/spawn codex`, `/spawn claude`, `/spawn agent`, `/spawn pi`, `/spawn fork`, and `/spawn pi fork`. Add `--worktree` to run in a separate git worktree.
 
 Quoted prompt text plus `--hands-free` or `--dispatch` turns `/spawn` into a monitored delegated run instead of a plain interactive overlay:
 
 ```bash
 /spawn claude "review the diffs" --dispatch
 /spawn codex "fix the failing tests" --hands-free
+/spawn agent "review the diffs" --dispatch
 /spawn pi fork "continue from here" --dispatch
 ```
 

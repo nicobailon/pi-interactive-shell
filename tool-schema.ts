@@ -131,6 +131,7 @@ Examples:
 - claude "Check the current directory and summarize"
 - interactive_shell({ spawn: { agent: "codex" }, mode: "dispatch" })
 - interactive_shell({ spawn: { agent: "claude", prompt: "Review the diffs" }, mode: "dispatch" })
+- interactive_shell({ spawn: { agent: "agent", prompt: "Review the diffs" }, mode: "dispatch" })
 - interactive_shell({ spawn: { mode: "fork" } }) // pi-only fork of the current persisted session
 - gemini (interactive, idle)
 - aider --yes-always (hands-free, auto-approve)
@@ -148,6 +149,7 @@ export const toolParameters = Type.Object({
 				Type.Literal("pi"),
 				Type.Literal("codex"),
 				Type.Literal("claude"),
+				Type.Literal("agent"),
 			], {
 				description: "Spawn agent to launch. Defaults to the configured spawn.defaultAgent.",
 			})),
@@ -161,10 +163,10 @@ export const toolParameters = Type.Object({
 				description: "Launch in a separate git worktree. Defaults to spawn.worktree from config.",
 			})),
 			prompt: Type.Optional(Type.String({
-				description: "Optional startup prompt for pi, codex, or claude. Uses each CLI's native prompt-bearing startup form.",
+				description: "Optional startup prompt for pi, codex, claude, or agent. Uses each CLI's native prompt-bearing startup form.",
 			})),
 		}, {
-			description: "Structured spawn request for pi, codex, or claude. Use this instead of building the command string manually when you want the extension's spawn defaults, Pi-only fork behavior, worktree support, or native startup prompts.",
+			description: "Structured spawn request for pi, codex, claude, or agent. Use this instead of building the command string manually when you want the extension's spawn defaults, Pi-only fork behavior, worktree support, or native startup prompts.",
 		}),
 	),
 	sessionId: Type.Optional(
@@ -423,7 +425,7 @@ export const toolParameters = Type.Object({
 /** Parsed tool parameters type */
 export interface ToolParams {
 	command?: string;
-	spawn?: { agent?: "pi" | "codex" | "claude"; mode?: "fresh" | "fork"; worktree?: boolean; prompt?: string };
+	spawn?: { agent?: "pi" | "codex" | "claude" | "agent"; mode?: "fresh" | "fork"; worktree?: boolean; prompt?: string };
 	sessionId?: string;
 	kill?: boolean;
 	outputLines?: number;

@@ -116,7 +116,7 @@ export function buildIdlePromptWarning(command: string, reason: string | undefin
 	if (!tasky.test(reason)) return null;
 
 	const trimmed = command.trim();
-	const binaries = ["pi", "claude", "codex", "gemini", "cursor-agent"] as const;
+	const binaries = ["pi", "claude", "codex", "gemini", "agent", "cursor-agent"] as const;
 	const bin = binaries.find((candidate) => trimmed === candidate || trimmed.startsWith(`${candidate} `));
 	if (!bin) return null;
 

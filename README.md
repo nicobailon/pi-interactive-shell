@@ -57,7 +57,7 @@ The examples below show agent-side tool calls. They are not chat commands for en
 
 ### Structured Spawn
 
-For Pi, Codex, and Claude, the agent can use structured spawn params instead of building command strings by hand:
+For Pi, Codex, Claude, and Cursor Agent (`agent`), the agent can use structured spawn params instead of building command strings by hand:
 
 ```typescript
 // User says: "Spawn pi so I can edit files interactively"
@@ -71,6 +71,9 @@ interactive_shell({ spawn: { agent: "claude", prompt: "Review the diffs" }, mode
 
 // User says: "Start claude in a worktree for hands-free monitoring"
 interactive_shell({ spawn: { agent: "claude", worktree: true }, mode: "hands-free" })
+
+// User says: "Ask Cursor Agent to review the diffs"
+interactive_shell({ spawn: { agent: "agent", prompt: "Review the diffs" }, mode: "dispatch" })
 
 // User says: "Fork my current pi session" (Pi-only)
 interactive_shell({ spawn: { mode: "fork" }, mode: "interactive" })
@@ -361,7 +364,7 @@ interactive_shell({ dismissBackground: "calm-reef" })        // specific session
 
 Monitor sessions work the same way — they're headless background sessions that wake you on monitor events instead of completion.
 
-User can also `/spawn` to launch the configured default spawn agent, `/spawn codex`, `/spawn claude`, `/spawn pi`, `/spawn fork`, or `/spawn pi fork`. Add `--worktree` to spawn in a separate git worktree, for example `/spawn codex --worktree` or `/spawn pi fork --worktree`. Plain `/spawn claude` stays a normal interactive overlay. `fork` is Pi-only. Worktrees are left in place and the overlay will tell you where they were created. `/attach` or `/attach <id>` reattaches, and `/dismiss` or `/dismiss <id>` cleans up from the chat. The keyboard spawn shortcut is separate from `/spawn` and uses `spawn.shortcut`.
+User can also `/spawn` to launch the configured default spawn agent, `/spawn codex`, `/spawn claude`, `/spawn agent`, `/spawn pi`, `/spawn fork`, or `/spawn pi fork`. Add `--worktree` to spawn in a separate git worktree, for example `/spawn codex --worktree` or `/spawn pi fork --worktree`. Plain `/spawn claude` stays a normal interactive overlay. `fork` is Pi-only. Worktrees are left in place and the overlay will tell you where they were created. `/attach` or `/attach <id>` reattaches, and `/dismiss` or `/dismiss <id>` cleans up from the chat. The keyboard spawn shortcut is separate from `/spawn` and uses `spawn.shortcut`.
 
 ### Prompt-Bearing `/spawn`
 
@@ -370,6 +373,7 @@ Quoted prompt text plus `--hands-free` or `--dispatch` turns `/spawn` into a mon
 ```bash
 /spawn claude "review the diffs" --dispatch
 /spawn codex "fix the failing tests" --hands-free
+/spawn agent "review the diffs" --dispatch
 /spawn pi fork "continue from here" --dispatch
 ```
 
@@ -443,7 +447,7 @@ Shortcut settings are pinned at startup. If you change `focusShortcut` or `spawn
 | `focusShortcut` | "alt+shift+f" | Toggle focus between overlay and main chat |
 | `spawn.defaultAgent` | "pi" | Configured default spawn agent for `/spawn`, the spawn shortcut, and agent-side structured spawn |
 | `spawn.shortcut` | "alt+shift+p" | Keyboard shortcut that launches the configured default spawn agent |
-| `spawn.commands.<agent>` | `pi` / `codex` / `claude` | Executable or path override per spawn agent |
+| `spawn.commands.<agent>` | `pi` / `codex` / `claude` / `agent` | Executable or path override per spawn agent |
 | `spawn.defaultArgs.<agent>` | `[]` | Extra default CLI args per spawn agent |
 | `spawn.worktree` | `false` | Launch spawns in a separate git worktree by default |
 | `spawn.worktreeBaseDir` | unset | Optional base directory for generated worktrees |

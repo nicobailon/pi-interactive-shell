@@ -59,7 +59,7 @@ export function parseSpawnArgs(args: string):
 			monitorMode = nextMonitorMode;
 			continue;
 		}
-		if (!token.quoted && (token.value === "pi" || token.value === "codex" || token.value === "claude")) {
+		if (!token.quoted && (token.value === "pi" || token.value === "codex" || token.value === "claude" || token.value === "agent")) {
 			if (agent) {
 				return { ok: false, error: `Duplicate spawn agent: ${token.value}` };
 			}

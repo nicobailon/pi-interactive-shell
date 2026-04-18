@@ -9,8 +9,8 @@ const config: InteractiveShellConfig = {
 	spawn: {
 		defaultAgent: "pi",
 		shortcut: "alt+shift+p",
-		commands: { pi: "pi", codex: "codex", claude: "claude" },
-		defaultArgs: { pi: [], codex: ["-c", 'model_reasoning_effort="high"'], claude: [] },
+		commands: { pi: "pi", codex: "codex", claude: "claude", agent: "agent" },
+		defaultArgs: { pi: [], codex: ["-c", 'model_reasoning_effort="high"'], claude: [], agent: [] },
 		worktree: false,
 		worktreeBaseDir: "/tmp/worktrees",
 	},
@@ -47,6 +47,13 @@ describe("spawn helpers", () => {
 			parsed: {
 				request: { agent: "claude", mode: undefined, worktree: undefined, prompt: "review the diffs" },
 				monitorMode: "dispatch",
+			},
+		});
+		expect(parseSpawnArgs('agent "fix the failing tests" --hands-free')).toEqual({
+			ok: true,
+			parsed: {
+				request: { agent: "agent", mode: undefined, worktree: undefined, prompt: "fix the failing tests" },
+				monitorMode: "hands-free",
 			},
 		});
 		expect(parseSpawnArgs("codex fork --worktree")).toEqual({
@@ -118,6 +125,17 @@ describe("spawn helpers", () => {
 				command: "claude 'review the diffs'",
 				cwd: "/tmp/project",
 				reason: "spawn claude (fresh session)",
+				worktreePath: undefined,
+			},
+		});
+		expect(resolveSpawn(config, "/tmp/project", { agent: "agent", prompt: "review the diffs" }, () => "/tmp/project/session.jsonl")).toEqual({
+			ok: true,
+			spawn: {
+				agent: "agent",
+				mode: "fresh",
+				command: "agent 'review the diffs'",
+				cwd: "/tmp/project",
+				reason: "spawn agent (fresh session)",
 				worktreePath: undefined,
 			},
 		});

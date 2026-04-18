@@ -1629,11 +1629,11 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("spawn", {
-		description: "Spawn the configured default agent, pi, codex, or claude in an interactive shell overlay",
+		description: "Spawn the configured default agent, pi, codex, claude, or agent in an interactive shell overlay",
 		handler: async (args, ctx) => {
 			const parsed = parseSpawnArgs(args);
 			if (!parsed.ok) {
-				ctx.ui.notify(`${parsed.error}\nUsage: /spawn [pi|codex|claude] [fresh|fork] [--worktree] [\"prompt\" --hands-free|--dispatch]`, "error");
+				ctx.ui.notify(`${parsed.error}\nUsage: /spawn [pi|codex|claude|agent] [fresh|fork] [--worktree] [\"prompt\" --hands-free|--dispatch]`, "error");
 				return;
 			}
 			if (parsed.parsed.monitorMode) {

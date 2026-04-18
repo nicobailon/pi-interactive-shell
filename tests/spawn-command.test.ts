@@ -5,10 +5,10 @@ type OverlayOptionsCapture = { command: string; reason?: string; cwd?: string } 
 type SpawnConfigOverrides = {
 	focusShortcut?: string;
 	spawn?: {
-		defaultAgent?: "pi" | "codex" | "claude";
+		defaultAgent?: "pi" | "codex" | "claude" | "agent";
 		shortcut?: string;
-		commands?: Partial<Record<"pi" | "codex" | "claude", string>>;
-		defaultArgs?: Partial<Record<"pi" | "codex" | "claude", string[]>>;
+		commands?: Partial<Record<"pi" | "codex" | "claude" | "agent", string>>;
+		defaultArgs?: Partial<Record<"pi" | "codex" | "claude" | "agent", string[]>>;
 		worktree?: boolean;
 		worktreeBaseDir?: string;
 	};
@@ -43,11 +43,13 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 						pi: configOverrides.spawn?.commands?.pi ?? "pi",
 						codex: configOverrides.spawn?.commands?.codex ?? "codex",
 						claude: configOverrides.spawn?.commands?.claude ?? "claude",
+						agent: configOverrides.spawn?.commands?.agent ?? "agent",
 					},
 					defaultArgs: {
 						pi: configOverrides.spawn?.defaultArgs?.pi ?? [],
 						codex: configOverrides.spawn?.defaultArgs?.codex ?? [],
 						claude: configOverrides.spawn?.defaultArgs?.claude ?? [],
+						agent: configOverrides.spawn?.defaultArgs?.agent ?? [],
 					},
 					worktree: configOverrides.spawn?.worktree ?? false,
 					worktreeBaseDir: configOverrides.spawn?.worktreeBaseDir,
@@ -180,6 +182,18 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(harness.getLastOverlayOptions()).toMatchObject({
 			command: "claude",
 			reason: "spawn claude (fresh session)",
+		});
+	});
+
+	it("/spawn supports the cursor agent binary via structured spawn resolution", async () => {
+		const harness = await setupExtensionHarness({ spawn: { defaultAgent: "pi" } });
+		const spawn = harness.commands.get("spawn");
+		expect(spawn).toBeDefined();
+
+		await spawn!.handler('agent "review the diffs" --dispatch', harness.ctx as any);
+		expect(harness.getLastOverlayOptions()).toMatchObject({
+			command: "agent 'review the diffs'",
+			reason: "spawn agent (fresh session)",
 		});
 	});
 
