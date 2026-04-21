@@ -37,8 +37,7 @@
       "./index.ts"
     ],
     "skills": [
-      "./SKILL.md",
-      "./examples/skills"
+      "./SKILL.md"
     ],
     "prompts": [
       "./examples/prompts"
