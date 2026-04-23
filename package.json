@@ -38,10 +38,10 @@
     "video": "https://github.com/nicobailon/pi-interactive-shell/raw/refs/heads/main/pi-interactive-shell-extension.mp4"
   },
   "dependencies": {
-    "typebox": "^1.1.24",
     "@xterm/addon-serialize": "^0.13.0",
     "@xterm/headless": "^5.5.0",
-    "zigpty": "^0.0.6"
+    "typebox": "^1.1.24",
+    "zigpty": "^0.1.6"
   },
   "scripts": {
     "test": "vitest run"
