@@ -72,7 +72,7 @@ describe("config + docs parity", () => {
 		const { loadConfig } = await loadConfigModule(root);
 		const defaults = loadConfig(join(root, "project"));
 		const readme = readFileSync("README.md", "utf-8");
-		const skill = readFileSync("SKILL.md", "utf-8");
+		const skill = readFileSync("skills/pi-interactive-shell/SKILL.md", "utf-8");
 		const toolSchema = readFileSync("tool-schema.ts", "utf-8");
 
 		expect(defaults.handsFreeQuietThreshold).toBe(8000);

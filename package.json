@@ -3,9 +3,6 @@
   "version": "0.12.0",
   "description": "Run AI coding agents in pi TUI overlays with interactive, hands-free, and dispatch supervision",
   "type": "module",
-  "bin": {
-    "pi-interactive-shell": "./scripts/install.js"
-  },
   "files": [
     "index.ts",
     "config.ts",
@@ -25,11 +22,10 @@
     "runtime-coordinator.ts",
     "session-query.ts",
     "spawn.ts",
-    "scripts/",
+    "skills/**/*",
     "examples/",
     "banner.png",
     "README.md",
-    "SKILL.md",
     "CHANGELOG.md"
   ],
   "pi": {
@@ -37,16 +33,12 @@
       "./index.ts"
     ],
     "skills": [
-      "./SKILL.md",
-      "./examples/skills"
-    ],
-    "prompts": [
-      "./examples/prompts"
+      "./skills"
     ],
     "video": "https://github.com/nicobailon/pi-interactive-shell/raw/refs/heads/main/pi-interactive-shell-extension.mp4"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.34.40",
+    "typebox": "^1.1.24",
     "@xterm/addon-serialize": "^0.13.0",
     "@xterm/headless": "^5.5.0",
     "zigpty": "^0.0.6"

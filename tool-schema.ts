@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 
 export const TOOL_NAME = "interactive_shell";
 export const TOOL_LABEL = "Interactive Shell";

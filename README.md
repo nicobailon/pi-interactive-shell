@@ -78,6 +78,8 @@ interactive_shell({ spawn: { mode: "fork" }, mode: "interactive" })
 
 Structured `spawn` uses the same resolver and config defaults as the user-facing `/spawn` command. Raw `command` is still supported for arbitrary CLIs and custom launch strings.
 
+For Codex image or design work, Codex can invoke `gpt-image-2` directly from the prompt. Natural language is usually enough, and `$imagegen` forces the image-generation tool when you need it. Attach references with `-i` for edits and iterations. See the bundled `codex-cli` skill for concrete examples.
+
 ### Interactive
 
 ```typescript
@@ -480,7 +482,7 @@ Full PTY. The subprocess thinks it's in a real terminal.
 
 ## Example Workflow: Plan, Implement, Review
 
-The `examples/prompts/` directory includes three prompt templates that chain together into a complete development workflow using Codex CLI. Each template now loads the bundled `gpt-5-4-prompting` skill by default, falls back to `codex-5-3-prompting` when the user explicitly asks for Codex 5.3, and launches Codex in an interactive overlay.
+The `examples/prompts/` directory includes three opt-in prompt templates that chain together into a complete development workflow using Codex CLI. Each template loads the example `gpt-5-4-prompting` skill by default, falls back to `codex-5-3-prompting` when the user explicitly asks for Codex 5.3, and launches Codex in an interactive overlay.
 
 ### The Pipeline
 
@@ -496,22 +498,22 @@ Write a plan
 
 ### Installing the Templates
 
-Install the package first so pi can discover the bundled prompt and skill directories via the package metadata:
+Install the package first for the extension and core `pi-interactive-shell` skill:
 
 ```bash
 pi install npm:pi-interactive-shell
 ```
 
-If you want your own slash commands and local skill copies, copy the examples into your agent config:
+The Codex workflow prompts and supporting skills are opt-in examples. Copy them into your agent config if you want to use them:
 
 ```bash
 # Prompt templates (slash commands)
-cp ~/.pi/agent/extensions/interactive-shell/examples/prompts/*.md ~/.pi/agent/prompts/
+cp ~/.pi/agent/extensions/pi-interactive-shell/examples/prompts/*.md ~/.pi/agent/prompts/
 
-# Skills used by the templates
-cp -r ~/.pi/agent/extensions/interactive-shell/examples/skills/codex-cli ~/.pi/agent/skills/
-cp -r ~/.pi/agent/extensions/interactive-shell/examples/skills/gpt-5-4-prompting ~/.pi/agent/skills/
-cp -r ~/.pi/agent/extensions/interactive-shell/examples/skills/codex-5-3-prompting ~/.pi/agent/skills/
+# Optional skills used by the templates
+cp -r ~/.pi/agent/extensions/pi-interactive-shell/examples/skills/codex-cli ~/.pi/agent/skills/
+cp -r ~/.pi/agent/extensions/pi-interactive-shell/examples/skills/gpt-5-4-prompting ~/.pi/agent/skills/
+cp -r ~/.pi/agent/extensions/pi-interactive-shell/examples/skills/codex-5-3-prompting ~/.pi/agent/skills/
 ```
 
 ### Usage
@@ -545,7 +547,7 @@ Say you have a plan at `docs/auth-redesign-plan.md`:
 
 These templates demonstrate a "meta-prompt generation" pattern:
 
-1. **Pi gathers context** — reads the plan, runs git diff, and loads the local `gpt-5-4-prompting` or `codex-5-3-prompting` skill
+1. **Pi gathers context** — reads the plan, runs git diff, and loads the copied local `gpt-5-4-prompting` or `codex-5-3-prompting` skill
 2. **Pi generates a calibrated prompt** — tailored to the specific plan/diff, following the selected skill's best practices
 3. **Pi launches Codex in the overlay** — defaulting to `-m gpt-5.4 -a never` and switching to `-m gpt-5.3-codex -a never` only when the user explicitly asks for Codex 5.3
 

@@ -4,6 +4,17 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+- Bundled runtime skills now live under `skills/`, with only the canonical `pi-interactive-shell` skill auto-registered. The Codex workflow skills remain packaged under `examples/skills/` as opt-in copies alongside the example prompt templates.
+- Codex docs now include `gpt-image-2` guidance across the optional `codex-cli` example skill plus the shared README and interactive-shell skill, covering natural-language prompting, `$imagegen`, and `-i` reference-image workflows.
+- Replaced the legacy `@sinclair/typebox` runtime dependency with `typebox`.
+
+### Fixed
+- Migrated the interactive-shell tool schema from `@sinclair/typebox` to `typebox` 1.x so packaged installs follow Pi's current extension runtime contract.
+
+### Removed
+- Removed the legacy npm bin installer (`scripts/install.js`) and its package metadata. `pi install npm:pi-interactive-shell` is now the only supported installation path.
+
 ## [0.12.0] - 2026-04-12
 
 ### Added
