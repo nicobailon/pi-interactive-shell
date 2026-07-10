@@ -61,18 +61,12 @@ export class KittyClient {
 	}
 
 	async command<T = unknown>(command: KittyCommand): Promise<KittyResponse<T>> {
-		if (!this.listenOn) {
-			throw new KittyRemoteControlError(
-				"kitty remote control socket is not configured. Set KITTY_LISTEN_ON or interactive-kitty.json kitty.listenOn.",
-			);
-		}
-
+		this.requireListenOn();
 		const request: KittyCommand = {
 			version: this.version,
 			...command,
 		};
-		const wireCommand = this.password ? this.encryptCommand(request) : request;
-		const payload = Buffer.from(`${DCS_PREFIX}${JSON.stringify(wireCommand)}${DCS_SUFFIX}`, "utf8");
+		const payload = this.encodeWirePayload(request);
 		if (request.no_response) {
 			await this.sendNoResponse(payload);
 			return { ok: true } as KittyResponse<T>;
@@ -175,29 +169,43 @@ export class KittyClient {
 	}
 
 	async sendText(windowId: number, data: Buffer | string, options: { bracketedPaste?: "disable" | "auto" | "enable" } = {}): Promise<void> {
-		const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8");
+		let bytes = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8");
 		const chunkSize = 1024;
 		const requested = options.bracketedPaste ?? "disable";
+		// kitty only accepts disable|auto|enable per send-text call (no start/end).
+		// Multi-chunk is decided on the *raw* payload length so sanitize shrinking
+		// cannot leave multi-chunk + native enable (which would wrap each chunk).
+		// When multi-chunk + enable, wrap the whole payload ourselves, then send
+		// with disable so kitty does not re-wrap each chunk as a separate paste.
+		let bracketedPaste: "disable" | "auto" | "enable" = requested;
+		if (requested === "enable" && bytes.length > chunkSize) {
+			bytes = Buffer.concat([BRACKETED_PASTE_START, sanitizeForBracketedPaste(bytes), BRACKETED_PASTE_END]);
+			bracketedPaste = "disable";
+		}
 		const totalChunks = Math.max(1, Math.ceil(bytes.length / chunkSize));
-		// Bracketed-paste must wrap the whole payload atomically. When enabled across
-		// multiple chunks, emit `start` on the first, `disable` on middle, `end` on
-		// the last — otherwise kitty would re-wrap each chunk as a separate paste.
+		const frames: Buffer[] = [];
 		for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
 			const offset = chunkIndex * chunkSize;
 			const chunk = bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length));
-			await this.command({
-				cmd: "send-text",
-				no_response: true,
-				payload: {
-					match: `id:${windowId}`,
-					data: `base64:${chunk.toString("base64")}`,
-					match_tab: undefined,
-					all: false,
-					exclude_active: false,
-					bracketed_paste: resolveBracketedPaste(requested, chunkIndex, totalChunks),
-				},
-			});
+			frames.push(
+				this.encodeWirePayload({
+					cmd: "send-text",
+					version: this.version,
+					no_response: true,
+					payload: {
+						match: `id:${windowId}`,
+						data: `base64:${chunk.toString("base64")}`,
+						match_tab: undefined,
+						all: false,
+						exclude_active: false,
+						bracketed_paste: bracketedPaste,
+					},
+				}),
+			);
 		}
+		// Multi-chunk pastes must share one socket so open/body/close markers stay ordered.
+		this.requireListenOn();
+		await this.sendNoResponseBatch(frames);
 	}
 
 	async sendKeys(windowId: number, keys: string[]): Promise<void> {
@@ -251,13 +259,70 @@ export class KittyClient {
 		});
 	}
 
+	private requireListenOn(): void {
+		if (!this.listenOn) {
+			throw new KittyRemoteControlError(
+				"kitty remote control socket is not configured. Set KITTY_LISTEN_ON or interactive-kitty.json kitty.listenOn.",
+			);
+		}
+	}
+
+	/** Frame a remote-control command for the kitty DCS wire protocol (optionally encrypted). */
+	private encodeWirePayload(command: KittyCommand): Buffer {
+		const request: KittyCommand = {
+			version: this.version,
+			...command,
+		};
+		const wireCommand = this.password ? this.encryptCommand(request) : request;
+		return Buffer.from(`${DCS_PREFIX}${JSON.stringify(wireCommand)}${DCS_SUFFIX}`, "utf8");
+	}
+
 	private async sendNoResponse(payload: Buffer): Promise<void> {
+		await this.sendNoResponseBatch([payload]);
+	}
+
+	/**
+	 * Send one or more no-response frames on a single socket, in order.
+	 * Multi-chunk send-text must not open a new connection per chunk: independent
+	 * sockets have no protocol ordering guarantee for bracketed-paste markers.
+	 */
+	private async sendNoResponseBatch(payloads: Buffer[]): Promise<void> {
+		if (payloads.length === 0) return;
 		const socket = await this.openSocket();
 		await new Promise<void>((resolve, reject) => {
-			socket.once("error", reject);
-			socket.end(payload, () => resolve());
+			let settled = false;
+			const finish = (fn: () => void): void => {
+				if (settled) return;
+				settled = true;
+				socket.removeAllListeners("error");
+				socket.removeAllListeners("drain");
+				fn();
+			};
+			socket.once("error", (error) => {
+				finish(() => {
+					socket.destroy();
+					reject(error);
+				});
+			});
+			let index = 0;
+			const writeNext = (): void => {
+				while (index < payloads.length) {
+					const payload = payloads[index++]!;
+					const canContinue = socket.write(payload);
+					if (!canContinue) {
+						socket.once("drain", writeNext);
+						return;
+					}
+				}
+				socket.end(() => {
+					finish(() => {
+						socket.destroy();
+						resolve();
+					});
+				});
+			};
+			writeNext();
 		});
-		socket.destroy();
 	}
 
 	private async sendAndReceive(payload: Buffer): Promise<string> {
@@ -383,12 +448,23 @@ function parseTcpPort(portText: string, source: string): number {
 	return port;
 }
 
-function resolveBracketedPaste(requested: "disable" | "auto" | "enable", chunkIndex: number, totalChunks: number): string {
-	if (requested !== "enable") return requested;
-	if (totalChunks === 1) return "enable";
-	if (chunkIndex === 0) return "start";
-	if (chunkIndex === totalChunks - 1) return "end";
-	return "disable";
+const BRACKETED_PASTE_START = Buffer.from("\x1b[200~");
+const BRACKETED_PASTE_END = Buffer.from("\x1b[201~");
+/** Matches kitty's sanitize_for_bracketed_paste: strip paste-end sequences from content. */
+const BRACKETED_PASTE_END_RE = /(?:\x1b\[|\x9b)201~/g;
+
+/**
+ * Remove bracketed-paste terminators from payload bytes so an embedded end
+ * sequence cannot close the paste early (mirrors kitty's sanitize_for_bracketed_paste).
+ */
+export function sanitizeForBracketedPaste(text: Buffer): Buffer {
+	let value = text.toString("latin1");
+	while (true) {
+		const next = value.replace(BRACKETED_PASTE_END_RE, "");
+		if (next === value) break;
+		value = next;
+	}
+	return Buffer.from(value, "latin1");
 }
 
 /**
