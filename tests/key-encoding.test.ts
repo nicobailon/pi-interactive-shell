@@ -7,12 +7,14 @@ describe("translateInput", () => {
 	});
 
 	it("emits paste before trailing keys so pasted input can be submitted afterward", () => {
-		expect(translateInput({
-			text: "hi",
-			keys: ["enter"],
-			hex: ["0x21"],
-			paste: "body",
-		})).toBe("!hi\x1b[200~body\x1b[201~\r");
+		expect(
+			translateInput({
+				text: "hi",
+				keys: ["enter"],
+				hex: ["0x21"],
+				paste: "body",
+			}),
+		).toBe("!hi\x1b[200~body\x1b[201~\r");
 	});
 
 	it("supports xterm modifier encoding for CSI keys", () => {

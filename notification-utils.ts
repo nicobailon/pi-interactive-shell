@@ -17,9 +17,7 @@ export function buildDispatchNotification(sessionId: string, info: HeadlessCompl
 export function buildResultNotification(sessionId: string, result: InteractiveShellResult): string {
 	const parts = [buildResultStatusLine(sessionId, result)];
 	if (result.completionOutput && result.completionOutput.lines.length > 0) {
-		const truncNote = result.completionOutput.truncated
-			? ` (truncated from ${result.completionOutput.totalLines} total lines)`
-			: "";
+		const truncNote = result.completionOutput.truncated ? ` (truncated from ${result.completionOutput.totalLines} total lines)` : "";
 		parts.push(`\nOutput (${result.completionOutput.lines.length} lines${truncNote}):\n\n${result.completionOutput.lines.join("\n")}`);
 	}
 	return parts.join("");
@@ -39,14 +37,18 @@ export function buildMonitorEventNotification(event: MonitorEventPayload): strin
 export function buildMonitorLifecycleNotification(state: MonitorSessionState): string {
 	const reason = state.terminalReason ?? "stopped";
 	let headline: string;
-	if (reason === "stream-ended") {
-		headline = `Monitor ${state.sessionId} stream ended.`;
-	} else if (reason === "timed-out") {
-		headline = `Monitor ${state.sessionId} timed out.`;
-	} else if (reason === "script-failed") {
-		headline = `Monitor ${state.sessionId} script failed.`;
-	} else {
-		headline = `Monitor ${state.sessionId} stopped.`;
+	switch (reason) {
+		case "stream-ended":
+			headline = `Monitor ${state.sessionId} stream ended.`;
+			break;
+		case "timed-out":
+			headline = `Monitor ${state.sessionId} timed out.`;
+			break;
+		case "script-failed":
+			headline = `Monitor ${state.sessionId} script failed.`;
+			break;
+		default:
+			headline = `Monitor ${state.sessionId} stopped.`;
 	}
 
 	const details: string[] = [
@@ -97,8 +99,8 @@ export function summarizeInteractiveResult(command: string, result: InteractiveS
 		summary += "\n\nNote: User took over control during hands-free mode.";
 	}
 
-	if (!result.transferred && result.handoffPreview?.type === "tail" && result.handoffPreview.lines.length > 0) {
-		summary += `\n\nOverlay tail (${result.handoffPreview.when}, last ${result.handoffPreview.lines.length} lines):\n${result.handoffPreview.lines.join("\n")}`;
+	if (result.handoffPreview?.type === "tail" && result.handoffPreview.lines.length > 0) {
+		summary += `\n\nSession tail (${result.handoffPreview.when}, last ${result.handoffPreview.lines.length} lines):\n${result.handoffPreview.lines.join("\n")}`;
 	}
 
 	const warning = buildIdlePromptWarning(command, reason);
@@ -150,10 +152,6 @@ function buildResultStatusLine(sessionId: string, result: InteractiveShellResult
 }
 
 function buildInteractiveSummary(result: InteractiveShellResult, timeout?: number): string {
-	if (result.transferred) {
-		const truncatedNote = result.transferred.truncated ? ` (truncated from ${result.transferred.totalLines} total lines)` : "";
-		return `Session output transferred (${result.transferred.lines.length} lines${truncatedNote}):\n\n${result.transferred.lines.join("\n")}`;
-	}
 	if (result.backgrounded) {
 		return `Session running in background (id: ${result.backgroundId}). User can reattach with /attach ${result.backgroundId}`;
 	}

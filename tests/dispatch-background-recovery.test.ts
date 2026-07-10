@@ -2,12 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 async function setupHarness() {
 	const unregisterActive = vi.fn();
-	const get = vi.fn(() => undefined);
+	const registerActive = vi.fn();
 	const disposeMonitor = vi.fn();
-	const deleteMonitor = vi.fn();
 
-	let coordinatorInstance: any;
 	let toolDef: any;
+	let launchedCommand: string | undefined;
 
 	vi.resetModules();
 	vi.doMock("@mariozechner/pi-coding-agent", () => ({
@@ -25,9 +24,6 @@ async function setupHarness() {
 		return {
 			...actual,
 			loadConfig: vi.fn(() => ({
-				exitAutoCloseDelay: 10,
-				overlayWidthPercent: 95,
-				overlayHeightPercent: 60,
 				focusShortcut: "alt+shift+f",
 				spawn: {
 					defaultAgent: "pi",
@@ -37,6 +33,14 @@ async function setupHarness() {
 					worktree: false,
 					worktreeBaseDir: undefined,
 				},
+				kitty: {
+					version: [0, 47, 4],
+					responseTimeoutMs: 5000,
+					pollIntervalMs: 500,
+					osWindowTitle: "Pi Interactive Kitty",
+					tabTitlePrefix: "pi-shell",
+					focusNewSessions: true,
+				},
 				scrollbackLines: 5000,
 				ansiReemit: true,
 				handoffPreviewEnabled: true,
@@ -45,8 +49,6 @@ async function setupHarness() {
 				handoffSnapshotEnabled: false,
 				handoffSnapshotLines: 200,
 				handoffSnapshotMaxChars: 12000,
-				transferLines: 200,
-				transferMaxChars: 20000,
 				completionNotifyLines: 50,
 				completionNotifyMaxChars: 5000,
 				handsFreeUpdateMode: "on-quiet",
@@ -59,11 +61,36 @@ async function setupHarness() {
 			})),
 		};
 	});
-	vi.doMock("../overlay-component.js", () => ({
-		InteractiveShellOverlay: class MockInteractiveShellOverlay {},
-	}));
-	vi.doMock("../reattach-overlay.js", () => ({
-		ReattachOverlay: class MockReattachOverlay {},
+	vi.doMock("../kitty-session.js", () => ({
+		KittyTerminalSession: class MockKittyTerminalSession {
+			ready = Promise.resolve();
+			exited = false;
+			exitCode = null;
+			signal = undefined;
+			constructor(options: { command: string }) {
+				launchedCommand = options.command;
+			}
+			setEventHandlers() {}
+			addDataListener() {
+				return () => {};
+			}
+			addExitListener() {
+				return () => {};
+			}
+			write() {}
+			kill() {}
+			focus() {}
+			getTailLines() {
+				return Promise.resolve({ lines: [], totalLinesInBuffer: 0, truncatedByChars: false });
+			}
+			getRawStream() {
+				return "";
+			}
+			getLogSlice() {
+				return Promise.resolve({ slice: "", totalLines: 0, totalChars: 0, sliceLineCount: 0 });
+			}
+			dispose() {}
+		},
 	}));
 	vi.doMock("../session-manager.js", () => ({
 		sessionManager: {
@@ -72,12 +99,12 @@ async function setupHarness() {
 			list: vi.fn(() => []),
 			add: vi.fn(() => "bg-session"),
 			take: vi.fn(() => undefined),
-			get,
+			get: vi.fn(() => undefined),
 			restore: vi.fn(),
 			remove: vi.fn(),
 			scheduleCleanup: vi.fn(),
 			restartAutoCleanup: vi.fn(),
-			registerActive: vi.fn(),
+			registerActive,
 			killAll: vi.fn(),
 			onChange: vi.fn(() => () => {}),
 			setActiveUpdateInterval: vi.fn(() => false),
@@ -91,22 +118,12 @@ async function setupHarness() {
 			markAgentHandledCompletion = vi.fn();
 			consumeAgentHandledCompletion = vi.fn(() => false);
 			getMonitor = vi.fn(() => ({ disposed: false }));
-			focusOverlay = vi.fn();
-			unfocusOverlay = vi.fn();
-			setOverlayHandle = vi.fn();
-			clearOverlayHandle = vi.fn();
-			isOverlayOpen = vi.fn(() => false);
-			beginOverlay = vi.fn(() => true);
-			endOverlay = vi.fn();
 			replaceBackgroundWidgetCleanup = vi.fn();
 			clearBackgroundWidget = vi.fn();
 			disposeAllMonitors = vi.fn();
 			disposeMonitor = disposeMonitor;
-			deleteMonitor = deleteMonitor;
+			deleteMonitor = vi.fn();
 			setMonitor = vi.fn();
-			constructor() {
-				coordinatorInstance = this;
-			}
 		},
 	}));
 
@@ -122,7 +139,7 @@ async function setupHarness() {
 		sendMessage: vi.fn(),
 	} as any);
 
-	return { toolDef, unregisterActive, get, disposeMonitor, deleteMonitor, coordinatorInstance };
+	return { toolDef, unregisterActive, registerActive, disposeMonitor, getLaunchedCommand: () => launchedCommand };
 }
 
 describe("dispatch background recovery", () => {
@@ -130,44 +147,30 @@ describe("dispatch background recovery", () => {
 		vi.doUnmock("@mariozechner/pi-coding-agent");
 		vi.doUnmock("@mariozechner/pi-tui");
 		vi.doUnmock("../config.js");
-		vi.doUnmock("../overlay-component.js");
-		vi.doUnmock("../reattach-overlay.js");
+		vi.doUnmock("../kitty-session.js");
 		vi.doUnmock("../session-manager.js");
 		vi.doUnmock("../runtime-coordinator.js");
 	});
 
-	it("releases the source session and disposes monitor when background session lookup fails", async () => {
-		const { toolDef, unregisterActive, get, disposeMonitor, deleteMonitor } = await setupHarness();
+	it("starts dispatch sessions through the kitty backend", async () => {
+		const { toolDef, registerActive, getLaunchedCommand } = await setupHarness();
 		expect(toolDef).toBeDefined();
 
-		const executePromise = toolDef.execute(
-			"call-1",
-			{ command: "pi", mode: "dispatch" },
-			undefined,
-			undefined,
-			{
-				hasUI: true,
-				cwd: "/tmp/project",
-				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-				ui: {
-					custom: vi.fn(async () => ({
-						exitCode: null,
-						signal: undefined,
-						backgrounded: true,
-						backgroundId: "bg-session",
-						cancelled: false,
-					})),
-				},
-			} as any,
+		const result = await toolDef.execute("call-1", { command: "pi", mode: "dispatch" }, undefined, undefined, {
+			hasUI: true,
+			cwd: "/tmp/project",
+			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			ui: {},
+		} as any);
+
+		expect(result.isError).not.toBe(true);
+		expect(result.details.sessionId).toBe("start-session");
+		expect(getLaunchedCommand()).toBe("pi");
+		expect(registerActive).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "start-session",
+				command: "pi",
+			}),
 		);
-
-		await executePromise;
-		await Promise.resolve();
-		await Promise.resolve();
-
-		expect(get).toHaveBeenCalledWith("bg-session");
-		expect(unregisterActive).toHaveBeenCalledWith("start-session", true);
-		expect(disposeMonitor).toHaveBeenCalledWith("start-session");
-		expect(deleteMonitor).not.toHaveBeenCalled();
 	});
 });

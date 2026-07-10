@@ -1,13 +1,10 @@
-import type { OverlayHandle } from "@mariozechner/pi-tui";
 import type { HeadlessDispatchMonitor } from "./headless-monitor.js";
 import type { MonitorConfig, MonitorEventPayload, MonitorSessionState, MonitorTerminalReason } from "./types.js";
 
 const MONITOR_HISTORY_LIMIT = 200;
 
-/** Centralizes overlay, monitor, widget, and completion-suppression state for the extension runtime. */
+/** Centralizes monitor, widget, and completion-suppression state for the extension runtime. */
 export class InteractiveShellCoordinator {
-	private overlayOpen = false;
-	private overlayHandle: OverlayHandle | null = null;
 	private headlessMonitors = new Map<string, HeadlessDispatchMonitor>();
 	private monitorEventHistory = new Map<string, MonitorEventPayload[]>();
 	private monitorEventCounters = new Map<string, number>();
@@ -15,41 +12,6 @@ export class InteractiveShellCoordinator {
 	private pendingMonitorReason = new Map<string, MonitorTerminalReason>();
 	private bgWidgetCleanup: (() => void) | null = null;
 	private agentHandledCompletion = new Set<string>();
-
-	isOverlayOpen(): boolean {
-		return this.overlayOpen;
-	}
-
-	beginOverlay(): boolean {
-		if (this.overlayOpen) return false;
-		this.overlayOpen = true;
-		return true;
-	}
-
-	endOverlay(): void {
-		this.overlayOpen = false;
-		this.clearOverlayHandle();
-	}
-
-	focusOverlay(): void {
-		this.overlayHandle?.focus();
-	}
-
-	unfocusOverlay(): void {
-		this.overlayHandle?.unfocus();
-	}
-
-	isOverlayFocused(): boolean {
-		return this.overlayHandle?.isFocused() === true;
-	}
-
-	setOverlayHandle(handle: OverlayHandle): void {
-		this.overlayHandle = handle;
-	}
-
-	clearOverlayHandle(): void {
-		this.overlayHandle = null;
-	}
 
 	markAgentHandledCompletion(sessionId: string): void {
 		this.agentHandledCompletion.add(sessionId);
@@ -151,7 +113,10 @@ export class InteractiveShellCoordinator {
 		return recorded;
 	}
 
-	getMonitorEvents(sessionId: string, options?: { limit?: number; offset?: number; sinceEventId?: number; triggerId?: string }): {
+	getMonitorEvents(
+		sessionId: string,
+		options?: { limit?: number; offset?: number; sinceEventId?: number; triggerId?: string },
+	): {
 		events: MonitorEventPayload[];
 		total: number;
 		limit: number;

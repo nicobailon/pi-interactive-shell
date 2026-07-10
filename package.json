@@ -1,76 +1,74 @@
 {
-  "name": "pi-interactive-shell",
-  "version": "0.13.0",
-  "description": "Run AI coding agents in pi TUI overlays with interactive, hands-free, and dispatch supervision",
-  "type": "module",
-  "files": [
-    "index.ts",
-    "config.ts",
-    "key-encoding.ts",
-    "overlay-component.ts",
-    "pty-session.ts",
-    "reattach-overlay.ts",
-    "session-manager.ts",
-    "tool-schema.ts",
-    "headless-monitor.ts",
-    "types.ts",
-    "background-widget.ts",
-    "handoff-utils.ts",
-    "notification-utils.ts",
-    "pty-log.ts",
-    "pty-protocol.ts",
-    "runtime-coordinator.ts",
-    "session-query.ts",
-    "spawn.ts",
-    "skills/**/*",
-    "examples/",
-    "banner.png",
-    "README.md",
-    "CHANGELOG.md"
-  ],
-  "pi": {
-    "extensions": [
-      "./index.ts"
-    ],
-    "skills": [
-      "./skills"
-    ],
-    "video": "https://github.com/nicobailon/pi-interactive-shell/raw/refs/heads/main/pi-interactive-shell-extension.mp4"
-  },
-  "dependencies": {
-    "@xterm/addon-serialize": "^0.13.0",
-    "@xterm/headless": "^5.5.0",
-    "typebox": "^1.1.24",
-    "zigpty": "^0.1.6"
-  },
-  "scripts": {
-    "test": "vitest run"
-  },
-  "keywords": [
-    "pi-package",
-    "pi",
-    "pi-coding-agent",
-    "extension",
-    "interactive",
-    "shell",
-    "terminal",
-    "tui",
-    "subagent",
-    "claude",
-    "gemini",
-    "codex"
-  ],
-  "author": "Nico Bailon",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/nicobailon/pi-interactive-shell.git"
-  },
-  "bugs": {
-    "url": "https://github.com/nicobailon/pi-interactive-shell/issues"
-  },
-  "homepage": "https://github.com/nicobailon/pi-interactive-shell#readme",
-  "devDependencies": {
-    "vitest": "^3.2.4"
-  }
+	"name": "pi-interactive-kitty",
+	"version": "0.13.0",
+	"description": "Run AI coding agents in managed kitty tabs with interactive, hands-free, and dispatch supervision",
+	"type": "module",
+	"files": [
+		"index.ts",
+		"config.ts",
+		"key-encoding.ts",
+		"session-manager.ts",
+		"tool-schema.ts",
+		"headless-monitor.ts",
+		"types.ts",
+		"background-widget.ts",
+		"handoff-utils.ts",
+		"notification-utils.ts",
+		"kitty-client.ts",
+		"kitty-session.ts",
+		"kitty-snapshot.ts",
+		"terminal-session.ts",
+		"session-log.ts",
+		"runtime-coordinator.ts",
+		"session-query.ts",
+		"spawn.ts",
+		"skills/**/*",
+		"examples/",
+		"banner.png",
+		"pi-interactive-shell-extension.mp4",
+		"README.md",
+		"CHANGELOG.md"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		],
+		"skills": [
+			"./skills"
+		],
+		"video": "https://github.com/nicobailon/pi-interactive-shell/raw/refs/heads/main/pi-interactive-shell-extension.mp4"
+	},
+	"dependencies": {
+		"typebox": "^1.1.24"
+	},
+	"scripts": {
+		"test": "vitest run"
+	},
+	"keywords": [
+		"pi-package",
+		"pi",
+		"pi-coding-agent",
+		"extension",
+		"interactive",
+		"shell",
+		"terminal",
+		"tui",
+		"subagent",
+		"claude",
+		"gemini",
+		"codex"
+	],
+	"author": "XYenon",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/XYenon/pi-interactive-kitty.git"
+	},
+	"bugs": {
+		"url": "https://github.com/XYenon/pi-interactive-kitty/issues"
+	},
+	"homepage": "https://github.com/XYenon/pi-interactive-kitty#readme",
+	"devDependencies": {
+		"vitest": "^3.2.4"
+	}
 }

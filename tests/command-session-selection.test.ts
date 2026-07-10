@@ -109,6 +109,27 @@ describe("command session selection", () => {
 		expect(harness.notify).toHaveBeenCalledWith(`Session not found: ${trickyId}`, "error");
 	});
 
+	it("/attach restarts background cleanup when focus fails", async () => {
+		const focus = vi.fn().mockRejectedValue(new Error("window closed"));
+		const harness = await setupHarness([
+			{
+				id: "bg-1",
+				command: "pi",
+				session: { exited: false, focus } as any,
+				startedAt: new Date(),
+			},
+		]);
+		const attach = harness.commands.get("attach");
+		expect(attach).toBeDefined();
+		harness.sessionManager.get.mockReturnValueOnce(harness.sessionManager.list()[0]);
+
+		await attach!.handler("bg-1", harness.ctx as any);
+
+		expect(focus).toHaveBeenCalledTimes(1);
+		expect(harness.sessionManager.restartAutoCleanup).toHaveBeenCalledWith("bg-1");
+		expect(harness.notify).toHaveBeenCalledWith("Failed to focus session bg-1: window closed", "error");
+	});
+
 	it("/dismiss preserves full session id when id contains ' ('", async () => {
 		const trickyId = "gamma (delta";
 		const harness = await setupHarness([

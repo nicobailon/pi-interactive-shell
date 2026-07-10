@@ -2,9 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { InteractiveShellConfig } from "../config.js";
 
 const config: InteractiveShellConfig = {
-	exitAutoCloseDelay: 10,
-	overlayWidthPercent: 95,
-	overlayHeightPercent: 60,
 	focusShortcut: "alt+shift+f",
 	spawn: {
 		defaultAgent: "pi",
@@ -22,8 +19,6 @@ const config: InteractiveShellConfig = {
 	handoffSnapshotEnabled: false,
 	handoffSnapshotLines: 200,
 	handoffSnapshotMaxChars: 12000,
-	transferLines: 200,
-	transferMaxChars: 20000,
 	completionNotifyLines: 50,
 	completionNotifyMaxChars: 5000,
 	handsFreeUpdateMode: "on-quiet",
@@ -84,7 +79,7 @@ describe("spawn helpers", () => {
 		});
 		expect(parseSpawnArgs("claude --dispatch")).toEqual({
 			ok: false,
-			error: "Monitored /spawn requires a quoted prompt, for example /spawn claude \"review the diffs\" --dispatch.",
+			error: 'Monitored /spawn requires a quoted prompt, for example /spawn claude "review the diffs" --dispatch.',
 		});
 		expect(parseSpawnArgs("claude review the diffs --dispatch")).toEqual({
 			ok: false,
@@ -98,10 +93,15 @@ describe("spawn helpers", () => {
 
 	it("resolves the configured default agent and default args", async () => {
 		const { resolveSpawn } = await import("../spawn.js");
-		const result = resolveSpawn({
-			...config,
-			spawn: { ...config.spawn, defaultAgent: "codex" },
-		}, "/tmp/project", undefined, () => "/tmp/project/session.jsonl");
+		const result = resolveSpawn(
+			{
+				...config,
+				spawn: { ...config.spawn, defaultAgent: "codex" },
+			},
+			"/tmp/project",
+			undefined,
+			() => "/tmp/project/session.jsonl",
+		);
 		expect(result).toEqual({
 			ok: true,
 			spawn: {
@@ -117,7 +117,9 @@ describe("spawn helpers", () => {
 
 	it("appends prompt text using each CLI's native startup form", async () => {
 		const { resolveSpawn } = await import("../spawn.js");
-		expect(resolveSpawn(config, "/tmp/project", { agent: "claude", prompt: "review the diffs" }, () => "/tmp/project/session.jsonl")).toEqual({
+		expect(
+			resolveSpawn(config, "/tmp/project", { agent: "claude", prompt: "review the diffs" }, () => "/tmp/project/session.jsonl"),
+		).toEqual({
 			ok: true,
 			spawn: {
 				agent: "claude",
@@ -128,7 +130,9 @@ describe("spawn helpers", () => {
 				worktreePath: undefined,
 			},
 		});
-		expect(resolveSpawn(config, "/tmp/project", { agent: "cursor", prompt: "review the diffs" }, () => "/tmp/project/session.jsonl")).toEqual({
+		expect(
+			resolveSpawn(config, "/tmp/project", { agent: "cursor", prompt: "review the diffs" }, () => "/tmp/project/session.jsonl"),
+		).toEqual({
 			ok: true,
 			spawn: {
 				agent: "cursor",
@@ -139,7 +143,9 @@ describe("spawn helpers", () => {
 				worktreePath: undefined,
 			},
 		});
-		expect(resolveSpawn(config, "/tmp/project", { agent: "pi", mode: "fork", prompt: "continue from here" }, () => "/tmp/project/session.jsonl")).toEqual({
+		expect(
+			resolveSpawn(config, "/tmp/project", { agent: "pi", mode: "fork", prompt: "continue from here" }, () => "/tmp/project/session.jsonl"),
+		).toEqual({
 			ok: true,
 			spawn: {
 				agent: "pi",
@@ -172,10 +178,17 @@ describe("spawn helpers", () => {
 		const execFileSync = vi.fn();
 		vi.doMock("node:child_process", () => ({ execFileSync }));
 		const { resolveSpawn } = await import("../spawn.js");
-		expect(resolveSpawn({
-			...config,
-			spawn: { ...config.spawn, worktree: true },
-		}, "/tmp/repo", { agent: "pi", mode: "fork", worktree: true }, () => undefined)).toEqual({
+		expect(
+			resolveSpawn(
+				{
+					...config,
+					spawn: { ...config.spawn, worktree: true },
+				},
+				"/tmp/repo",
+				{ agent: "pi", mode: "fork", worktree: true },
+				() => undefined,
+			),
+		).toEqual({
 			ok: false,
 			error: "Cannot fork the current session because it is not persisted (likely --no-session mode).",
 		});

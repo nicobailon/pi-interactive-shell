@@ -13,12 +13,24 @@ export interface SpawnConfig {
 	worktreeBaseDir?: string;
 }
 
+export interface KittyConfig {
+	listenOn?: string;
+	remoteControlPassword?: string;
+	publicKey?: string;
+	version: [number, number, number];
+	responseTimeoutMs: number;
+	connectTimeoutMs: number;
+	pollIntervalMs: number;
+	killGraceMs: number;
+	osWindowTitle: string;
+	tabTitlePrefix: string;
+	focusNewSessions: boolean;
+}
+
 export interface InteractiveShellConfig {
-	exitAutoCloseDelay: number;
-	overlayWidthPercent: number;
-	overlayHeightPercent: number;
 	focusShortcut: string;
 	spawn: SpawnConfig;
+	kitty: KittyConfig;
 	scrollbackLines: number;
 	ansiReemit: boolean;
 	handoffPreviewEnabled: boolean;
@@ -27,8 +39,6 @@ export interface InteractiveShellConfig {
 	handoffSnapshotEnabled: boolean;
 	handoffSnapshotLines: number;
 	handoffSnapshotMaxChars: number;
-	transferLines: number;
-	transferMaxChars: number;
 	completionNotifyLines: number;
 	completionNotifyMaxChars: number;
 	handsFreeUpdateMode: "on-quiet" | "interval";
@@ -60,11 +70,21 @@ const DEFAULT_SPAWN_CONFIG: SpawnConfig = {
 };
 
 const DEFAULT_CONFIG: InteractiveShellConfig = {
-	exitAutoCloseDelay: 10,
-	overlayWidthPercent: 95,
-	overlayHeightPercent: 60,
 	focusShortcut: "alt+shift+f",
 	spawn: DEFAULT_SPAWN_CONFIG,
+	kitty: {
+		listenOn: undefined,
+		remoteControlPassword: undefined,
+		publicKey: undefined,
+		version: [0, 47, 4],
+		responseTimeoutMs: 5000,
+		connectTimeoutMs: 5000,
+		pollIntervalMs: 500,
+		killGraceMs: 5000,
+		osWindowTitle: "Pi Interactive Kitty",
+		tabTitlePrefix: "pi-shell",
+		focusNewSessions: true,
+	},
 	scrollbackLines: 5000,
 	ansiReemit: true,
 	handoffPreviewEnabled: true,
@@ -73,8 +93,6 @@ const DEFAULT_CONFIG: InteractiveShellConfig = {
 	handoffSnapshotEnabled: false,
 	handoffSnapshotLines: 200,
 	handoffSnapshotMaxChars: 12000,
-	transferLines: 200,
-	transferMaxChars: 20000,
 	completionNotifyLines: 50,
 	completionNotifyMaxChars: 5000,
 	handsFreeUpdateMode: "on-quiet",
@@ -86,97 +104,77 @@ const DEFAULT_CONFIG: InteractiveShellConfig = {
 	minQueryIntervalSeconds: 60,
 };
 
+function readConfigFile(dir: string, filename: string): Partial<InteractiveShellConfig> {
+	const path = join(dir, filename);
+	if (!existsSync(path)) return {};
+	try {
+		return JSON.parse(readFileSync(path, "utf-8")) as Partial<InteractiveShellConfig>;
+	} catch (error) {
+		console.error(`Warning: Could not parse ${path}:`, error);
+		return {};
+	}
+}
+
 export function loadConfig(cwd: string): InteractiveShellConfig {
-	const projectPath = join(cwd, ".pi", "interactive-shell.json");
-	const globalPath = join(getAgentDir(), "interactive-shell.json");
-
-	let globalConfig: Partial<InteractiveShellConfig> = {};
-	let projectConfig: Partial<InteractiveShellConfig> = {};
-
-	if (existsSync(globalPath)) {
-		try {
-			globalConfig = JSON.parse(readFileSync(globalPath, "utf-8"));
-		} catch (error) {
-			console.error(`Warning: Could not parse ${globalPath}:`, error);
-		}
-	}
-
-	if (existsSync(projectPath)) {
-		try {
-			projectConfig = JSON.parse(readFileSync(projectPath, "utf-8"));
-		} catch (error) {
-			console.error(`Warning: Could not parse ${projectPath}:`, error);
-		}
-	}
+	const globalConfig = readConfigFile(getAgentDir(), "interactive-kitty.json");
+	const projectConfig = readConfigFile(join(cwd, ".pi"), "interactive-kitty.json");
 
 	const mergedSpawn = mergeSpawnConfig(globalConfig.spawn, projectConfig.spawn);
-	const merged = { ...DEFAULT_CONFIG, ...globalConfig, ...projectConfig, spawn: mergedSpawn };
+	const mergedKitty = mergeKittyConfig(globalConfig.kitty, projectConfig.kitty);
+	const merged = { ...DEFAULT_CONFIG, ...globalConfig, ...projectConfig, spawn: mergedSpawn, kitty: mergedKitty };
 
 	return {
 		...merged,
-		exitAutoCloseDelay: clampInt(merged.exitAutoCloseDelay, DEFAULT_CONFIG.exitAutoCloseDelay, 0, 60),
-		overlayWidthPercent: clampPercent(merged.overlayWidthPercent, DEFAULT_CONFIG.overlayWidthPercent),
-		overlayHeightPercent: clampInt(merged.overlayHeightPercent, DEFAULT_CONFIG.overlayHeightPercent, 20, 90),
 		focusShortcut: resolveShortcut(merged.focusShortcut, DEFAULT_CONFIG.focusShortcut),
 		spawn: mergedSpawn,
+		kitty: mergedKitty,
 		scrollbackLines: clampInt(merged.scrollbackLines, DEFAULT_CONFIG.scrollbackLines, 200, 50000),
 		ansiReemit: merged.ansiReemit !== false,
 		handoffPreviewEnabled: merged.handoffPreviewEnabled !== false,
 		handoffPreviewLines: clampInt(merged.handoffPreviewLines, DEFAULT_CONFIG.handoffPreviewLines, 0, 500),
-		handoffPreviewMaxChars: clampInt(
-			merged.handoffPreviewMaxChars,
-			DEFAULT_CONFIG.handoffPreviewMaxChars,
-			0,
-			50000,
-		),
+		handoffPreviewMaxChars: clampInt(merged.handoffPreviewMaxChars, DEFAULT_CONFIG.handoffPreviewMaxChars, 0, 50000),
 		handoffSnapshotEnabled: merged.handoffSnapshotEnabled === true,
 		handoffSnapshotLines: clampInt(merged.handoffSnapshotLines, DEFAULT_CONFIG.handoffSnapshotLines, 0, 5000),
-		handoffSnapshotMaxChars: clampInt(
-			merged.handoffSnapshotMaxChars,
-			DEFAULT_CONFIG.handoffSnapshotMaxChars,
-			0,
-			200000,
-		),
-		transferLines: clampInt(merged.transferLines, DEFAULT_CONFIG.transferLines, 10, 1000),
-		transferMaxChars: clampInt(merged.transferMaxChars, DEFAULT_CONFIG.transferMaxChars, 1000, 100000),
+		handoffSnapshotMaxChars: clampInt(merged.handoffSnapshotMaxChars, DEFAULT_CONFIG.handoffSnapshotMaxChars, 0, 200000),
 		completionNotifyLines: clampInt(merged.completionNotifyLines, DEFAULT_CONFIG.completionNotifyLines, 10, 500),
 		completionNotifyMaxChars: clampInt(merged.completionNotifyMaxChars, DEFAULT_CONFIG.completionNotifyMaxChars, 1000, 50000),
 		handsFreeUpdateMode: merged.handsFreeUpdateMode === "interval" ? "interval" : "on-quiet",
-		handsFreeUpdateInterval: clampInt(
-			merged.handsFreeUpdateInterval,
-			DEFAULT_CONFIG.handsFreeUpdateInterval,
-			5000,
-			300000,
-		),
-		handsFreeQuietThreshold: clampInt(
-			merged.handsFreeQuietThreshold,
-			DEFAULT_CONFIG.handsFreeQuietThreshold,
+		handsFreeUpdateInterval: clampInt(merged.handsFreeUpdateInterval, DEFAULT_CONFIG.handsFreeUpdateInterval, 5000, 300000),
+		handsFreeQuietThreshold: clampInt(merged.handsFreeQuietThreshold, DEFAULT_CONFIG.handsFreeQuietThreshold, 1000, 30000),
+		autoExitGracePeriod: clampInt(merged.autoExitGracePeriod, DEFAULT_CONFIG.autoExitGracePeriod, 5000, 120000),
+		handsFreeUpdateMaxChars: clampInt(merged.handsFreeUpdateMaxChars, DEFAULT_CONFIG.handsFreeUpdateMaxChars, 500, 50000),
+		handsFreeMaxTotalChars: clampInt(merged.handsFreeMaxTotalChars, DEFAULT_CONFIG.handsFreeMaxTotalChars, 10000, 1000000),
+		minQueryIntervalSeconds: clampInt(merged.minQueryIntervalSeconds, DEFAULT_CONFIG.minQueryIntervalSeconds, 5, 300),
+	};
+}
+
+function mergeKittyConfig(globalValue: unknown, projectValue: unknown): KittyConfig {
+	const globalKitty = isPlainObject(globalValue) ? globalValue : undefined;
+	const projectKitty = isPlainObject(projectValue) ? projectValue : undefined;
+	return {
+		listenOn: resolveOptionalString(projectKitty?.listenOn ?? globalKitty?.listenOn),
+		remoteControlPassword: resolveOptionalString(projectKitty?.remoteControlPassword ?? globalKitty?.remoteControlPassword),
+		publicKey: resolveOptionalString(projectKitty?.publicKey ?? globalKitty?.publicKey),
+		version: resolveVersion(projectKitty?.version ?? globalKitty?.version, DEFAULT_CONFIG.kitty.version),
+		responseTimeoutMs: clampInt(
+			projectKitty?.responseTimeoutMs ?? globalKitty?.responseTimeoutMs,
+			DEFAULT_CONFIG.kitty.responseTimeoutMs,
 			1000,
-			30000,
-		),
-		autoExitGracePeriod: clampInt(
-			merged.autoExitGracePeriod,
-			DEFAULT_CONFIG.autoExitGracePeriod,
-			5000,
 			120000,
 		),
-		handsFreeUpdateMaxChars: clampInt(
-			merged.handsFreeUpdateMaxChars,
-			DEFAULT_CONFIG.handsFreeUpdateMaxChars,
+		connectTimeoutMs: clampInt(
+			projectKitty?.connectTimeoutMs ?? globalKitty?.connectTimeoutMs,
+			DEFAULT_CONFIG.kitty.connectTimeoutMs,
 			500,
-			50000,
+			60000,
 		),
-		handsFreeMaxTotalChars: clampInt(
-			merged.handsFreeMaxTotalChars,
-			DEFAULT_CONFIG.handsFreeMaxTotalChars,
-			10000,
-			1000000,
-		),
-		minQueryIntervalSeconds: clampInt(
-			merged.minQueryIntervalSeconds,
-			DEFAULT_CONFIG.minQueryIntervalSeconds,
-			5,
-			300,
+		pollIntervalMs: clampInt(projectKitty?.pollIntervalMs ?? globalKitty?.pollIntervalMs, DEFAULT_CONFIG.kitty.pollIntervalMs, 100, 10000),
+		killGraceMs: clampInt(projectKitty?.killGraceMs ?? globalKitty?.killGraceMs, DEFAULT_CONFIG.kitty.killGraceMs, 500, 60000),
+		osWindowTitle: resolveString(projectKitty?.osWindowTitle ?? globalKitty?.osWindowTitle, DEFAULT_CONFIG.kitty.osWindowTitle),
+		tabTitlePrefix: resolveString(projectKitty?.tabTitlePrefix ?? globalKitty?.tabTitlePrefix, DEFAULT_CONFIG.kitty.tabTitlePrefix),
+		focusNewSessions: resolveBoolean(
+			projectKitty?.focusNewSessions ?? globalKitty?.focusNewSessions,
+			DEFAULT_CONFIG.kitty.focusNewSessions,
 		),
 	};
 }
@@ -190,10 +188,10 @@ function mergeSpawnConfig(globalValue: unknown, projectValue: unknown): SpawnCon
 	const projectArgs = isPlainObject(projectSpawn?.defaultArgs) ? projectSpawn.defaultArgs : undefined;
 
 	const mergedCommands = {
-		pi: resolveCommand(projectCommands?.pi ?? globalCommands?.pi, DEFAULT_SPAWN_CONFIG.commands.pi),
-		codex: resolveCommand(projectCommands?.codex ?? globalCommands?.codex, DEFAULT_SPAWN_CONFIG.commands.codex),
-		claude: resolveCommand(projectCommands?.claude ?? globalCommands?.claude, DEFAULT_SPAWN_CONFIG.commands.claude),
-		cursor: resolveCommand(projectCommands?.cursor ?? globalCommands?.cursor, DEFAULT_SPAWN_CONFIG.commands.cursor),
+		pi: resolveString(projectCommands?.pi ?? globalCommands?.pi, DEFAULT_SPAWN_CONFIG.commands.pi),
+		codex: resolveString(projectCommands?.codex ?? globalCommands?.codex, DEFAULT_SPAWN_CONFIG.commands.codex),
+		claude: resolveString(projectCommands?.claude ?? globalCommands?.claude, DEFAULT_SPAWN_CONFIG.commands.claude),
+		cursor: resolveString(projectCommands?.cursor ?? globalCommands?.cursor, DEFAULT_SPAWN_CONFIG.commands.cursor),
 	};
 
 	const mergedDefaultArgs = {
@@ -221,7 +219,7 @@ function resolveSpawnAgent(value: unknown, fallback: SpawnAgent): SpawnAgent {
 	return value === "pi" || value === "codex" || value === "claude" || value === "cursor" ? value : fallback;
 }
 
-function resolveCommand(value: unknown, fallback: string): string {
+function resolveString(value: unknown, fallback: string): string {
 	return resolveShortcut(typeof value === "string" ? value : undefined, fallback);
 }
 
@@ -240,9 +238,11 @@ function resolveOptionalString(value: unknown): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function clampPercent(value: number | undefined, fallback: number): number {
-	if (typeof value !== "number" || Number.isNaN(value)) return fallback;
-	return Math.min(100, Math.max(10, value));
+function resolveVersion(value: unknown, fallback: [number, number, number]): [number, number, number] {
+	if (!Array.isArray(value) || value.length !== 3) return fallback;
+	const parsed = value.map((part) => Number(part));
+	if (!parsed.every((part) => Number.isInteger(part) && part >= 0)) return fallback;
+	return [parsed[0]!, parsed[1]!, parsed[2]!];
 }
 
 function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {

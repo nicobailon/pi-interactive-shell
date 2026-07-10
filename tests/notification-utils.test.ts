@@ -1,26 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildIdlePromptWarning, buildMonitorEventNotification, buildMonitorLifecycleNotification, buildResultNotification } from "../notification-utils.js";
+import {
+	buildDispatchNotification,
+	buildHandsFreeUpdateMessage,
+	buildIdlePromptWarning,
+	buildMonitorEventNotification,
+	buildMonitorLifecycleNotification,
+	buildResultNotification,
+} from "../notification-utils.js";
 
 describe("notification utilities", () => {
 	it("formats compact dispatch notifications with a trimmed tail", () => {
-		const text = buildDispatchNotification("calm-reef", {
-			exitCode: 0,
-			completionOutput: {
-				lines: ["1", "2", "3", "4", "5", "6", ""],
-				totalLines: 6,
-				truncated: false,
+		const text = buildDispatchNotification(
+			"calm-reef",
+			{
+				exitCode: 0,
+				completionOutput: {
+					lines: ["1", "2", "3", "4", "5", "6", ""],
+					totalLines: 6,
+					truncated: false,
+				},
 			},
-		}, "5m 0s");
+			"5m 0s",
+		);
 		expect(text).toContain("Session calm-reef completed successfully (5m 0s). 6 lines of output.");
 		expect(text).toContain("2\n3\n4\n5\n6");
 		expect(text).toContain('Attach to review full output: interactive_shell({ attach: "calm-reef" })');
 	});
 
 	it("formats cancelled dispatch notifications as killed", () => {
-		const text = buildDispatchNotification("calm-reef", {
-			exitCode: null,
-			cancelled: true,
-		}, "30s");
+		const text = buildDispatchNotification(
+			"calm-reef",
+			{
+				exitCode: null,
+				cancelled: true,
+			},
+			"30s",
+		);
 		expect(text).toContain("Session calm-reef was killed (30s).");
 	});
 
@@ -40,22 +55,26 @@ describe("notification utilities", () => {
 	});
 
 	it("only emits non-running hands-free updates", () => {
-		expect(buildHandsFreeUpdateMessage({
-			status: "running",
-			sessionId: "calm-reef",
-			runtime: 1000,
-			tail: [],
-			tailTruncated: false,
-		})).toBeNull();
+		expect(
+			buildHandsFreeUpdateMessage({
+				status: "running",
+				sessionId: "calm-reef",
+				runtime: 1000,
+				tail: [],
+				tailTruncated: false,
+			}),
+		).toBeNull();
 
-		expect(buildHandsFreeUpdateMessage({
-			status: "user-takeover",
-			sessionId: "calm-reef",
-			runtime: 1000,
-			tail: ["hello"],
-			tailTruncated: false,
-			userTookOver: true,
-		})?.content).toContain("Session calm-reef: user took over (1s)");
+		expect(
+			buildHandsFreeUpdateMessage({
+				status: "user-takeover",
+				sessionId: "calm-reef",
+				runtime: 1000,
+				tail: ["hello"],
+				tailTruncated: false,
+				userTookOver: true,
+			})?.content,
+		).toContain("Session calm-reef: user took over (1s)");
 	});
 
 	it("formats monitor event notifications", () => {
@@ -68,7 +87,7 @@ describe("notification utilities", () => {
 			eventType: "error",
 			matchedText: "ERROR: failed",
 			lineOrDiff: "ERROR: failed to compile",
-			stream: "pty",
+			stream: "terminal",
 		});
 		expect(text).toContain("Monitor Event (calm-reef) #3");
 		expect(text).toContain("Strategy: stream");

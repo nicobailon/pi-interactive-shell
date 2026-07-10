@@ -27,9 +27,7 @@ export interface ResolvedSpawn {
 	worktreePath?: string;
 }
 
-export function parseSpawnArgs(args: string):
-	| { ok: true; parsed: ParsedSpawnArgs }
-	| { ok: false; error: string } {
+export function parseSpawnArgs(args: string): { ok: true; parsed: ParsedSpawnArgs } | { ok: false; error: string } {
 	const tokenized = tokenizeSpawnArgs(args);
 	if (!tokenized.ok) {
 		return tokenized;
@@ -85,7 +83,7 @@ export function parseSpawnArgs(args: string):
 	if (promptTokens.length > 1) {
 		return {
 			ok: false,
-			error: "Prompt text must be quoted as a single argument, for example /spawn claude \"review the diffs\" --dispatch.",
+			error: 'Prompt text must be quoted as a single argument, for example /spawn claude "review the diffs" --dispatch.',
 		};
 	}
 
@@ -99,7 +97,7 @@ export function parseSpawnArgs(args: string):
 	if (monitorMode && prompt === undefined) {
 		return {
 			ok: false,
-			error: "Monitored /spawn requires a quoted prompt, for example /spawn claude \"review the diffs\" --dispatch.",
+			error: 'Monitored /spawn requires a quoted prompt, for example /spawn claude "review the diffs" --dispatch.',
 		};
 	}
 
@@ -117,9 +115,7 @@ export function resolveSpawn(
 	cwd: string,
 	request: SpawnRequest | undefined,
 	getSessionFile: () => string | undefined,
-):
-	| { ok: true; spawn: ResolvedSpawn }
-	| { ok: false; error: string } {
+): { ok: true; spawn: ResolvedSpawn } | { ok: false; error: string } {
 	const agent = request?.agent ?? config.spawn.defaultAgent;
 	const mode = request?.mode ?? "fresh";
 	const worktree = request?.worktree ?? config.spawn.worktree;
@@ -183,9 +179,7 @@ function createSpawnWorktree(
 	config: InteractiveShellConfig,
 	cwd: string,
 	agent: SpawnAgent,
-):
-	| { ok: true; cwd: string; path: string }
-	| { ok: false; error: string } {
+): { ok: true; cwd: string; path: string } | { ok: false; error: string } {
 	const workingDir = resolve(cwd);
 	const repoRoot = runGit(["-C", workingDir, "rev-parse", "--show-toplevel"], workingDir);
 	if (!repoRoot.ok) {
@@ -218,9 +212,7 @@ function createSpawnWorktree(
 	};
 }
 
-function runGit(args: string[], cwd: string):
-	| { ok: true; stdout: string }
-	| { ok: false; error: string } {
+function runGit(args: string[], cwd: string): { ok: true; stdout: string } | { ok: false; error: string } {
 	try {
 		return {
 			ok: true,
@@ -231,9 +223,7 @@ function runGit(args: string[], cwd: string):
 			}).trim(),
 		};
 	} catch (error) {
-		const stderr = error instanceof Error && "stderr" in error && typeof error.stderr === "string"
-			? error.stderr.trim()
-			: "";
+		const stderr = error instanceof Error && "stderr" in error && typeof error.stderr === "string" ? error.stderr.trim() : "";
 		const message = error instanceof Error ? error.message : String(error);
 		return { ok: false, error: stderr ? `${message}\n${stderr}` : message };
 	}
@@ -256,9 +246,7 @@ function shellQuote(value: string): string {
 
 type ParsedToken = { value: string; quoted: boolean };
 
-function tokenizeSpawnArgs(args: string):
-	| { ok: true; tokens: ParsedToken[] }
-	| { ok: false; error: string } {
+function tokenizeSpawnArgs(args: string): { ok: true; tokens: ParsedToken[] } | { ok: false; error: string } {
 	const tokens: ParsedToken[] = [];
 	let current = "";
 	let currentQuoted = false;

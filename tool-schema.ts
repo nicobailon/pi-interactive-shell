@@ -3,33 +3,27 @@ import { Type } from "typebox";
 export const TOOL_NAME = "interactive_shell";
 export const TOOL_LABEL = "Interactive Shell";
 
-export const TOOL_DESCRIPTION = `Run an interactive CLI coding agent in an overlay.
+export const TOOL_DESCRIPTION = `Run an interactive CLI coding agent in managed kitty tabs.
 
 Use this ONLY for delegating tasks to other AI coding agents (Claude Code, Cursor CLI, Gemini CLI, Codex, etc.) that have their own TUI and benefit from user interaction.
 
 DO NOT use this for regular bash commands - use the standard bash tool instead.
 
 MODES:
-- interactive (default): User supervises and controls the session
-- hands-free: Agent monitors with periodic updates, user can take over anytime by typing
+- interactive (default): User supervises and controls the session in kitty
+- hands-free: Agent monitors with periodic updates while the kitty tab remains available
 - dispatch: Agent is notified on completion via triggerTurn (no polling needed)
-- monitor: Run in background and wake the agent on structured monitor events (stream, poll-diff, or file-watch)
+- monitor: Run in a managed kitty tab and wake the agent on structured monitor events (stream, poll-diff, or file-watch)
 
 RECOMMENDED DEFAULT FOR DELEGATED TASKS:
 - For fire-and-forget delegations and QA-style checks, prefer mode="dispatch".
 - Dispatch is the safest choice when the agent should continue immediately and be notified automatically on completion.
 
-The user will see the process in an overlay. They can:
-- Watch output in real-time
-- Scroll through output (Shift+Up/Down)
-- Transfer output to you (Ctrl+T) - closes overlay and sends output as your context
-- Background (Ctrl+B) - dismiss overlay, keep process running
-- Detach (Ctrl+Q) for menu: transfer/background/kill
-- In hands-free mode: type anything to take over control
+The user will see the process in a dedicated kitty OS window, with one tab per session.
 
 HANDS-FREE MODE (NON-BLOCKING):
 When mode="hands-free", the tool returns IMMEDIATELY with a sessionId.
-The overlay opens for the user to watch, but you (the agent) get control back right away.
+The kitty tab opens for the user to watch, but you (the agent) get control back right away.
 
 Workflow:
 1. Start session: interactive_shell({ command: 'pi "Fix bugs"', mode: "hands-free" })
@@ -39,10 +33,7 @@ Workflow:
 3. When task is done: interactive_shell({ sessionId: "calm-reef", kill: true })
    -> Kills session and returns final output
 
-The user sees the overlay and can:
-- Watch output in real-time
-- Take over by typing (you'll see "user-takeover" status on next query)
-- Kill/background via Ctrl+Q
+The user can interact directly in the kitty tab. The agent can still query output, send input, and kill the session.
 
 QUERYING SESSION STATUS:
 - interactive_shell({ sessionId: "calm-reef" }) - get status + rendered terminal output (default: 20 lines, 5KB)
@@ -60,7 +51,7 @@ QUERYING SESSION STATUS:
 - interactive_shell({ monitorEvents: true, monitorSessionId: "calm-reef", monitorEventLimit: 50, monitorEventOffset: 20 }) - paginate monitor history
 
 IMPORTANT: Don't query too frequently! Wait 30-60 seconds between status checks.
-The user is watching the overlay in real-time - you're just checking in periodically.
+The user is watching the kitty tab in real-time - you're just checking in periodically.
 
 RATE LIMITING:
 Queries are limited to once every 60 seconds (configurable). If you query too soon,
@@ -94,26 +85,24 @@ Workflow:
 Dispatch defaults autoExitOnQuiet to true (opt-out with handsFree.autoExitOnQuiet: false).
 You can still query with sessionId if needed, but it's not required.
 
-BACKGROUND DISPATCH (HEADLESS):
-Start a session without any overlay. Process runs headlessly, agent notified on completion:
+BACKGROUND DISPATCH:
+Start a non-blocking session without focusing the kitty tab. The tab is still visible in the managed kitty OS window:
 - interactive_shell({ command: 'pi "fix bugs"', mode: "dispatch", background: true })
 
-MONITOR MODE (EVENT-DRIVEN, HEADLESS):
-Run a background process and wake the agent on structured monitor triggers:
+MONITOR MODE (EVENT-DRIVEN):
+Run a managed kitty process and wake the agent on structured monitor triggers:
 - interactive_shell({ command: 'npm test --watch', mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "fail", literal: "FAIL" }] } })
 - interactive_shell({ command: 'npm run dev', mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "warn", regex: "/error|warn/i" }] } })
 - interactive_shell({ command: 'curl -sf http://localhost:3000/health', mode: "monitor", monitor: { strategy: "poll-diff", triggers: [{ id: "changed", regex: "/./" }], poll: { intervalMs: 5000 } } })
 - interactive_shell({ mode: "monitor", monitor: { strategy: "file-watch", fileWatch: { path: "./uploads", recursive: true, events: ["rename", "change"] }, triggers: [{ id: "pdf", regex: "/\\.pdf$/i" }] } })
 
 AGENT-INITIATED BACKGROUND:
-Dismiss an existing overlay, keep the process running in background:
+Mark an existing session as backgrounded; the kitty tab keeps running:
 - interactive_shell({ sessionId: "calm-reef", background: true })
 
 ATTACH (REATTACH TO BACKGROUND SESSION):
-Open an overlay for a background session:
-- interactive_shell({ attach: "calm-reef" }) - interactive (blocking)
-- interactive_shell({ attach: "calm-reef", mode: "hands-free" }) - hands-free (poll)
-- interactive_shell({ attach: "calm-reef", mode: "dispatch" }) - dispatch (non-blocking, notified)
+Focus the kitty tab for a background session and return current output:
+- interactive_shell({ attach: "calm-reef" })
 
 LIST BACKGROUND SESSIONS:
 - interactive_shell({ listBackground: true })
@@ -144,30 +133,34 @@ export const toolParameters = Type.Object({
 		}),
 	),
 	spawn: Type.Optional(
-		Type.Object({
-			agent: Type.Optional(Type.Union([
-				Type.Literal("pi"),
-				Type.Literal("codex"),
-				Type.Literal("claude"),
-				Type.Literal("cursor"),
-			], {
-				description: "Spawn agent to launch. Defaults to the configured spawn.defaultAgent.",
-			})),
-			mode: Type.Optional(Type.Union([
-				Type.Literal("fresh"),
-				Type.Literal("fork"),
-			], {
-				description: "Spawn mode. 'fork' is only supported for pi and requires a persisted current session.",
-			})),
-			worktree: Type.Optional(Type.Boolean({
-				description: "Launch in a separate git worktree. Defaults to spawn.worktree from config.",
-			})),
-			prompt: Type.Optional(Type.String({
-				description: "Optional startup prompt for pi, codex, claude, or cursor. Uses each CLI's native prompt-bearing startup form.",
-			})),
-		}, {
-			description: "Structured spawn request for pi, codex, claude, or cursor. Use this instead of building the command string manually when you want the extension's spawn defaults, Pi-only fork behavior, worktree support, or native startup prompts.",
-		}),
+		Type.Object(
+			{
+				agent: Type.Optional(
+					Type.Union([Type.Literal("pi"), Type.Literal("codex"), Type.Literal("claude"), Type.Literal("cursor")], {
+						description: "Spawn agent to launch. Defaults to the configured spawn.defaultAgent.",
+					}),
+				),
+				mode: Type.Optional(
+					Type.Union([Type.Literal("fresh"), Type.Literal("fork")], {
+						description: "Spawn mode. 'fork' is only supported for pi and requires a persisted current session.",
+					}),
+				),
+				worktree: Type.Optional(
+					Type.Boolean({
+						description: "Launch in a separate git worktree. Defaults to spawn.worktree from config.",
+					}),
+				),
+				prompt: Type.Optional(
+					Type.String({
+						description: "Optional startup prompt for pi, codex, claude, or cursor. Uses each CLI's native prompt-bearing startup form.",
+					}),
+				),
+			},
+			{
+				description:
+					"Structured spawn request for pi, codex, claude, or cursor. Use this instead of building the command string manually when you want the extension's spawn defaults, Pi-only fork behavior, worktree support, or native startup prompts.",
+			},
+		),
 	),
 	sessionId: Type.Optional(
 		Type.String({
@@ -206,23 +199,26 @@ export const toolParameters = Type.Object({
 	),
 	settings: Type.Optional(
 		Type.Object({
-			updateInterval: Type.Optional(
-				Type.Number({ description: "Change max update interval for existing session (ms)" }),
-			),
-			quietThreshold: Type.Optional(
-				Type.Number({ description: "Change quiet threshold for existing session (ms)" }),
-			),
+			updateInterval: Type.Optional(Type.Number({ description: "Change max update interval for existing session (ms)" })),
+			quietThreshold: Type.Optional(Type.Number({ description: "Change quiet threshold for existing session (ms)" })),
 		}),
 	),
 	input: Type.Optional(
-		Type.String({ description: "Raw text to send to the session (requires sessionId). This only types the text; it does not submit it. Use submit=true or inputKeys:['enter'] when you want to press Enter." }),
+		Type.String({
+			description:
+				"Raw text to send to the session (requires sessionId). This only types the text; it does not submit it. Use submit=true or inputKeys:['enter'] when you want to press Enter.",
+		}),
 	),
 	submit: Type.Optional(
-		Type.Boolean({ description: "Press Enter after sending any input. Prefer this when submitting slash commands or prompts to editor-based TUIs like pi. (requires sessionId)" }),
+		Type.Boolean({
+			description:
+				"Press Enter after sending any input. Prefer this when submitting slash commands or prompts to editor-based TUIs like pi. (requires sessionId)",
+		}),
 	),
 	inputKeys: Type.Optional(
 		Type.Array(Type.String(), {
-			description: "Named keys with modifier support: up, down, enter, ctrl+c, alt+x, shift+tab, ctrl+alt+delete, etc. (requires sessionId)",
+			description:
+				"Named keys with modifier support: up, down, enter, ctrl+c, alt+x, shift+tab, ctrl+alt+delete, etc. (requires sessionId)",
 		}),
 	),
 	inputHex: Type.Optional(
@@ -247,82 +243,93 @@ export const toolParameters = Type.Object({
 	),
 	reason: Type.Optional(
 		Type.String({
-			description:
-				"Brief explanation shown in the overlay header only (not passed to the subprocess)",
+			description: "Brief explanation tracked with the session only (not passed to the subprocess)",
 		}),
 	),
 	mode: Type.Optional(
-		Type.Union([
-			Type.Literal("interactive"),
-			Type.Literal("hands-free"),
-			Type.Literal("dispatch"),
-			Type.Literal("monitor"),
-		], {
-			description: "Mode: 'interactive' (default, user controls), 'hands-free' (agent monitors, user can take over), 'dispatch' (agent notified on completion, no polling needed), or 'monitor' (headless structured event monitor with stream/poll-diff/file-watch strategies).",
+		Type.Union([Type.Literal("interactive"), Type.Literal("hands-free"), Type.Literal("dispatch"), Type.Literal("monitor")], {
+			description:
+				"Mode: 'interactive' (default, user controls in kitty), 'hands-free' (agent monitors while kitty tab stays usable), 'dispatch' (agent notified on completion, no polling needed), or 'monitor' (managed kitty structured event monitor with stream/poll-diff/file-watch strategies).",
 		}),
 	),
 	monitor: Type.Optional(
-		Type.Object({
-			strategy: Type.Optional(Type.Union([
-				Type.Literal("stream"),
-				Type.Literal("poll-diff"),
-			Type.Literal("file-watch"),
-			], {
-				description: "Monitor strategy. stream = line-based trigger matching. poll-diff = periodic snapshot diffing. file-watch = first-class filesystem watch events.",
-			})),
-			triggers: Type.Array(Type.Object({
-				id: Type.String({ description: "Unique trigger id used in emitted event payloads." }),
-				literal: Type.Optional(Type.String({ description: "Literal substring trigger." })),
-				regex: Type.Optional(Type.String({ description: "Regex trigger string. Supports /pattern/flags format." })),
-				cooldownMs: Type.Optional(Type.Number({ description: "Optional per-trigger cooldown window in ms." })),
-				threshold: Type.Optional(Type.Object({
-					captureGroup: Type.Number({ description: "Regex capture group index parsed as number (requires regex matcher)." }),
-					op: Type.Union([
-						Type.Literal("lt"),
-						Type.Literal("lte"),
-						Type.Literal("gt"),
-						Type.Literal("gte"),
-					], { description: "Threshold operator." }),
-					value: Type.Number({ description: "Threshold numeric value." }),
-				})),
-			}), {
-				description: "Named trigger definitions. Each trigger must define exactly one matcher: literal or regex.",
-			}),
-			fileWatch: Type.Optional(Type.Object({
-				path: Type.String({ description: "Path to watch for strategy='file-watch'. Relative paths resolve from cwd." }),
-				recursive: Type.Optional(Type.Boolean({ description: "Watch subdirectories recursively (platform-dependent support)." })),
-				events: Type.Optional(Type.Array(Type.Union([
-					Type.Literal("rename"),
-					Type.Literal("change"),
-				]), { description: "Filesystem event names to emit." })),
-			})),
-			poll: Type.Optional(Type.Object({
-				intervalMs: Type.Optional(Type.Number({ description: "Poll interval in ms for strategy='poll-diff' (default: 5000)." })),
-			})),
-			persistence: Type.Optional(Type.Object({
-				stopAfterFirstEvent: Type.Optional(Type.Boolean({ description: "Stop monitor after first emitted event." })),
-				maxEvents: Type.Optional(Type.Number({ description: "Maximum emitted events before monitor stops." })),
-			})),
-			throttle: Type.Optional(Type.Object({
-				dedupeExactLine: Type.Optional(Type.Boolean({ description: "Suppress repeated exact line/diff payloads (default: true)." })),
-				cooldownMs: Type.Optional(Type.Number({ description: "Optional global cooldown in ms across triggers." })),
-			})),
-			detector: Type.Optional(Type.Object({
-				detectorCommand: Type.String({ description: "External detector command. Receives JSON candidate event on stdin and returns JSON decision on stdout." }),
-				timeoutMs: Type.Optional(Type.Number({ description: "Detector command timeout in ms (default: 3000)." })),
-			})),
-		}, {
-			description: "Structured monitor configuration required when mode='monitor'.",
-		}),
+		Type.Object(
+			{
+				strategy: Type.Optional(
+					Type.Union([Type.Literal("stream"), Type.Literal("poll-diff"), Type.Literal("file-watch")], {
+						description:
+							"Monitor strategy. stream = line-based trigger matching. poll-diff = periodic snapshot diffing. file-watch = first-class filesystem watch events.",
+					}),
+				),
+				triggers: Type.Array(
+					Type.Object({
+						id: Type.String({ description: "Unique trigger id used in emitted event payloads." }),
+						literal: Type.Optional(Type.String({ description: "Literal substring trigger." })),
+						regex: Type.Optional(Type.String({ description: "Regex trigger string. Supports /pattern/flags format." })),
+						cooldownMs: Type.Optional(Type.Number({ description: "Optional per-trigger cooldown window in ms." })),
+						threshold: Type.Optional(
+							Type.Object({
+								captureGroup: Type.Number({ description: "Regex capture group index parsed as number (requires regex matcher)." }),
+								op: Type.Union([Type.Literal("lt"), Type.Literal("lte"), Type.Literal("gt"), Type.Literal("gte")], {
+									description: "Threshold operator.",
+								}),
+								value: Type.Number({ description: "Threshold numeric value." }),
+							}),
+						),
+					}),
+					{
+						description: "Named trigger definitions. Each trigger must define exactly one matcher: literal or regex.",
+					},
+				),
+				fileWatch: Type.Optional(
+					Type.Object({
+						path: Type.String({ description: "Path to watch for strategy='file-watch'. Relative paths resolve from cwd." }),
+						recursive: Type.Optional(Type.Boolean({ description: "Watch subdirectories recursively (platform-dependent support)." })),
+						events: Type.Optional(
+							Type.Array(Type.Union([Type.Literal("rename"), Type.Literal("change")]), { description: "Filesystem event names to emit." }),
+						),
+					}),
+				),
+				poll: Type.Optional(
+					Type.Object({
+						intervalMs: Type.Optional(Type.Number({ description: "Poll interval in ms for strategy='poll-diff' (default: 5000)." })),
+					}),
+				),
+				persistence: Type.Optional(
+					Type.Object({
+						stopAfterFirstEvent: Type.Optional(Type.Boolean({ description: "Stop monitor after first emitted event." })),
+						maxEvents: Type.Optional(Type.Number({ description: "Maximum emitted events before monitor stops." })),
+					}),
+				),
+				throttle: Type.Optional(
+					Type.Object({
+						dedupeExactLine: Type.Optional(Type.Boolean({ description: "Suppress repeated exact line/diff payloads (default: true)." })),
+						cooldownMs: Type.Optional(Type.Number({ description: "Optional global cooldown in ms across triggers." })),
+					}),
+				),
+				detector: Type.Optional(
+					Type.Object({
+						detectorCommand: Type.String({
+							description: "External detector command. Receives JSON candidate event on stdin and returns JSON decision on stdout.",
+						}),
+						timeoutMs: Type.Optional(Type.Number({ description: "Detector command timeout in ms (default: 3000)." })),
+					}),
+				),
+			},
+			{
+				description: "Structured monitor configuration required when mode='monitor'.",
+			},
+		),
 	),
 	background: Type.Optional(
 		Type.Boolean({
-			description: "Run without overlay (with mode='dispatch' or mode='monitor') or dismiss existing overlay (with sessionId). Process runs in background, user can /attach.",
+			description:
+				"Run without focusing the kitty tab (with mode='dispatch' or mode='monitor') or mark an existing session backgrounded. User can /attach to focus.",
 		}),
 	),
 	attach: Type.Optional(
 		Type.String({
-			description: "Background session ID to reattach. Opens overlay with the specified mode.",
+			description: "Background session ID to focus in kitty and query.",
 		}),
 	),
 	listBackground: Type.Optional(
@@ -377,24 +384,21 @@ export const toolParameters = Type.Object({
 					description: "Update mode: 'on-quiet' (default, emit when output stops) or 'interval' (emit on fixed schedule)",
 				}),
 			),
-			updateInterval: Type.Optional(
-				Type.Number({ description: "Max interval between updates in ms (default: 60000)" }),
-			),
+			updateInterval: Type.Optional(Type.Number({ description: "Max interval between updates in ms (default: 60000)" })),
 			quietThreshold: Type.Optional(
 				Type.Number({ description: "Silence duration before emitting update in on-quiet mode (default: 8000ms)" }),
 			),
 			gracePeriod: Type.Optional(
 				Type.Number({ description: "Startup grace period before autoExitOnQuiet can kill the session (default: 15000ms)" }),
 			),
-			updateMaxChars: Type.Optional(
-				Type.Number({ description: "Max chars per update (default: 1500)" }),
-			),
+			updateMaxChars: Type.Optional(Type.Number({ description: "Max chars per update (default: 1500)" })),
 			maxTotalChars: Type.Optional(
 				Type.Number({ description: "Total char budget for all updates (default: 100000). Updates stop including content when exhausted." }),
 			),
 			autoExitOnQuiet: Type.Optional(
 				Type.Boolean({
-					description: "Auto-kill session when output stops (after quietThreshold). Defaults to false. Set to true for fire-and-forget single-task delegations.",
+					description:
+						"Auto-kill session when output stops (after quietThreshold). Defaults to false. Set to true for fire-and-forget single-task delegations.",
 				}),
 			),
 		}),
@@ -403,9 +407,7 @@ export const toolParameters = Type.Object({
 		Type.Object({
 			enabled: Type.Optional(Type.Boolean({ description: "Include last N lines in tool result details" })),
 			lines: Type.Optional(Type.Number({ description: "Tail lines to include (default from config)" })),
-			maxChars: Type.Optional(
-				Type.Number({ description: "Max chars to include in tail preview (default from config)" }),
-			),
+			maxChars: Type.Optional(Type.Number({ description: "Max chars to include in tail preview (default from config)" })),
 		}),
 	),
 	handoffSnapshot: Type.Optional(

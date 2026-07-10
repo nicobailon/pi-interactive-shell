@@ -11,13 +11,7 @@ export interface InteractiveShellResult {
 	timedOut?: boolean;
 	sessionId?: string;
 	userTookOver?: boolean;
-	/** When user triggers "Transfer" action, this contains the captured output */
-	transferred?: {
-		lines: string[];
-		totalLines: number;
-		truncated: boolean;
-	};
-	/** Captured before PTY disposal for dispatch mode completion notifications */
+	/** Captured before session disposal for dispatch mode completion notifications */
 	completionOutput?: {
 		lines: string[];
 		totalLines: number;
@@ -25,12 +19,12 @@ export interface InteractiveShellResult {
 	};
 	handoffPreview?: {
 		type: "tail";
-		when: "exit" | "detach" | "kill" | "timeout" | "transfer";
+		when: "exit" | "detach" | "kill" | "timeout";
 		lines: string[];
 	};
 	handoff?: {
 		type: "snapshot";
-		when: "exit" | "detach" | "kill" | "timeout" | "transfer";
+		when: "exit" | "detach" | "kill" | "timeout";
 		transcriptPath: string;
 		linesWritten: number;
 	};
@@ -102,7 +96,7 @@ export interface MonitorEventPayload {
 	eventType: string;
 	matchedText: string;
 	lineOrDiff: string;
-	stream: "pty";
+	stream: "terminal";
 }
 
 export type MonitorTerminalReason = "stream-ended" | "script-failed" | "stopped" | "timed-out";
@@ -123,50 +117,15 @@ export interface MonitorSessionState {
 	signal?: number;
 }
 
-/** Options for starting or reattaching an interactive shell session. */
+/** Handoff / session option overrides shared by completion helpers. */
 export interface InteractiveShellOptions {
-	command: string;
-	cwd?: string;
-	name?: string;
-	reason?: string;
-	/** Original session start time in ms since epoch, preserved across background/reattach transitions. */
-	startedAt?: number;
 	handoffPreviewEnabled?: boolean;
 	handoffPreviewLines?: number;
 	handoffPreviewMaxChars?: number;
 	handoffSnapshotEnabled?: boolean;
 	handoffSnapshotLines?: number;
 	handoffSnapshotMaxChars?: number;
-	// Hands-free / dispatch / monitor mode
-	mode?: "interactive" | "hands-free" | "dispatch" | "monitor";
-	monitor?: MonitorConfig;
-	sessionId?: string; // Pre-generated sessionId for non-blocking modes
-	handsFreeUpdateMode?: "on-quiet" | "interval";
-	handsFreeUpdateInterval?: number;
-	handsFreeQuietThreshold?: number;
-	handsFreeUpdateMaxChars?: number;
-	handsFreeMaxTotalChars?: number;
-	onHandsFreeUpdate?: (update: HandsFreeUpdate) => void;
-	// Auto-exit when output stops (for agents that don't exit on their own)
-	autoExitOnQuiet?: boolean;
-	autoExitGracePeriod?: number;
-	// Auto-kill timeout
-	timeout?: number;
-	// When true, unregister active session on completion (blocking tool call path).
-	// When false/undefined, keep registered so agent can query result later.
-	streamingMode?: boolean;
-	// Existing PTY session (for attach flow -- skip creating a new PTY)
-	existingSession?: import("./pty-session.js").PtyTerminalSession;
-	onUnfocus?: () => void;
 }
-
-export type DialogChoice = "kill" | "background" | "transfer" | "cancel" | "return-to-agent";
-export type OverlayState = "running" | "exited" | "detach-dialog" | "hands-free";
-
-// UI constants
-export const FOOTER_LINES_COMPACT = 2;
-export const FOOTER_LINES_DIALOG = 6;
-export const HEADER_LINES = 4;
 
 /** Format milliseconds to human-readable duration */
 export function formatDuration(ms: number): string {
@@ -176,14 +135,6 @@ export function formatDuration(ms: number): string {
 	if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
 	const hours = Math.floor(minutes / 60);
 	return `${hours}h ${minutes % 60}m`;
-}
-
-/** Format a key shortcut string for display (capitalize modifier names) */
-export function formatShortcut(shortcut: string): string {
-	return shortcut
-		.replace(/ctrl/gi, "Ctrl")
-		.replace(/shift/gi, "Shift")
-		.replace(/alt/gi, "Alt");
 }
 
 /** Format milliseconds with ms precision for shorter durations */

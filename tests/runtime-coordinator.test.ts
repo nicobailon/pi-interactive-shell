@@ -4,10 +4,17 @@ import { InteractiveShellCoordinator } from "../runtime-coordinator.js";
 describe("InteractiveShellCoordinator monitor state", () => {
 	it("tracks monitor session lifecycle and filtered event queries", () => {
 		const coordinator = new InteractiveShellCoordinator();
-		coordinator.registerMonitorSession("calm-reef", {
-			strategy: "stream",
-			triggers: [{ id: "error", literal: "ERROR" }, { id: "warn", literal: "WARN" }],
-		}, new Date("2026-04-12T00:00:00.000Z"));
+		coordinator.registerMonitorSession(
+			"calm-reef",
+			{
+				strategy: "stream",
+				triggers: [
+					{ id: "error", literal: "ERROR" },
+					{ id: "warn", literal: "WARN" },
+				],
+			},
+			new Date("2026-04-12T00:00:00.000Z"),
+		);
 
 		const first = coordinator.recordMonitorEvent({
 			sessionId: "calm-reef",
@@ -16,7 +23,7 @@ describe("InteractiveShellCoordinator monitor state", () => {
 			eventType: "error",
 			matchedText: "ERROR",
 			lineOrDiff: "ERROR boom",
-			stream: "pty",
+			stream: "terminal",
 		});
 		const second = coordinator.recordMonitorEvent({
 			sessionId: "calm-reef",
@@ -25,7 +32,7 @@ describe("InteractiveShellCoordinator monitor state", () => {
 			eventType: "warn",
 			matchedText: "WARN",
 			lineOrDiff: "WARN slow",
-			stream: "pty",
+			stream: "terminal",
 		});
 
 		expect(first.eventId).toBe(1);

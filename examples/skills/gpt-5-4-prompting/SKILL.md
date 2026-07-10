@@ -128,9 +128,11 @@ GPT-5.4 supports up to 1M tokens, but accuracy degrades beyond ~512K. Handle lon
 GPT-5.4 tends to preserve old patterns and add compatibility shims. Use **"cutover"** to signal a clean break.
 
 Instead of:
+
 > "Rewrite this and don't worry about backwards compatibility"
 
 Say:
+
 > "This is a cutover. No backwards compatibility. Rewrite using only Python 3.12+ features and current best practices. Do not preserve legacy code, polyfills, or deprecated patterns."
 
 ## Quick reference

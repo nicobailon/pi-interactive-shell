@@ -1,39 +1,39 @@
 ---
 name: codex-cli
-description: OpenAI Codex CLI reference. Use when running codex in interactive_shell overlay or when user asks about codex CLI options.
+description: OpenAI Codex CLI reference. Use when running codex in interactive_shell (managed kitty tabs) or when user asks about codex CLI options.
 ---
 
 # Codex CLI (OpenAI)
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `codex` | Start interactive TUI |
-| `codex "prompt"` | TUI with initial prompt |
+| Command               | Description                                                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `codex`               | Start interactive TUI                                                                                       |
+| `codex "prompt"`      | TUI with initial prompt                                                                                     |
 | `codex exec "prompt"` | Non-interactive (headless), streams to stdout. Supports `--output-schema <file>` for structured JSON output |
-| `codex e "prompt"` | Shorthand for exec |
-| `codex login` | Authenticate (OAuth, device auth, or API key) |
-| `codex login status` | Show auth mode |
-| `codex logout` | Remove credentials |
-| `codex mcp` | Manage MCP servers |
-| `codex completion` | Generate shell completions |
+| `codex e "prompt"`    | Shorthand for exec                                                                                          |
+| `codex login`         | Authenticate (OAuth, device auth, or API key)                                                               |
+| `codex login status`  | Show auth mode                                                                                              |
+| `codex logout`        | Remove credentials                                                                                          |
+| `codex mcp`           | Manage MCP servers                                                                                          |
+| `codex completion`    | Generate shell completions                                                                                  |
 
 ## Key Flags
 
-| Flag | Description |
-|------|-------------|
-| `-m, --model <model>` | Switch model (prefer `gpt-5.5`) |
-| `-c <key=value>` | Override config.toml values (dotted paths, parsed as TOML) |
-| `-p, --profile <name>` | Use config profile from config.toml |
-| `-s, --sandbox <mode>` | Sandbox policy: `read-only`, `workspace-write`, `danger-full-access` |
-| `-a, --ask-for-approval <policy>` | `untrusted`, `on-failure`, `on-request`, `never` |
-| `--full-auto` | Alias for `-a on-request --sandbox workspace-write` |
-| `--search` | Enable live web search tool |
-| `-i, --image <file>` | Attach image(s) to initial prompt |
-| `--add-dir <dir>` | Additional writable directories |
-| `-C, --cd <dir>` | Set working root directory |
-| `--no-alt-screen` | Inline mode (preserve terminal scrollback) |
+| Flag                              | Description                                                          |
+| --------------------------------- | -------------------------------------------------------------------- |
+| `-m, --model <model>`             | Switch model (prefer `gpt-5.5`)                                      |
+| `-c <key=value>`                  | Override config.toml values (dotted paths, parsed as TOML)           |
+| `-p, --profile <name>`            | Use config profile from config.toml                                  |
+| `-s, --sandbox <mode>`            | Sandbox policy: `read-only`, `workspace-write`, `danger-full-access` |
+| `-a, --ask-for-approval <policy>` | `untrusted`, `on-failure`, `on-request`, `never`                     |
+| `--full-auto`                     | Alias for `-a on-request --sandbox workspace-write`                  |
+| `--search`                        | Enable live web search tool                                          |
+| `-i, --image <file>`              | Attach image(s) to initial prompt                                    |
+| `--add-dir <dir>`                 | Additional writable directories                                      |
+| `-C, --cd <dir>`                  | Set working root directory                                           |
+| `--no-alt-screen`                 | Inline mode (preserve terminal scrollback)                           |
 
 ## Sandbox Modes
 
@@ -79,6 +79,7 @@ Codex will generate the image(s), display them inline in the terminal (or save t
 ### Tips
 
 - **Image editing / iteration**: Attach a reference image (screenshot, wireframe, mockup) to your prompt. Codex handles multimodal input natively.
+
   ```bash
   codex -i wireframe.png "Turn this wireframe into a polished UI mockup"
   codex -i design.png "Generate code for this design"
@@ -95,6 +96,7 @@ Codex will generate the image(s), display them inline in the terminal (or save t
 Config file: `~/.codex/config.toml`
 
 Key config values (set in file or override with `-c`):
+
 - `model` -- model name (prefer `gpt-5.5`)
 - `model_reasoning_effort` -- `low`, `medium`, `high`, `xhigh`
 - `model_reasoning_summary` -- `detailed`, `concise`, `none`
@@ -106,7 +108,7 @@ Define profiles for different projects/modes with `[profiles.<name>]` sections. 
 
 ## In interactive_shell
 
-Do NOT pass `-s` / `--sandbox` flags. Codex's `read-only` and `workspace-write` sandbox modes apply OS-level filesystem restrictions that break basic shell operations inside the PTY -- zsh can't even create temp files for here-documents, so every write attempt fails with "operation not permitted." The interactive shell overlay already provides supervision (user watches in real-time, Ctrl+Q to kill, Ctrl+T to transfer output), making Codex's sandbox redundant.
+Do NOT pass `-s` / `--sandbox` flags. Codex's `read-only` and `workspace-write` sandbox modes apply OS-level filesystem restrictions that break basic shell operations inside the managed kitty tab -- zsh can't even create temp files for here-documents, so every write attempt fails with "operation not permitted." `interactive_shell` already provides supervision (user watches in the kitty tab; agent can query/kill/attach), making Codex's sandbox redundant.
 
 Prefer `gpt-5.5` for Codex CLI work. For users with a default profile configured to `gpt-5.5`, just run `codex "prompt"` to use those defaults -- no model or profile flags needed.
 
@@ -115,16 +117,16 @@ For delegated fire-and-forget runs, prefer `mode: "dispatch"` so the agent is no
 ```typescript
 // Delegated run with completion notification (recommended default)
 interactive_shell({
-  command: 'codex "Review this codebase for security issues"',
-  mode: "dispatch"
-})
+	command: 'codex "Review this codebase for security issues"',
+	mode: "dispatch",
+});
 
 // Override reasoning effort for a single delegated run
 interactive_shell({
-  command: 'codex -c model_reasoning_effort="xhigh" "Complex refactor task"',
-  mode: "dispatch"
-})
+	command: 'codex -c model_reasoning_effort="xhigh" "Complex refactor task"',
+	mode: "dispatch",
+});
 
 // Headless - use bash instead
-bash({ command: 'codex exec "summarize the repo"' })
+bash({ command: 'codex exec "summarize the repo"' });
 ```

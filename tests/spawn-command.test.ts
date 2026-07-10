@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-type OverlayOptionsCapture = { command: string; reason?: string; cwd?: string } | null;
+type SessionOptionsCapture = { command: string; reason?: string; cwd?: string } | null;
 
 type SpawnConfigOverrides = {
 	focusShortcut?: string;
+	pendingSession?: boolean;
+	killSpy?: ReturnType<typeof vi.fn>;
 	spawn?: {
 		defaultAgent?: "pi" | "codex" | "claude" | "cursor";
 		shortcut?: string;
@@ -15,7 +17,7 @@ type SpawnConfigOverrides = {
 };
 
 async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {}) {
-	let lastOverlayOptions: OverlayOptionsCapture = null;
+	let lastSessionOptions: SessionOptionsCapture = null;
 	let registeredTool: { execute: (...args: any[]) => Promise<any> } | null = null;
 
 	vi.resetModules();
@@ -32,9 +34,6 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 		return {
 			...actual,
 			loadConfig: vi.fn(() => ({
-				exitAutoCloseDelay: 10,
-				overlayWidthPercent: 95,
-				overlayHeightPercent: 60,
 				focusShortcut: configOverrides.focusShortcut ?? "alt+shift+f",
 				spawn: {
 					defaultAgent: configOverrides.spawn?.defaultAgent ?? "pi",
@@ -54,6 +53,14 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 					worktree: configOverrides.spawn?.worktree ?? false,
 					worktreeBaseDir: configOverrides.spawn?.worktreeBaseDir,
 				},
+				kitty: {
+					version: [0, 47, 4],
+					responseTimeoutMs: 5000,
+					pollIntervalMs: 500,
+					osWindowTitle: "Pi Interactive Kitty",
+					tabTitlePrefix: "pi-shell",
+					focusNewSessions: true,
+				},
 				scrollbackLines: 5000,
 				ansiReemit: true,
 				handoffPreviewEnabled: true,
@@ -62,8 +69,6 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 				handoffSnapshotEnabled: false,
 				handoffSnapshotLines: 200,
 				handoffSnapshotMaxChars: 12000,
-				transferLines: 200,
-				transferMaxChars: 20000,
 				completionNotifyLines: 50,
 				completionNotifyMaxChars: 5000,
 				handsFreeUpdateMode: "on-quiet",
@@ -76,11 +81,58 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 			})),
 		};
 	});
-	vi.doMock("../overlay-component.js", () => ({
-		InteractiveShellOverlay: class MockInteractiveShellOverlay {
-			constructor(_tui: unknown, _theme: unknown, options: { command: string; reason?: string; cwd?: string }) {
-				lastOverlayOptions = { command: options.command, reason: options.reason, cwd: options.cwd };
+	vi.doMock("../kitty-session.js", () => ({
+		KittyTerminalSession: class MockKittyTerminalSession {
+			ready = Promise.resolve();
+			exited = configOverrides.pendingSession === true ? false : true;
+			exitCode = configOverrides.pendingSession === true ? null : 0;
+			signal = undefined;
+			pid = 123;
+			cols = 120;
+			rows = 40;
+			private exitListeners: Array<() => void> = [];
+			constructor(options: { command: string; reason?: string; cwd?: string }) {
+				lastSessionOptions = { command: options.command, reason: options.reason, cwd: options.cwd };
 			}
+			setEventHandlers() {}
+			addDataListener() {
+				return () => {};
+			}
+			addExitListener(cb: () => void) {
+				this.exitListeners.push(cb);
+				if (!configOverrides.pendingSession) queueMicrotask(cb);
+				return () => {};
+			}
+			write() {}
+			sendKeys() {}
+			paste() {}
+			focus() {}
+			resize() {}
+			getViewportLines() {
+				return Promise.resolve([]);
+			}
+			getTailLines() {
+				return Promise.resolve({ lines: [], totalLinesInBuffer: 0, truncatedByChars: false });
+			}
+			getRawStream() {
+				return "";
+			}
+			getLogSlice() {
+				return Promise.resolve({ slice: "", totalLines: 0, totalChars: 0, sliceLineCount: 0 });
+			}
+			scrollUp() {}
+			scrollDown() {}
+			scrollToBottom() {}
+			isScrolledUp() {
+				return false;
+			}
+			kill() {
+				configOverrides.killSpy?.();
+				this.exited = true;
+				this.exitCode = null;
+				for (const cb of this.exitListeners) cb();
+			}
+			dispose() {}
 		},
 	}));
 	vi.doMock("../spawn.js", async () => {
@@ -118,12 +170,7 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 	const notify = vi.fn();
 	const custom = vi.fn(async (factory: (tui: any, theme: any, kb: any, done: (result: unknown) => void) => unknown) => {
 		const done = vi.fn();
-		factory(
-			{ terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() },
-			{ fg: (_color: string, text: string) => text },
-			{},
-			done,
-		);
+		factory({ terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() }, { fg: (_color: string, text: string) => text }, {}, done);
 		return nextCustomResult;
 	});
 
@@ -147,7 +194,7 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 		setCustomResult: (result: any) => {
 			nextCustomResult = result;
 		},
-		getLastOverlayOptions: () => lastOverlayOptions,
+		getLastSessionOptions: () => lastSessionOptions,
 	};
 }
 
@@ -156,7 +203,7 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		vi.doUnmock("@mariozechner/pi-coding-agent");
 		vi.doUnmock("@mariozechner/pi-tui");
 		vi.doUnmock("../config.js");
-		vi.doUnmock("../overlay-component.js");
+		vi.doUnmock("../kitty-session.js");
 		vi.doUnmock("../spawn.js");
 	});
 
@@ -166,10 +213,8 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(spawn).toBeDefined();
 
 		await spawn!.handler("", harness.ctx as any);
-		expect(harness.custom).toHaveBeenCalledTimes(1);
-		expect(harness.getLastOverlayOptions()).toMatchObject({
+		expect(harness.getLastSessionOptions()).toMatchObject({
 			command: "codex",
-			reason: "spawn codex (fresh session)",
 		});
 	});
 
@@ -179,9 +224,8 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(spawn).toBeDefined();
 
 		await spawn!.handler("claude", harness.ctx as any);
-		expect(harness.getLastOverlayOptions()).toMatchObject({
+		expect(harness.getLastSessionOptions()).toMatchObject({
 			command: "claude",
-			reason: "spawn claude (fresh session)",
 		});
 	});
 
@@ -191,9 +235,8 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(spawn).toBeDefined();
 
 		await spawn!.handler("cursor", harness.ctx as any);
-		expect(harness.getLastOverlayOptions()).toMatchObject({
+		expect(harness.getLastSessionOptions()).toMatchObject({
 			command: "agent --model composer-2-fast",
-			reason: "spawn cursor (fresh session)",
 		});
 	});
 
@@ -203,9 +246,8 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(spawn).toBeDefined();
 
 		await spawn!.handler('"review the diffs" --dispatch', harness.ctx as any);
-		expect(harness.getLastOverlayOptions()).toMatchObject({
+		expect(harness.getLastSessionOptions()).toMatchObject({
 			command: "pi 'review the diffs'",
-			reason: "spawn pi (fresh session)",
 		});
 		expect(harness.notify).not.toHaveBeenCalledWith(expect.stringContaining("requires"), "error");
 	});
@@ -217,12 +259,9 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(spawn).toBeDefined();
 
 		await spawn!.handler("pi fork", harness.ctx as any);
-		const expectedForkArg = process.platform === "win32"
-			? '"/tmp/project/it\'s session.jsonl"'
-			: "'/tmp/project/it'\\''s session.jsonl'";
-		expect(harness.getLastOverlayOptions()).toMatchObject({
+		const expectedForkArg = process.platform === "win32" ? '"/tmp/project/it\'s session.jsonl"' : "'/tmp/project/it'\\''s session.jsonl'";
+		expect(harness.getLastSessionOptions()).toMatchObject({
 			command: `pi --fork ${expectedForkArg}`,
-			reason: "spawn pi (fork current session)",
 		});
 	});
 
@@ -233,10 +272,7 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 
 		await spawn!.handler("codex fork", harness.ctx as any);
 		expect(harness.custom).not.toHaveBeenCalled();
-		expect(harness.notify).toHaveBeenCalledWith(
-			"Cannot fork codex. Fork is only supported for pi sessions.",
-			"error",
-		);
+		expect(harness.notify).toHaveBeenCalledWith("Cannot fork codex. Fork is only supported for pi sessions.", "error");
 	});
 
 	it("spawn shortcut uses the configured default agent and configured key", async () => {
@@ -248,7 +284,7 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(harness.shortcuts.get("alt+shift+p")).toBeUndefined();
 
 		await shortcut!.handler(harness.ctx as any);
-		expect(harness.getLastOverlayOptions()).toMatchObject({ command: "claude" });
+		expect(harness.getLastSessionOptions()).toMatchObject({ command: "claude" });
 	});
 
 	it("interactive_shell structured spawn uses the shared resolver", async () => {
@@ -258,15 +294,19 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		const tool = harness.getTool();
 		expect(tool).toBeTruthy();
 
-		const result = await tool!.execute("call-1", {
-			spawn: { agent: "codex" },
-			mode: "interactive",
-		}, undefined, undefined, harness.ctx as any);
+		const result = await tool!.execute(
+			"call-1",
+			{
+				spawn: { agent: "codex" },
+				mode: "interactive",
+			},
+			undefined,
+			undefined,
+			harness.ctx as any,
+		);
 
-		expect(harness.custom).toHaveBeenCalledTimes(1);
-		expect(harness.getLastOverlayOptions()).toMatchObject({
+		expect(harness.getLastSessionOptions()).toMatchObject({
 			command: "/opt/codex/bin/codex",
-			reason: "spawn codex (fresh session)",
 		});
 		expect(result.content[0].text).toContain("Session ended successfully");
 	});
@@ -276,14 +316,19 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		const tool = harness.getTool();
 		expect(tool).toBeTruthy();
 
-		const result = await tool!.execute("call-1", {
-			spawn: { agent: "claude", prompt: "review the diffs" },
-			mode: "dispatch",
-		}, undefined, undefined, harness.ctx as any);
+		const result = await tool!.execute(
+			"call-1",
+			{
+				spawn: { agent: "claude", prompt: "review the diffs" },
+				mode: "dispatch",
+			},
+			undefined,
+			undefined,
+			harness.ctx as any,
+		);
 
-		expect(harness.getLastOverlayOptions()).toMatchObject({
+		expect(harness.getLastSessionOptions()).toMatchObject({
 			command: "claude 'review the diffs'",
-			reason: "spawn claude (fresh session)",
 		});
 		expect(result.content[0].text).toContain("Session dispatched");
 	});
@@ -293,14 +338,19 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		const tool = harness.getTool();
 		expect(tool).toBeTruthy();
 
-		const result = await tool!.execute("call-1", {
-			spawn: { agent: "cursor", prompt: "review the diffs" },
-			mode: "dispatch",
-		}, undefined, undefined, harness.ctx as any);
+		const result = await tool!.execute(
+			"call-1",
+			{
+				spawn: { agent: "cursor", prompt: "review the diffs" },
+				mode: "dispatch",
+			},
+			undefined,
+			undefined,
+			harness.ctx as any,
+		);
 
-		expect(harness.getLastOverlayOptions()).toMatchObject({
+		expect(harness.getLastSessionOptions()).toMatchObject({
 			command: "agent --model composer-2-fast 'review the diffs'",
-			reason: "spawn cursor (fresh session)",
 		});
 		expect(result.content[0].text).toContain("Session dispatched");
 	});
@@ -310,10 +360,16 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		const tool = harness.getTool();
 		expect(tool).toBeTruthy();
 
-		const result = await tool!.execute("call-1", {
-			spawn: { agent: "claude", mode: "fork" },
-			mode: "interactive",
-		}, undefined, undefined, harness.ctx as any);
+		const result = await tool!.execute(
+			"call-1",
+			{
+				spawn: { agent: "claude", mode: "fork" },
+				mode: "interactive",
+			},
+			undefined,
+			undefined,
+			harness.ctx as any,
+		);
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toBe("Cannot fork claude. Fork is only supported for pi sessions.");
@@ -326,29 +382,44 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 
 		const result = await tool!.execute("call-1", {}, undefined, undefined, harness.ctx as any);
 		expect(result.isError).toBe(true);
-		expect(result.content[0].text).toBe("One of 'command', 'spawn', 'sessionId', 'attach', 'listBackground', or 'dismissBackground' is required.");
+		expect(result.content[0].text).toBe(
+			"One of 'command', 'spawn', 'sessionId', 'attach', 'listBackground', or 'dismissBackground' is required.",
+		);
 	});
 
-	it("/spawn forwards transfer output back into the main agent conversation", async () => {
-		const harness = await setupExtensionHarness();
-		harness.setCustomResult({
-			exitCode: 0,
-			backgrounded: false,
-			cancelled: false,
-			transferred: {
-				lines: ["line 1", "line 2"],
-				totalLines: 2,
-				truncated: false,
+	it("interactive_shell cancels an interactive session when the tool signal aborts", async () => {
+		const killSpy = vi.fn();
+		const harness = await setupExtensionHarness({ pendingSession: true, killSpy });
+		const tool = harness.getTool();
+		expect(tool).toBeTruthy();
+		const controller = new AbortController();
+
+		const pending = tool!.execute(
+			"call-1",
+			{
+				command: "sleep 60",
+				mode: "interactive",
 			},
-		});
+			controller.signal,
+			undefined,
+			harness.ctx as any,
+		);
+		await Promise.resolve();
+		controller.abort();
+		const result = await pending;
+
+		expect(killSpy).toHaveBeenCalledTimes(1);
+		expect(result.details.cancelled).toBe(true);
+		expect(result.details.sessionId).toEqual(expect.any(String));
+	});
+
+	it("/spawn starts a kitty session via KittyTerminalSession", async () => {
+		const harness = await setupExtensionHarness();
 		const spawn = harness.commands.get("spawn");
 		expect(spawn).toBeDefined();
 
 		await spawn!.handler("", harness.ctx as any);
-		expect(harness.pi.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-			customType: "interactive-shell-transfer",
-			display: true,
-			content: expect.stringContaining("Interactive shell output transferred (2 lines):"),
-		}), { triggerTurn: true });
+		expect(harness.custom).not.toHaveBeenCalled();
+		expect(harness.getLastSessionOptions()).toMatchObject({ command: "pi" });
 	});
 });

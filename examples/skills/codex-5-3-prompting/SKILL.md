@@ -131,12 +131,12 @@ Include when the prompt involves tool-calling agents.
 
 Set `model_reasoning_effort` via Codex CLI: `-c model_reasoning_effort="high"`
 
-| Task type | Effort |
-|---|---|
-| Simple code generation, formatting | `low` or `medium` |
-| Standard implementation from clear specs | `high` |
-| Complex refactors, plan review, architecture | `xhigh` |
-| Code review (thorough) | `high` or `xhigh` |
+| Task type                                    | Effort            |
+| -------------------------------------------- | ----------------- |
+| Simple code generation, formatting           | `low` or `medium` |
+| Standard implementation from clear specs     | `high`            |
+| Complex refactors, plan review, architecture | `xhigh`           |
+| Code review (thorough)                       | `high` or `xhigh` |
 
 ## Backwards compatibility hedging
 
@@ -145,9 +145,11 @@ GPT-5.3-Codex has a strong tendency to preserve old patterns, add compatibility 
 Use **"cutover"** to signal a clean, irreversible break. It's a precise industry term that conveys finality and intentional deprecation -- no dual-support phase, no gradual migration, no preserving old behavior.
 
 Instead of:
+
 > "Rewrite this and don't worry about backwards compatibility"
 
 Say:
+
 > "This is a cutover. No backwards compatibility. Rewrite using only Python 3.12+ features and current best practices. Do not preserve legacy code, polyfills, or deprecated patterns."
 
 ## Quick reference

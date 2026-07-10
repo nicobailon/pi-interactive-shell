@@ -50,12 +50,6 @@ async function setupKillHarness(options: SetupOptions = {}) {
 		truncateToWidth: (value: string) => value,
 		visibleWidth: (value: string) => value.length,
 	}));
-	vi.doMock("../overlay-component.js", () => ({
-		InteractiveShellOverlay: class MockInteractiveShellOverlay {},
-	}));
-	vi.doMock("../reattach-overlay.js", () => ({
-		ReattachOverlay: class MockReattachOverlay {},
-	}));
 	vi.doMock("../session-manager.js", () => ({
 		sessionManager,
 		generateSessionId: () => "mock-session-id",
@@ -65,13 +59,6 @@ async function setupKillHarness(options: SetupOptions = {}) {
 			markAgentHandledCompletion = vi.fn();
 			consumeAgentHandledCompletion = vi.fn(() => false);
 			getMonitor = vi.fn(() => ({ disposed: false }));
-			focusOverlay = vi.fn();
-			unfocusOverlay = vi.fn();
-			setOverlayHandle = vi.fn();
-			clearOverlayHandle = vi.fn();
-			isOverlayOpen = vi.fn(() => false);
-			beginOverlay = vi.fn(() => true);
-			endOverlay = vi.fn();
 			replaceBackgroundWidgetCleanup = vi.fn();
 			clearBackgroundWidget = vi.fn();
 			disposeAllMonitors = vi.fn();
@@ -114,8 +101,6 @@ describe("session kill completion suppression", () => {
 	afterEach(() => {
 		vi.doUnmock("@mariozechner/pi-coding-agent");
 		vi.doUnmock("@mariozechner/pi-tui");
-		vi.doUnmock("../overlay-component.js");
-		vi.doUnmock("../reattach-overlay.js");
 		vi.doUnmock("../runtime-coordinator.js");
 		vi.doUnmock("../session-manager.js");
 	});

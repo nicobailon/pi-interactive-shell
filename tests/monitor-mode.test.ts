@@ -34,9 +34,6 @@ async function setupHarness() {
 		return {
 			...actual,
 			loadConfig: vi.fn(() => ({
-				exitAutoCloseDelay: 10,
-				overlayWidthPercent: 95,
-				overlayHeightPercent: 60,
 				focusShortcut: "alt+shift+f",
 				spawn: {
 					defaultAgent: "pi",
@@ -46,6 +43,14 @@ async function setupHarness() {
 					worktree: false,
 					worktreeBaseDir: undefined,
 				},
+				kitty: {
+					version: [0, 47, 4],
+					responseTimeoutMs: 5000,
+					pollIntervalMs: 500,
+					osWindowTitle: "Pi Interactive Kitty",
+					tabTitlePrefix: "pi-shell",
+					focusNewSessions: true,
+				},
 				scrollbackLines: 5000,
 				ansiReemit: true,
 				handoffPreviewEnabled: true,
@@ -54,8 +59,6 @@ async function setupHarness() {
 				handoffSnapshotEnabled: false,
 				handoffSnapshotLines: 200,
 				handoffSnapshotMaxChars: 12000,
-				transferLines: 200,
-				transferMaxChars: 20000,
 				completionNotifyLines: 50,
 				completionNotifyMaxChars: 5000,
 				handsFreeUpdateMode: "on-quiet",
@@ -68,45 +71,47 @@ async function setupHarness() {
 			})),
 		};
 	});
-	vi.doMock("../overlay-component.js", () => ({
-		InteractiveShellOverlay: class MockInteractiveShellOverlay {},
-	}));
-	vi.doMock("../reattach-overlay.js", () => ({
-		ReattachOverlay: class MockReattachOverlay {},
-	}));
-	vi.doMock("../pty-session.js", () => ({
-		PtyTerminalSession: class MockPtyTerminalSession {
+	vi.doMock("../kitty-session.js", () => ({
+		KittyTerminalSession: class MockKittyTerminalSession {
+			ready = Promise.resolve();
 			exited = false;
 			exitCode: number | null = null;
 			signal: number | undefined;
 			constructor(options: { command: string }) {
 				launchedCommand = options.command;
 			}
-			addDataListener(_cb: (data: string) => void) { return () => {}; }
-			addExitListener(_cb: (exitCode: number | null, signal?: number) => void) { return () => {}; }
-			getTailLines() { return { lines: [], totalLinesInBuffer: 0, truncatedByChars: false }; }
+			addDataListener(_cb: (data: string) => void) {
+				return () => {};
+			}
+			addExitListener(_cb: (exitCode: number | null, signal?: number) => void) {
+				return () => {};
+			}
+			getTailLines() {
+				return Promise.resolve({ lines: [], totalLinesInBuffer: 0, truncatedByChars: false });
+			}
 			write() {}
 			kill() {}
 			setEventHandlers() {}
 			dispose() {}
-			getRawStream() { return ""; }
+			getRawStream() {
+				return "";
+			}
 		},
 	}));
 	vi.doMock("../headless-monitor.js", () => ({
 		HeadlessDispatchMonitor: class MockHeadlessDispatchMonitor {
 			disposed = false;
-			constructor(
-				_session: unknown,
-				_config: unknown,
-				options: MonitorOptionsCapture,
-				onComplete: (info: unknown) => void,
-			) {
+			constructor(_session: unknown, _config: unknown, options: MonitorOptionsCapture, onComplete: (info: unknown) => void) {
 				monitorOptions = options;
 				monitorCompleteCallback = onComplete;
 			}
-			getResult() { return undefined; }
+			getResult() {
+				return undefined;
+			}
 			registerCompleteCallback() {}
-			dispose() { this.disposed = true; }
+			dispose() {
+				this.disposed = true;
+			}
 		},
 	}));
 	vi.doMock("../session-manager.js", () => ({
@@ -157,24 +162,28 @@ describe("monitor mode", () => {
 		vi.doUnmock("@mariozechner/pi-coding-agent");
 		vi.doUnmock("@mariozechner/pi-tui");
 		vi.doUnmock("../config.js");
-		vi.doUnmock("../overlay-component.js");
-		vi.doUnmock("../reattach-overlay.js");
-		vi.doUnmock("../pty-session.js");
+		vi.doUnmock("../kitty-session.js");
 		vi.doUnmock("../headless-monitor.js");
 		vi.doUnmock("../session-manager.js");
 	});
 
 	it("requires monitor object when mode is monitor", async () => {
 		const { toolDef } = await setupHarness();
-		const result = await toolDef.execute("call-1", {
-			command: "npm test",
-			mode: "monitor",
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+		const result = await toolDef.execute(
+			"call-1",
+			{
+				command: "npm test",
+				mode: "monitor",
+			},
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toBe("mode='monitor' requires monitor configuration.");
@@ -182,19 +191,25 @@ describe("monitor mode", () => {
 
 	it("wires compiled monitor config and callback for monitor mode", async () => {
 		const harness = await setupHarness();
-		const result = await harness.toolDef.execute("call-1", {
-			command: "npm test --watch",
-			mode: "monitor",
-			monitor: {
-				strategy: "stream",
-				triggers: [{ id: "error", regex: "/ERROR/i" }],
+		const result = await harness.toolDef.execute(
+			"call-1",
+			{
+				command: "npm test --watch",
+				mode: "monitor",
+				monitor: {
+					strategy: "stream",
+					triggers: [{ id: "error", regex: "/ERROR/i" }],
+				},
 			},
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(result.isError).not.toBe(true);
 		expect(result.details.mode).toBe("monitor");
@@ -206,16 +221,22 @@ describe("monitor mode", () => {
 
 	it("rejects legacy monitorFilter usage after hard cutover", async () => {
 		const { toolDef } = await setupHarness();
-		const result = await toolDef.execute("call-1", {
-			command: "tail -f logs/dev.log",
-			mode: "monitor",
-			monitorFilter: "/tmp/log",
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+		const result = await toolDef.execute(
+			"call-1",
+			{
+				command: "tail -f logs/dev.log",
+				mode: "monitor",
+				monitorFilter: "/tmp/log",
+			},
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("monitorFilter was removed");
@@ -223,14 +244,20 @@ describe("monitor mode", () => {
 
 	it("requires target session when querying monitorEvents", async () => {
 		const { toolDef } = await setupHarness();
-		const result = await toolDef.execute("call-1", {
-			monitorEvents: true,
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+		const result = await toolDef.execute(
+			"call-1",
+			{
+				monitorEvents: true,
+			},
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("monitorEvents requires monitorSessionId");
@@ -238,20 +265,26 @@ describe("monitor mode", () => {
 
 	it("wraps poll-diff monitor command into a recurring loop", async () => {
 		const harness = await setupHarness();
-		const result = await harness.toolDef.execute("call-1", {
-			command: "echo health",
-			mode: "monitor",
-			monitor: {
-				strategy: "poll-diff",
-				triggers: [{ id: "changed", regex: "/./" }],
-				poll: { intervalMs: 5000 },
+		const result = await harness.toolDef.execute(
+			"call-1",
+			{
+				command: "echo health",
+				mode: "monitor",
+				monitor: {
+					strategy: "poll-diff",
+					triggers: [{ id: "changed", regex: "/./" }],
+					poll: { intervalMs: 5000 },
+				},
 			},
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(result.isError).not.toBe(true);
 		expect(harness.getLaunchedCommand()).toContain("while true; do");
@@ -260,23 +293,31 @@ describe("monitor mode", () => {
 
 	it("supports regex capture thresholds in triggers", async () => {
 		const harness = await setupHarness();
-		const result = await harness.toolDef.execute("call-1", {
-			command: "echo prices",
-			mode: "monitor",
-			monitor: {
-				strategy: "stream",
-				triggers: [{
-					id: "nvda-below",
-					regex: "/NVDA:\\s*\\$?(\\d+(?:\\.\\d+)?)/",
-					threshold: { captureGroup: 1, op: "lt", value: 120 },
-				}],
+		const result = await harness.toolDef.execute(
+			"call-1",
+			{
+				command: "echo prices",
+				mode: "monitor",
+				monitor: {
+					strategy: "stream",
+					triggers: [
+						{
+							id: "nvda-below",
+							regex: "/NVDA:\\s*\\$?(\\d+(?:\\.\\d+)?)/",
+							threshold: { captureGroup: 1, op: "lt", value: 120 },
+						},
+					],
+				},
 			},
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(result.isError).not.toBe(true);
 		const match = harness.getMonitorOptions()?.monitor?.triggers[0]?.match;
@@ -286,23 +327,31 @@ describe("monitor mode", () => {
 
 	it("rejects threshold config on literal triggers", async () => {
 		const { toolDef } = await setupHarness();
-		const result = await toolDef.execute("call-1", {
-			command: "echo test",
-			mode: "monitor",
-			monitor: {
-				strategy: "stream",
-				triggers: [{
-					id: "bad-threshold",
-					literal: "NVDA",
-					threshold: { captureGroup: 1, op: "lt", value: 120 },
-				}],
+		const result = await toolDef.execute(
+			"call-1",
+			{
+				command: "echo test",
+				mode: "monitor",
+				monitor: {
+					strategy: "stream",
+					triggers: [
+						{
+							id: "bad-threshold",
+							literal: "NVDA",
+							threshold: { captureGroup: 1, op: "lt", value: 120 },
+						},
+					],
+				},
 			},
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("threshold requires regex matcher");
@@ -310,18 +359,24 @@ describe("monitor mode", () => {
 
 	it("requires fileWatch config for file-watch strategy", async () => {
 		const { toolDef } = await setupHarness();
-		const result = await toolDef.execute("call-1", {
-			mode: "monitor",
-			monitor: {
-				strategy: "file-watch",
-				triggers: [{ id: "pdf", regex: "/\\.pdf$/i" }],
+		const result = await toolDef.execute(
+			"call-1",
+			{
+				mode: "monitor",
+				monitor: {
+					strategy: "file-watch",
+					triggers: [{ id: "pdf", regex: "/\\.pdf$/i" }],
+				},
 			},
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("monitor.fileWatch is required");
@@ -329,19 +384,25 @@ describe("monitor mode", () => {
 
 	it("builds generated command for file-watch strategy", async () => {
 		const harness = await setupHarness();
-		const result = await harness.toolDef.execute("call-1", {
-			mode: "monitor",
-			monitor: {
-				strategy: "file-watch",
-				fileWatch: { path: "./uploads", recursive: true, events: ["rename"] },
-				triggers: [{ id: "pdf", regex: "/\\.pdf$/i" }],
+		const result = await harness.toolDef.execute(
+			"call-1",
+			{
+				mode: "monitor",
+				monitor: {
+					strategy: "file-watch",
+					fileWatch: { path: "./uploads", recursive: true, events: ["rename"] },
+					triggers: [{ id: "pdf", regex: "/\\.pdf$/i" }],
+				},
 			},
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(result.isError).not.toBe(true);
 		expect(harness.getMonitorOptions()?.monitor?.strategy).toBe("file-watch");
@@ -351,30 +412,42 @@ describe("monitor mode", () => {
 
 	it("returns monitor status summaries", async () => {
 		const harness = await setupHarness();
-		const started = await harness.toolDef.execute("call-1", {
-			command: "npm test --watch",
-			mode: "monitor",
-			monitor: {
-				strategy: "stream",
-				triggers: [{ id: "fail", literal: "FAIL" }],
+		const started = await harness.toolDef.execute(
+			"call-1",
+			{
+				command: "npm test --watch",
+				mode: "monitor",
+				monitor: {
+					strategy: "stream",
+					triggers: [{ id: "fail", literal: "FAIL" }],
+				},
 			},
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(started.isError).not.toBe(true);
-		const status = await harness.toolDef.execute("call-2", {
-			monitorStatus: true,
-			monitorSessionId: "monitor-1",
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+		const status = await harness.toolDef.execute(
+			"call-2",
+			{
+				monitorStatus: true,
+				monitorSessionId: "monitor-1",
+			},
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(status.isError).not.toBe(true);
 		expect(status.content[0].text).toContain("Monitor state for monitor-1");
@@ -383,22 +456,28 @@ describe("monitor mode", () => {
 
 	it("supports monitorEvents filtering by trigger and sinceEventId", async () => {
 		const harness = await setupHarness();
-		await harness.toolDef.execute("call-1", {
-			command: "npm test --watch",
-			mode: "monitor",
-			monitor: {
-				strategy: "stream",
-				triggers: [
-					{ id: "fail", literal: "FAIL" },
-					{ id: "warn", literal: "WARN" },
-				],
+		await harness.toolDef.execute(
+			"call-1",
+			{
+				command: "npm test --watch",
+				mode: "monitor",
+				monitor: {
+					strategy: "stream",
+					triggers: [
+						{ id: "fail", literal: "FAIL" },
+						{ id: "warn", literal: "WARN" },
+					],
+				},
 			},
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		harness.getMonitorOptions()?.onMonitorEvent?.({
 			strategy: "stream",
@@ -406,7 +485,7 @@ describe("monitor mode", () => {
 			eventType: "fail",
 			matchedText: "FAIL",
 			lineOrDiff: "FAIL first",
-			stream: "pty",
+			stream: "terminal",
 		});
 		harness.getMonitorOptions()?.onMonitorEvent?.({
 			strategy: "stream",
@@ -414,21 +493,27 @@ describe("monitor mode", () => {
 			eventType: "warn",
 			matchedText: "WARN",
 			lineOrDiff: "WARN second",
-			stream: "pty",
+			stream: "terminal",
 		});
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
-		const filtered = await harness.toolDef.execute("call-2", {
-			monitorEvents: true,
-			monitorSessionId: "monitor-1",
-			monitorTriggerId: "warn",
-			monitorSinceEventId: 1,
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+		const filtered = await harness.toolDef.execute(
+			"call-2",
+			{
+				monitorEvents: true,
+				monitorSessionId: "monitor-1",
+				monitorTriggerId: "warn",
+				monitorSinceEventId: 1,
+			},
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		expect(filtered.isError).not.toBe(true);
 		expect(filtered.details.events).toHaveLength(1);
@@ -439,19 +524,25 @@ describe("monitor mode", () => {
 
 	it("emits monitor lifecycle notification when monitor session completes", async () => {
 		const harness = await setupHarness();
-		await harness.toolDef.execute("call-1", {
-			command: "npm test --watch",
-			mode: "monitor",
-			monitor: {
-				strategy: "stream",
-				triggers: [{ id: "fail", literal: "FAIL" }],
+		await harness.toolDef.execute(
+			"call-1",
+			{
+				command: "npm test --watch",
+				mode: "monitor",
+				monitor: {
+					strategy: "stream",
+					triggers: [{ id: "fail", literal: "FAIL" }],
+				},
 			},
-		}, undefined, undefined, {
-			hasUI: false,
-			cwd: "/tmp/project",
-			ui: {},
-			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
-		} as any);
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any,
+		);
 
 		harness.getMonitorCompleteCallback()?.({ exitCode: 1 });
 		expect(harness.sendMessage).toHaveBeenCalledWith(

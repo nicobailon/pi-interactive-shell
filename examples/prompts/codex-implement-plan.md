@@ -1,7 +1,9 @@
 ---
-description: Launch Codex CLI in overlay to fully implement an existing plan/spec document
+description: Launch Codex CLI in a managed kitty tab to fully implement an existing plan/spec document
 ---
+
 Determine which prompting skill to load based on model:
+
 - Default: Load `gpt-5-4-prompting` skill (for `gpt-5.4`)
 - If user explicitly requests Codex 5.3: Load `codex-5-3-prompting` skill (for `gpt-5.3-codex`)
 
@@ -24,10 +26,11 @@ Based on the prompting skill's best practices and the plan's content, generate a
 The meta prompt should follow the prompting skill's patterns: clear system context, explicit scope and verbosity constraints, step-by-step instructions, and expected output format. Instruct Codex not to ask clarifying questions about things answerable by reading the plan or codebase — read first, then act. Keep progress updates brief and concrete (no narrating routine file reads or tool calls). Emphasize that the plan has already been thoroughly reviewed — the job is faithful execution, not second-guessing the design. Emphasize scope discipline and verification requirements per the prompting skill.
 
 Determine the model flag:
+
 - Default: `-m gpt-5.4`
 - If user explicitly requests Codex 5.3: `-m gpt-5.3-codex`
 
-Then launch Codex CLI in the interactive shell overlay with that meta prompt using the chosen model flag plus `-a never`.
+Then launch Codex CLI via `interactive_shell` in a managed kitty tab with that meta prompt using the chosen model flag plus `-a never`.
 
 Use `interactive_shell` with `mode: "dispatch"` for this delegated run (fire-and-forget with completion notification). Do NOT pass sandbox flags in interactive_shell. Dispatch mode only. End turn immediately. Do not poll. Wait for completion notification.
 

@@ -43,11 +43,7 @@ export function setupBackgroundWidget(
 					for (const s of sessions) {
 						const monitorState = coordinator?.getMonitorSessionState(s.id);
 						const exited = s.session.exited;
-						const dot = exited
-							? theme.fg("dim", "○")
-							: monitorState
-								? theme.fg("accent", "◆")
-								: theme.fg("accent", "●");
+						const dot = exited ? theme.fg("dim", "○") : monitorState ? theme.fg("accent", "◆") : theme.fg("accent", "●");
 						const id = theme.fg("dim", s.id);
 						const cmd = s.command.replace(/\s+/g, " ").trim();
 						const truncCmd = cmd.length > 60 ? cmd.slice(0, 57) + "..." : cmd;
@@ -57,7 +53,11 @@ export function setupBackgroundWidget(
 							: exited
 								? "exited"
 								: "running";
-						const status = exited ? theme.fg("dim", statusText) : monitorState ? theme.fg("accent", statusText) : theme.fg("success", statusText);
+						const status = exited
+							? theme.fg("dim", statusText)
+							: monitorState
+								? theme.fg("accent", statusText)
+								: theme.fg("success", statusText);
 						const duration = theme.fg("dim", formatDuration(Date.now() - s.startedAt.getTime()));
 						const strategy = monitorState ? theme.fg("dim", ` · ${monitorState.strategy}`) : "";
 						const oneLine = ` ${dot} ${id}  ${truncCmd}${reason}${strategy}  ${status} ${duration}`;

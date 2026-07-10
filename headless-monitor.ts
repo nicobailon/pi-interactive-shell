@@ -1,5 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
-import type { PtyTerminalSession } from "./pty-session.js";
+import type { TerminalSession } from "./terminal-session.js";
 import type { InteractiveShellConfig } from "./config.js";
 
 export interface MonitorMatchInfo {
@@ -8,7 +8,7 @@ export interface MonitorMatchInfo {
 	eventType: string;
 	matchedText: string;
 	lineOrDiff: string;
-	stream: "pty";
+	stream: "terminal";
 }
 
 export interface MonitorTriggerMatcher {
@@ -68,10 +68,12 @@ export class HeadlessDispatchMonitor {
 	private emittedMonitorKeys = new Set<string>();
 	private triggerLastEmitAt = new Map<string, number>();
 
-	get disposed(): boolean { return this._disposed; }
+	get disposed(): boolean {
+		return this._disposed;
+	}
 
 	constructor(
-		private session: PtyTerminalSession,
+		private session: TerminalSession,
 		private config: InteractiveShellConfig,
 		private options: HeadlessMonitorOptions,
 		private onComplete: (info: HeadlessCompletionInfo) => void,
@@ -157,7 +159,7 @@ export class HeadlessDispatchMonitor {
 				eventType: trigger.id,
 				matchedText,
 				lineOrDiff: line,
-				stream: "pty",
+				stream: "terminal",
 			});
 		}
 	}
@@ -210,7 +212,7 @@ export class HeadlessDispatchMonitor {
 					eventType: trigger.id,
 					matchedText,
 					lineOrDiff: diffSummary,
-					stream: "pty",
+					stream: "terminal",
 				});
 			}
 		} catch (error) {
@@ -277,9 +279,9 @@ export class HeadlessDispatchMonitor {
 		}
 	}
 
-	private captureOutput(): HeadlessCompletionInfo["completionOutput"] {
+	private async captureOutput(): Promise<HeadlessCompletionInfo["completionOutput"]> {
 		try {
-			const result = this.session.getTailLines({
+			const result = await this.session.getTailLines({
 				lines: this.config.completionNotifyLines,
 				ansi: false,
 				maxChars: this.config.completionNotifyMaxChars,
@@ -303,40 +305,44 @@ export class HeadlessDispatchMonitor {
 		this._disposed = true;
 		this.stopQuietTimer();
 		this.stopPollTimer();
-		if (this.timeoutTimer) { clearTimeout(this.timeoutTimer); this.timeoutTimer = null; }
+		if (this.timeoutTimer) {
+			clearTimeout(this.timeoutTimer);
+			this.timeoutTimer = null;
+		}
 		this.unsubscribe();
 
 		if (timedOut) {
 			this.session.kill();
 		}
 
-		const completionOutput = this.captureOutput();
+		void this.finalizeCompletion(exitCode, signal, timedOut, cancelled);
+	}
+
+	private async finalizeCompletion(exitCode: number | null, signal?: number, timedOut?: boolean, cancelled?: boolean): Promise<void> {
+		const completionOutput = await this.captureOutput();
 		const info: HeadlessCompletionInfo = { exitCode, signal, timedOut, cancelled, completionOutput };
 		this.result = info;
 		this.triggerCompleteCallbacks();
 		this.onComplete(info);
 	}
 
-	handleExternalCompletion(exitCode: number | null, signal?: number, completionOutput?: HeadlessCompletionInfo["completionOutput"]): void {
+	cancel(): void {
 		if (this._disposed) return;
-		if (this.options.monitor?.strategy !== "poll-diff" && this.options.onMonitorEvent) {
-			this.processMonitorData("", true);
-		}
-		this._disposed = true;
-		this.stopQuietTimer();
-		this.stopPollTimer();
-		if (this.timeoutTimer) { clearTimeout(this.timeoutTimer); this.timeoutTimer = null; }
-		this.unsubscribe();
-
-		const output = completionOutput ?? this.captureOutput();
-		const info: HeadlessCompletionInfo = { exitCode, signal, completionOutput: output };
-		this.result = info;
-		this.triggerCompleteCallbacks();
-		this.onComplete(info);
+		this.handleCompletion(null, undefined, false, true);
+		this.session.kill();
 	}
 
 	getResult(): HeadlessCompletionInfo | undefined {
 		return this.result;
+	}
+
+	/** Dynamically update the quiet-threshold used by autoExitOnQuiet (and re-arm the timer if active). */
+	setQuietThreshold(thresholdMs: number): void {
+		const clamped = Math.max(1000, Math.min(300000, Math.trunc(thresholdMs)));
+		this.options.quietThreshold = clamped;
+		if (this.options.autoExitOnQuiet && !this._disposed && this.quietTimer) {
+			this.resetQuietTimer();
+		}
 	}
 
 	registerCompleteCallback(callback: () => void): void {
@@ -363,17 +369,22 @@ export class HeadlessDispatchMonitor {
 		this._disposed = true;
 		this.stopQuietTimer();
 		this.stopPollTimer();
-		if (this.timeoutTimer) { clearTimeout(this.timeoutTimer); this.timeoutTimer = null; }
+		if (this.timeoutTimer) {
+			clearTimeout(this.timeoutTimer);
+			this.timeoutTimer = null;
+		}
 		this.unsubscribe();
+		// Run local complete callbacks (e.g. hands-free stopProgressTimers) so
+		// dispose without completion still tears down side-channel timers/listeners.
+		// Does NOT invoke onComplete — dispose is silent by design.
+		this.triggerCompleteCallbacks();
 	}
 }
 
 function normalizeMonitorSnapshot(raw: string): string {
 	if (!raw) return "";
 	const normalizedLineEndings = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-	return normalizedLineEndings
-		.replace(/[\t ]+$/gm, "")
-		.trimEnd();
+	return normalizedLineEndings.replace(/[\t ]+$/gm, "").trimEnd();
 }
 
 function summarizeDiff(previous: string, current: string): string {

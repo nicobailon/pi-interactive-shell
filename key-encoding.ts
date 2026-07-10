@@ -95,9 +95,23 @@ function altKey(char: string): string {
 
 // Keys that support xterm modifier encoding (CSI sequences)
 const MODIFIABLE_KEYS = new Set([
-	"up", "down", "left", "right", "home", "end",
-	"pageup", "pgup", "ppage", "pagedown", "pgdn", "npage",
-	"insert", "ic", "delete", "del", "dc",
+	"up",
+	"down",
+	"left",
+	"right",
+	"home",
+	"end",
+	"pageup",
+	"pgup",
+	"ppage",
+	"pagedown",
+	"pgdn",
+	"npage",
+	"insert",
+	"ic",
+	"delete",
+	"del",
+	"dc",
 ]);
 
 // Calculate xterm modifier code: 1 + (shift?1:0) + (alt?2:0) + (ctrl?4:0)
@@ -155,7 +169,9 @@ function encodeKeyToken(token: string): string {
 
 	// Parse modifier prefixes: ctrl+alt+shift+key, c-m-s-key, etc.
 	let rest = normalized;
-	let ctrl = false, alt = false, shift = false;
+	let ctrl = false,
+		alt = false,
+		shift = false;
 
 	// Support both "ctrl+alt+x" and "c-m-x" syntax
 	while (rest.length > 2) {

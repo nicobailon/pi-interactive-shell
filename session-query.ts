@@ -1,7 +1,7 @@
 import type { InteractiveShellConfig } from "./config.js";
 import type { OutputOptions, OutputResult } from "./session-manager.js";
 import type { InteractiveShellResult } from "./types.js";
-import type { PtyTerminalSession } from "./pty-session.js";
+import type { TerminalSession } from "./terminal-session.js";
 
 /** Mutable query bookkeeping kept per active session. */
 export interface SessionQueryState {
@@ -21,13 +21,13 @@ export function createSessionQueryState(): SessionQueryState {
 	};
 }
 
-export function getSessionOutput(
-	session: PtyTerminalSession,
+export async function getSessionOutput(
+	session: TerminalSession,
 	config: InteractiveShellConfig,
 	state: SessionQueryState,
 	options: OutputOptions | boolean = false,
 	completionOutput?: InteractiveShellResult["completionOutput"],
-): OutputResult {
+): Promise<OutputResult> {
 	if (completionOutput) {
 		return buildCompletionOutputResult(completionOutput);
 	}
@@ -43,6 +43,7 @@ export function getSessionOutput(
 	}
 
 	if (opts.drain) {
+		// Drain is the stream path — local append-only deltas, not a live get-text.
 		return buildTruncatedOutput(session.getRawStream({ sinceLast: true, stripAnsi: true }), requestedMaxChars, true);
 	}
 
@@ -50,7 +51,7 @@ export function getSessionOutput(
 		return getOffsetOutput(session, opts.offset, requestedLines, requestedMaxChars);
 	}
 
-	const tailResult = session.getTailLines({
+	const tailResult = await session.getTailLines({
 		lines: requestedLines,
 		ansi: false,
 		maxChars: requestedMaxChars,
@@ -64,11 +65,7 @@ export function getSessionOutput(
 	};
 }
 
-function maybeRateLimitQuery(
-	config: InteractiveShellConfig,
-	state: SessionQueryState,
-	skipRateLimit: boolean,
-): OutputResult | null {
+function maybeRateLimitQuery(config: InteractiveShellConfig, state: SessionQueryState, skipRateLimit: boolean): OutputResult | null {
 	if (skipRateLimit) return null;
 	const now = Date.now();
 	const minIntervalMs = config.minQueryIntervalSeconds * 1000;
@@ -86,13 +83,13 @@ function maybeRateLimitQuery(
 	return null;
 }
 
-function getIncrementalOutput(
-	session: PtyTerminalSession,
+async function getIncrementalOutput(
+	session: TerminalSession,
 	state: SessionQueryState,
 	requestedLines: number,
 	requestedMaxChars: number,
-): OutputResult {
-	const result = session.getLogSlice({
+): Promise<OutputResult> {
+	const result = await session.getLogSlice({
 		offset: state.incrementalReadPosition,
 		limit: requestedLines,
 		stripAnsi: true,
@@ -108,19 +105,19 @@ function getIncrementalOutput(
 	};
 }
 
-function getOffsetOutput(
-	session: PtyTerminalSession,
+async function getOffsetOutput(
+	session: TerminalSession,
 	offset: number,
 	requestedLines: number,
 	requestedMaxChars: number,
-): OutputResult {
-	const result = session.getLogSlice({
+): Promise<OutputResult> {
+	const result = await session.getLogSlice({
 		offset,
 		limit: requestedLines,
 		stripAnsi: true,
 	});
 	const output = truncateForMaxChars(result.slice, requestedMaxChars);
-	const hasMore = (offset + result.sliceLineCount) < result.totalLines;
+	const hasMore = offset + result.sliceLineCount < result.totalLines;
 	return {
 		output: output.value,
 		truncated: output.truncated || hasMore,
@@ -144,9 +141,7 @@ function buildTruncatedOutput(output: string, requestedMaxChars: number, sliceFr
 	const truncated = output.length > requestedMaxChars;
 	let value = output;
 	if (truncated) {
-		value = sliceFromEnd
-			? output.slice(-requestedMaxChars)
-			: output.slice(0, requestedMaxChars);
+		value = sliceFromEnd ? output.slice(-requestedMaxChars) : output.slice(0, requestedMaxChars);
 	}
 	return {
 		output: value,

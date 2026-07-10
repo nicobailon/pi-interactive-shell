@@ -3,9 +3,6 @@ import { createSessionQueryState, getSessionOutput } from "../session-query.js";
 import type { InteractiveShellConfig } from "../config.js";
 
 const config: InteractiveShellConfig = {
-	exitAutoCloseDelay: 10,
-	overlayWidthPercent: 95,
-	overlayHeightPercent: 60,
 	focusShortcut: "alt+shift+f",
 	spawn: {
 		defaultAgent: "pi",
@@ -23,8 +20,6 @@ const config: InteractiveShellConfig = {
 	handoffSnapshotEnabled: false,
 	handoffSnapshotLines: 200,
 	handoffSnapshotMaxChars: 12000,
-	transferLines: 200,
-	transferMaxChars: 20000,
 	completionNotifyLines: 50,
 	completionNotifyMaxChars: 5000,
 	handsFreeUpdateMode: "on-quiet",
@@ -38,13 +33,13 @@ const config: InteractiveShellConfig = {
 
 function makeSession() {
 	return {
-		getTailLines: ({ lines, maxChars }: { lines: number; maxChars?: number }) => ({
+		getTailLines: async ({ lines, maxChars }: { lines: number; maxChars?: number }) => ({
 			lines: ["alpha", "beta", "gamma"].slice(-lines),
 			totalLinesInBuffer: 3,
 			truncatedByChars: Boolean(maxChars && maxChars < 5),
 		}),
-		getRawStream: ({ sinceLast }: { sinceLast?: boolean }) => sinceLast ? "delta\nepsilon" : "alpha\nbeta\ngamma",
-		getLogSlice: ({ offset = 0, limit = 50 }: { offset?: number; limit?: number }) => {
+		getRawStream: ({ sinceLast }: { sinceLast?: boolean }) => (sinceLast ? "delta\nepsilon" : "alpha\nbeta\ngamma"),
+		getLogSlice: async ({ offset = 0, limit = 50 }: { offset?: number; limit?: number }) => {
 			const lines = ["zero", "one", "two", "three"];
 			const selected = lines.slice(offset, offset + limit);
 			return {
@@ -58,9 +53,9 @@ function makeSession() {
 }
 
 describe("getSessionOutput", () => {
-	it("returns completion output immediately for finished sessions", () => {
+	it("returns completion output immediately for finished sessions", async () => {
 		const state = createSessionQueryState();
-		const result = getSessionOutput(makeSession(), config, state, false, {
+		const result = await getSessionOutput(makeSession(), config, state, false, {
 			lines: ["done"],
 			totalLines: 1,
 			truncated: false,
@@ -68,30 +63,30 @@ describe("getSessionOutput", () => {
 		expect(result).toEqual({ output: "done", truncated: false, totalBytes: 4, totalLines: 1 });
 	});
 
-	it("supports incremental pagination with tracked position", () => {
+	it("supports incremental pagination with tracked position", async () => {
 		const state = createSessionQueryState();
 		const session = makeSession();
-		expect(getSessionOutput(session, config, state, { incremental: true, lines: 2 })).toMatchObject({
+		expect(await getSessionOutput(session, config, state, { incremental: true, lines: 2 })).toMatchObject({
 			output: "zero\none",
 			totalLines: 4,
 			hasMore: true,
 		});
-		expect(getSessionOutput(session, config, state, { incremental: true, lines: 2, skipRateLimit: true })).toMatchObject({
+		expect(await getSessionOutput(session, config, state, { incremental: true, lines: 2, skipRateLimit: true })).toMatchObject({
 			output: "two\nthree",
 			totalLines: 4,
 			hasMore: false,
 		});
 	});
 
-	it("supports drain mode and offset mode", () => {
+	it("supports drain mode and offset mode", async () => {
 		const state = createSessionQueryState();
 		const session = makeSession();
-		expect(getSessionOutput(session, config, state, { drain: true, maxChars: 5 })).toEqual({
+		expect(await getSessionOutput(session, config, state, { drain: true, maxChars: 5 })).toEqual({
 			output: "silon",
 			truncated: true,
 			totalBytes: 5,
 		});
-		expect(getSessionOutput(session, config, state, { offset: 1, lines: 2, skipRateLimit: true })).toMatchObject({
+		expect(await getSessionOutput(session, config, state, { offset: 1, lines: 2, skipRateLimit: true })).toMatchObject({
 			output: "one\ntwo",
 			totalLines: 4,
 			hasMore: true,
@@ -99,12 +94,12 @@ describe("getSessionOutput", () => {
 		});
 	});
 
-	it("rate limits repeated queries until enough time has passed", () => {
+	it("rate limits repeated queries until enough time has passed", async () => {
 		const state = createSessionQueryState();
 		const session = makeSession();
-		const first = getSessionOutput(session, config, state);
+		const first = await getSessionOutput(session, config, state);
 		expect(first.output).toBe("alpha\nbeta\ngamma");
-		const second = getSessionOutput(session, config, state);
+		const second = await getSessionOutput(session, config, state);
 		expect(second.rateLimited).toBe(true);
 		expect(second.waitSeconds).toBeGreaterThan(0);
 	});
