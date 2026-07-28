@@ -1,6 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
-import type { PtyTerminalSession } from "./pty-session.js";
-import type { InteractiveShellConfig } from "./config.js";
+import type { PtyTerminalSession } from "./pty-session.ts";
+import type { InteractiveShellConfig } from "./config.ts";
 
 export interface MonitorMatchInfo {
 	strategy: "stream" | "poll-diff" | "file-watch";

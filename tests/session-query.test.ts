@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createSessionQueryState, getSessionOutput } from "../session-query.js";
-import type { InteractiveShellConfig } from "../config.js";
+import { createSessionQueryState, getSessionOutput } from "../session-query.ts";
+import type { InteractiveShellConfig } from "../config.ts";
 
 const config: InteractiveShellConfig = {
 	exitAutoCloseDelay: 10,

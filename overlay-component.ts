@@ -1,10 +1,10 @@
 import { stripVTControlCharacters } from "node:util";
-import type { Component, Focusable, TUI } from "@mariozechner/pi-tui";
-import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import type { Theme } from "@mariozechner/pi-coding-agent";
-import { PtyTerminalSession } from "./pty-session.js";
-import { sessionManager, generateSessionId } from "./session-manager.js";
-import type { InteractiveShellConfig } from "./config.js";
+import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { PtyTerminalSession } from "./pty-session.ts";
+import { sessionManager, generateSessionId } from "./session-manager.ts";
+import type { InteractiveShellConfig } from "./config.ts";
 import {
 	type InteractiveShellResult,
 	type HandsFreeUpdate,
@@ -15,9 +15,9 @@ import {
 	FOOTER_LINES_COMPACT,
 	formatDuration,
 	formatShortcut,
-} from "./types.js";
-import { captureCompletionOutput, captureTransferOutput, maybeBuildHandoffPreview, maybeWriteHandoffSnapshot } from "./handoff-utils.js";
-import { createSessionQueryState, getSessionOutput } from "./session-query.js";
+} from "./types.ts";
+import { captureCompletionOutput, captureTransferOutput, maybeBuildHandoffPreview, maybeWriteHandoffSnapshot } from "./handoff-utils.ts";
+import { createSessionQueryState, getSessionOutput } from "./session-query.ts";
 
 export class InteractiveShellOverlay implements Component, Focusable {
 	focused = false;

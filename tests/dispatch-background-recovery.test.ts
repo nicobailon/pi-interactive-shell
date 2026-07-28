@@ -10,18 +10,18 @@ async function setupHarness() {
 	let toolDef: any;
 
 	vi.resetModules();
-	vi.doMock("@mariozechner/pi-coding-agent", () => ({
+	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => "/tmp/pi-agent",
 	}));
-	vi.doMock("@mariozechner/pi-tui", () => ({
+	vi.doMock("@earendil-works/pi-tui", () => ({
 		isKeyRelease: () => false,
 		isKeyRepeat: () => false,
 		matchesKey: () => false,
 		truncateToWidth: (value: string) => value,
 		visibleWidth: (value: string) => value.length,
 	}));
-	vi.doMock("../config.js", async () => {
-		const actual = await vi.importActual<typeof import("../config.js")>("../config.js");
+	vi.doMock("../config.ts", async () => {
+		const actual = await vi.importActual<typeof import("../config.ts")>("../config.ts");
 		return {
 			...actual,
 			loadConfig: vi.fn(() => ({
@@ -59,13 +59,13 @@ async function setupHarness() {
 			})),
 		};
 	});
-	vi.doMock("../overlay-component.js", () => ({
+	vi.doMock("../overlay-component.ts", () => ({
 		InteractiveShellOverlay: class MockInteractiveShellOverlay {},
 	}));
-	vi.doMock("../reattach-overlay.js", () => ({
+	vi.doMock("../reattach-overlay.ts", () => ({
 		ReattachOverlay: class MockReattachOverlay {},
 	}));
-	vi.doMock("../session-manager.js", () => ({
+	vi.doMock("../session-manager.ts", () => ({
 		sessionManager: {
 			getActive: vi.fn(() => undefined),
 			unregisterActive,
@@ -86,7 +86,7 @@ async function setupHarness() {
 		},
 		generateSessionId: vi.fn(() => "start-session"),
 	}));
-	vi.doMock("../runtime-coordinator.js", () => ({
+	vi.doMock("../runtime-coordinator.ts", () => ({
 		InteractiveShellCoordinator: class MockCoordinator {
 			markAgentHandledCompletion = vi.fn();
 			consumeAgentHandledCompletion = vi.fn(() => false);
@@ -110,7 +110,7 @@ async function setupHarness() {
 		},
 	}));
 
-	const extensionModule = await import("../index.js");
+	const extensionModule = await import("../index.ts");
 	extensionModule.default({
 		registerShortcut: vi.fn(),
 		registerCommand: vi.fn(),
@@ -127,13 +127,13 @@ async function setupHarness() {
 
 describe("dispatch background recovery", () => {
 	afterEach(() => {
-		vi.doUnmock("@mariozechner/pi-coding-agent");
-		vi.doUnmock("@mariozechner/pi-tui");
-		vi.doUnmock("../config.js");
-		vi.doUnmock("../overlay-component.js");
-		vi.doUnmock("../reattach-overlay.js");
-		vi.doUnmock("../session-manager.js");
-		vi.doUnmock("../runtime-coordinator.js");
+		vi.doUnmock("@earendil-works/pi-coding-agent");
+		vi.doUnmock("@earendil-works/pi-tui");
+		vi.doUnmock("../config.ts");
+		vi.doUnmock("../overlay-component.ts");
+		vi.doUnmock("../reattach-overlay.ts");
+		vi.doUnmock("../session-manager.ts");
+		vi.doUnmock("../runtime-coordinator.ts");
 	});
 
 	it("releases the source session and disposes monitor when background session lookup fails", async () => {

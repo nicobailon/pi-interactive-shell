@@ -19,16 +19,16 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 	let registeredTool: { execute: (...args: any[]) => Promise<any> } | null = null;
 
 	vi.resetModules();
-	vi.doMock("@mariozechner/pi-coding-agent", () => ({
+	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => "/tmp/pi-agent",
 	}));
-	vi.doMock("@mariozechner/pi-tui", () => ({
+	vi.doMock("@earendil-works/pi-tui", () => ({
 		matchesKey: () => false,
 		truncateToWidth: (value: string) => value,
 		visibleWidth: (value: string) => value.length,
 	}));
-	vi.doMock("../config.js", async () => {
-		const actual = await vi.importActual<typeof import("../config.js")>("../config.js");
+	vi.doMock("../config.ts", async () => {
+		const actual = await vi.importActual<typeof import("../config.ts")>("../config.ts");
 		return {
 			...actual,
 			loadConfig: vi.fn(() => ({
@@ -76,22 +76,22 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 			})),
 		};
 	});
-	vi.doMock("../overlay-component.js", () => ({
+	vi.doMock("../overlay-component.ts", () => ({
 		InteractiveShellOverlay: class MockInteractiveShellOverlay {
 			constructor(_tui: unknown, _theme: unknown, options: { command: string; reason?: string; cwd?: string }) {
 				lastOverlayOptions = { command: options.command, reason: options.reason, cwd: options.cwd };
 			}
 		},
 	}));
-	vi.doMock("../spawn.js", async () => {
-		const actual = await vi.importActual<typeof import("../spawn.js")>("../spawn.js");
+	vi.doMock("../spawn.ts", async () => {
+		const actual = await vi.importActual<typeof import("../spawn.ts")>("../spawn.ts");
 		return {
 			...actual,
 			resolveSpawn: vi.fn((config, cwd, request, getSessionFile) => actual.resolveSpawn(config, cwd, request, getSessionFile)),
 		};
 	});
 
-	const extensionModule = await import("../index.js");
+	const extensionModule = await import("../index.ts");
 	const extension = extensionModule.default;
 
 	const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> | void }>();
@@ -153,11 +153,11 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 
 describe("/spawn command, shortcut, and tool spawn", () => {
 	afterEach(() => {
-		vi.doUnmock("@mariozechner/pi-coding-agent");
-		vi.doUnmock("@mariozechner/pi-tui");
-		vi.doUnmock("../config.js");
-		vi.doUnmock("../overlay-component.js");
-		vi.doUnmock("../spawn.js");
+		vi.doUnmock("@earendil-works/pi-coding-agent");
+		vi.doUnmock("@earendil-works/pi-tui");
+		vi.doUnmock("../config.ts");
+		vi.doUnmock("../overlay-component.ts");
+		vi.doUnmock("../spawn.ts");
 	});
 
 	it("/spawn defaults to the configured default agent", async () => {

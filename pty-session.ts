@@ -3,8 +3,8 @@ import { spawn, type IPty } from "zigpty";
 import type { IBufferCell, Terminal as XtermTerminal } from "@xterm/headless";
 import xterm from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { sliceLogOutput, trimRawOutput } from "./pty-log.js";
-import { splitAroundDsr, buildCursorPositionResponse } from "./pty-protocol.js";
+import { sliceLogOutput, trimRawOutput } from "./pty-log.ts";
+import { splitAroundDsr, buildCursorPositionResponse } from "./pty-protocol.ts";
 
 const Terminal = xterm.Terminal;
 

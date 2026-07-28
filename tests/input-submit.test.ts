@@ -21,20 +21,20 @@ async function setupHarness() {
 	};
 
 	vi.resetModules();
-	vi.doMock("@mariozechner/pi-coding-agent", () => ({
+	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => "/tmp/pi-agent",
 	}));
-	vi.doMock("@mariozechner/pi-tui", () => ({
+	vi.doMock("@earendil-works/pi-tui", () => ({
 		matchesKey: () => false,
 		truncateToWidth: (value: string) => value,
 		visibleWidth: (value: string) => value.length,
 	}));
-	vi.doMock("../session-manager.js", () => ({
+	vi.doMock("../session-manager.ts", () => ({
 		sessionManager,
 		generateSessionId: () => "mock-session-id",
 	}));
 
-	const extensionModule = await import("../index.js");
+	const extensionModule = await import("../index.ts");
 	const extension = extensionModule.default;
 
 	let registeredTool: { execute: (...args: any[]) => Promise<any> } | null = null;
@@ -71,9 +71,9 @@ async function setupHarness() {
 
 describe("interactive_shell submit input helper", () => {
 	afterEach(() => {
-		vi.doUnmock("@mariozechner/pi-coding-agent");
-		vi.doUnmock("@mariozechner/pi-tui");
-		vi.doUnmock("../session-manager.js");
+		vi.doUnmock("@earendil-works/pi-coding-agent");
+		vi.doUnmock("@earendil-works/pi-tui");
+		vi.doUnmock("../session-manager.ts");
 	});
 
 	it("mentions submit=true in the prompt snippet so agents are nudged toward real submission", async () => {

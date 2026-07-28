@@ -493,7 +493,7 @@ The process is killed after timeout and captured output is returned in the hando
 - Capturing output from commands that don't exit cleanly
 - Any TUI command where you need quick output without user interaction
 
-For pi CLI documentation, you can also read directly: `/opt/homebrew/lib/node_modules/@mariozechner/pi-coding-agent/README.md`
+For pi CLI documentation, you can also read directly: `/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/README.md`
 
 ## Background Session Management
 

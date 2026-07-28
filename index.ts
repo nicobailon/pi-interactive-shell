@@ -1,9 +1,9 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { isKeyRelease, isKeyRepeat, matchesKey } from "@mariozechner/pi-tui";
-import { InteractiveShellOverlay } from "./overlay-component.js";
-import { ReattachOverlay } from "./reattach-overlay.js";
-import { PtyTerminalSession } from "./pty-session.js";
-import { formatDuration, formatDurationMs } from "./types.js";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isKeyRelease, isKeyRepeat, matchesKey } from "@earendil-works/pi-tui";
+import { InteractiveShellOverlay } from "./overlay-component.ts";
+import { ReattachOverlay } from "./reattach-overlay.ts";
+import { PtyTerminalSession } from "./pty-session.ts";
+import { formatDuration, formatDurationMs } from "./types.ts";
 import type {
 	HandsFreeUpdate,
 	InteractiveShellResult,
@@ -14,24 +14,24 @@ import type {
 	MonitorTerminalReason,
 	MonitorThresholdOperator,
 	MonitorTriggerConfig,
-} from "./types.js";
-import { sessionManager, generateSessionId } from "./session-manager.js";
-import { loadConfig } from "./config.js";
-import type { InteractiveShellConfig } from "./config.js";
-import { parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.js";
-import { translateInput } from "./key-encoding.js";
-import { TOOL_NAME, TOOL_LABEL, TOOL_DESCRIPTION, toolParameters, type ToolParams } from "./tool-schema.js";
-import { HeadlessDispatchMonitor } from "./headless-monitor.js";
+} from "./types.ts";
+import { sessionManager, generateSessionId } from "./session-manager.ts";
+import { loadConfig } from "./config.ts";
+import type { InteractiveShellConfig } from "./config.ts";
+import { parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.ts";
+import { translateInput } from "./key-encoding.ts";
+import { TOOL_NAME, TOOL_LABEL, TOOL_DESCRIPTION, toolParameters, type ToolParams } from "./tool-schema.ts";
+import { HeadlessDispatchMonitor } from "./headless-monitor.ts";
 import type {
 	HeadlessCompletionInfo,
 	MonitorMatchInfo,
 	MonitorRuntimeConfig,
 	MonitorTriggerMatcher,
-} from "./headless-monitor.js";
-import { setupBackgroundWidget } from "./background-widget.js";
-import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildMonitorEventNotification, buildMonitorLifecycleNotification, buildResultNotification, summarizeInteractiveResult } from "./notification-utils.js";
-import { createSessionQueryState, getSessionOutput } from "./session-query.js";
-import { InteractiveShellCoordinator } from "./runtime-coordinator.js";
+} from "./headless-monitor.ts";
+import { setupBackgroundWidget } from "./background-widget.ts";
+import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildMonitorEventNotification, buildMonitorLifecycleNotification, buildResultNotification, summarizeInteractiveResult } from "./notification-utils.ts";
+import { createSessionQueryState, getSessionOutput } from "./session-query.ts";
+import { InteractiveShellCoordinator } from "./runtime-coordinator.ts";
 import { spawn as spawnChildProcess } from "node:child_process";
 
 const coordinator = new InteractiveShellCoordinator();

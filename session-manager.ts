@@ -1,4 +1,4 @@
-import { PtyTerminalSession } from "./pty-session.js";
+import { PtyTerminalSession } from "./pty-session.ts";
 
 export interface BackgroundSession {
 	id: string;

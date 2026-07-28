@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ShellSessionManager } from "../session-manager.js";
+import { ShellSessionManager } from "../session-manager.ts";
 
 function createSession() {
 	return {

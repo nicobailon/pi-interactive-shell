@@ -5,15 +5,15 @@ import { join } from "node:path";
 
 async function loadConfigModule(agentDir: string) {
 	vi.resetModules();
-	vi.doMock("@mariozechner/pi-coding-agent", () => ({
+	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => agentDir,
 	}));
-	return import("../config.js");
+	return import("../config.ts");
 }
 
 describe("config + docs parity", () => {
 	afterEach(() => {
-		vi.doUnmock("@mariozechner/pi-coding-agent");
+		vi.doUnmock("@earendil-works/pi-coding-agent");
 	});
 
 	it("merges global and project config with clamping", async () => {

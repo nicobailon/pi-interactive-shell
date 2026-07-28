@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildIdlePromptWarning, buildMonitorEventNotification, buildMonitorLifecycleNotification, buildResultNotification } from "../notification-utils.js";
+import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildIdlePromptWarning, buildMonitorEventNotification, buildMonitorLifecycleNotification, buildResultNotification } from "../notification-utils.ts";
 
 describe("notification utilities", () => {
 	it("formats compact dispatch notifications with a trimmed tail", () => {

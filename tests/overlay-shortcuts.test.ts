@@ -16,10 +16,10 @@ async function setupHarness(): Promise<Harness> {
 	const notify = vi.fn();
 
 	vi.resetModules();
-	vi.doMock("@mariozechner/pi-coding-agent", () => ({
+	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => "/tmp/pi-agent",
 	}));
-	vi.doMock("@mariozechner/pi-tui", () => ({
+	vi.doMock("@earendil-works/pi-tui", () => ({
 		isKeyRelease: (data: string) => data === "RELEASE",
 		isKeyRepeat: (data: string) => data === "REPEAT",
 		matchesKey: (data: string, key: string) => {
@@ -30,22 +30,22 @@ async function setupHarness(): Promise<Harness> {
 		truncateToWidth: (value: string) => value,
 		visibleWidth: (value: string) => value.length,
 	}));
-	vi.doMock("../overlay-component.js", () => ({
+	vi.doMock("../overlay-component.ts", () => ({
 		InteractiveShellOverlay: class MockInteractiveShellOverlay {},
 	}));
-	vi.doMock("../reattach-overlay.js", () => ({
+	vi.doMock("../reattach-overlay.ts", () => ({
 		ReattachOverlay: class MockReattachOverlay {},
 	}));
-	vi.doMock("../pty-session.js", () => ({
+	vi.doMock("../pty-session.ts", () => ({
 		PtyTerminalSession: class MockPtyTerminalSession {},
 	}));
-	vi.doMock("../headless-monitor.js", () => ({
+	vi.doMock("../headless-monitor.ts", () => ({
 		HeadlessDispatchMonitor: class MockHeadlessDispatchMonitor {},
 	}));
-	vi.doMock("../background-widget.js", () => ({
+	vi.doMock("../background-widget.ts", () => ({
 		setupBackgroundWidget: vi.fn(() => vi.fn()),
 	}));
-	vi.doMock("../session-manager.js", () => ({
+	vi.doMock("../session-manager.ts", () => ({
 		sessionManager: {
 			killAll: vi.fn(),
 			onChange: vi.fn(() => () => {}),
@@ -66,7 +66,7 @@ async function setupHarness(): Promise<Harness> {
 		},
 		generateSessionId: vi.fn(() => "id"),
 	}));
-	vi.doMock("../runtime-coordinator.js", () => ({
+	vi.doMock("../runtime-coordinator.ts", () => ({
 		InteractiveShellCoordinator: class MockCoordinator {
 			overlayOpen = false;
 			overlayFocused = false;
@@ -97,7 +97,7 @@ async function setupHarness(): Promise<Harness> {
 		},
 	}));
 
-	const extensionModule = await import("../index.js");
+	const extensionModule = await import("../index.ts");
 	const extension = extensionModule.default;
 
 	const handlers = new Map<string, any>();
@@ -143,15 +143,15 @@ async function setupHarness(): Promise<Harness> {
 
 describe("overlay focus and side-chat guards", () => {
 	afterEach(() => {
-		vi.doUnmock("@mariozechner/pi-coding-agent");
-		vi.doUnmock("@mariozechner/pi-tui");
-		vi.doUnmock("../overlay-component.js");
-		vi.doUnmock("../reattach-overlay.js");
-		vi.doUnmock("../pty-session.js");
-		vi.doUnmock("../headless-monitor.js");
-		vi.doUnmock("../background-widget.js");
-		vi.doUnmock("../session-manager.js");
-		vi.doUnmock("../runtime-coordinator.js");
+		vi.doUnmock("@earendil-works/pi-coding-agent");
+		vi.doUnmock("@earendil-works/pi-tui");
+		vi.doUnmock("../overlay-component.ts");
+		vi.doUnmock("../reattach-overlay.ts");
+		vi.doUnmock("../pty-session.ts");
+		vi.doUnmock("../headless-monitor.ts");
+		vi.doUnmock("../background-widget.ts");
+		vi.doUnmock("../session-manager.ts");
+		vi.doUnmock("../runtime-coordinator.ts");
 	});
 
 	it("toggles overlay focus globally while the overlay is open", async () => {

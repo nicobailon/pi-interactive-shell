@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { InteractiveShellCoordinator } from "../runtime-coordinator.js";
+import { InteractiveShellCoordinator } from "../runtime-coordinator.ts";
 
 describe("InteractiveShellCoordinator monitor state", () => {
 	it("tracks monitor session lifecycle and filtered event queries", () => {

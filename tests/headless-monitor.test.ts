@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { HeadlessDispatchMonitor } from "../headless-monitor.js";
-import type { InteractiveShellConfig } from "../config.js";
+import { HeadlessDispatchMonitor } from "../headless-monitor.ts";
+import type { InteractiveShellConfig } from "../config.ts";
 
 const config: InteractiveShellConfig = {
 	exitAutoCloseDelay: 10,

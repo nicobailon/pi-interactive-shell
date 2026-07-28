@@ -1,7 +1,7 @@
-import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import { formatDuration } from "./types.js";
-import type { ShellSessionManager } from "./session-manager.js";
-import type { InteractiveShellCoordinator } from "./runtime-coordinator.js";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { formatDuration } from "./types.ts";
+import type { ShellSessionManager } from "./session-manager.ts";
+import type { InteractiveShellCoordinator } from "./runtime-coordinator.ts";
 
 export function setupBackgroundWidget(
 	ctx: { ui: { setWidget: Function }; hasUI?: boolean },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { translateInput } from "../key-encoding.js";
+import { translateInput } from "../key-encoding.ts";
 
 describe("translateInput", () => {
 	it("encodes named keys and modifiers", () => {

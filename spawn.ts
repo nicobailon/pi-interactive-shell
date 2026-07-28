@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import type { InteractiveShellConfig, SpawnAgent } from "./config.js";
+import type { InteractiveShellConfig, SpawnAgent } from "./config.ts";
 
 export type SpawnMode = "fresh" | "fork";
 export type SpawnMonitorMode = "hands-free" | "dispatch";
