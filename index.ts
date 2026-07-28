@@ -669,7 +669,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		overlayOptions: {
 			width: `${config.overlayWidthPercent}%`,
 			maxHeight: `${config.overlayHeightPercent}%`,
-			anchor: "center",
+			anchor: config.overlayAnchor,
 			margin: 1,
 			nonCapturing: true,
 		},

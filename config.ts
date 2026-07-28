@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { KeyId } from "@earendil-works/pi-tui";
+import type { KeyId, OverlayAnchor } from "@earendil-works/pi-tui";
 
 /** A spawn agent is any key configured in `spawn.commands`, including the built-in defaults. */
 export type SpawnAgent = string;
@@ -19,6 +19,7 @@ export interface InteractiveShellConfig {
 	exitAutoCloseDelay: number;
 	overlayWidthPercent: number;
 	overlayHeightPercent: number;
+	overlayAnchor: OverlayAnchor;
 	focusShortcut: KeyId;
 	spawn: SpawnConfig;
 	scrollbackLines: number;
@@ -65,6 +66,7 @@ const DEFAULT_CONFIG: InteractiveShellConfig = {
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 60,
+	overlayAnchor: "center",
 	focusShortcut: "alt+shift+f",
 	spawn: DEFAULT_SPAWN_CONFIG,
 	scrollbackLines: 5000,
@@ -119,6 +121,7 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 		exitAutoCloseDelay: clampInt(merged.exitAutoCloseDelay, DEFAULT_CONFIG.exitAutoCloseDelay, 0, 60),
 		overlayWidthPercent: clampPercent(merged.overlayWidthPercent, DEFAULT_CONFIG.overlayWidthPercent),
 		overlayHeightPercent: clampInt(merged.overlayHeightPercent, DEFAULT_CONFIG.overlayHeightPercent, 20, 90),
+		overlayAnchor: resolveOverlayAnchor(merged.overlayAnchor, DEFAULT_CONFIG.overlayAnchor),
 		focusShortcut: resolveKeyId(merged.focusShortcut, DEFAULT_CONFIG.focusShortcut),
 		spawn: mergedSpawn,
 		scrollbackLines: clampInt(merged.scrollbackLines, DEFAULT_CONFIG.scrollbackLines, 200, 50000),
@@ -277,6 +280,25 @@ function resolveOptionalString(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined;
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+const OVERLAY_ANCHORS: readonly OverlayAnchor[] = [
+	"center", "top-left", "top-center", "top-right",
+	"left-center", "right-center",
+	"bottom-left", "bottom-center", "bottom-right",
+];
+
+function isOverlayAnchor(value: string): value is OverlayAnchor {
+	return (OVERLAY_ANCHORS as readonly string[]).includes(value);
+}
+
+function resolveOverlayAnchor(value: unknown, fallback: OverlayAnchor): OverlayAnchor {
+	if (typeof value !== "string") return fallback;
+	const trimmed = value.trim();
+	if (trimmed.length === 0) return fallback;
+	if (isOverlayAnchor(trimmed)) return trimmed;
+	console.error(`pi-interactive-shell: invalid overlayAnchor "${trimmed}" in config, using "${fallback}"`);
+	return fallback;
 }
 
 function clampPercent(value: number | undefined, fallback: number): number {
