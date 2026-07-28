@@ -6,6 +6,7 @@ const config: InteractiveShellConfig = {
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 60,
+	overlayAnchor: "center",
 	focusShortcut: "alt+shift+f",
 	spawn: {
 		defaultAgent: "pi",
