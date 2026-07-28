@@ -52,7 +52,8 @@ async function setupHarness() {
 	extension(pi as any);
 
 	return {
-		tool: registeredTool,
+		// TS narrows the closure-assigned local to null here; the runtime value is set by registerTool.
+		tool: registeredTool as { execute: (...args: any[]) => Promise<any> } | null,
 		sessionManager,
 		ctx: {
 			cwd: "/tmp/project",

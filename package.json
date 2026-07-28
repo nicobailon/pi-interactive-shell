@@ -51,7 +51,8 @@
     "typebox": "*"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "keywords": [
     "pi-package",
@@ -78,6 +79,8 @@
   },
   "homepage": "https://github.com/nicobailon/pi-interactive-shell#readme",
   "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   }
 }

@@ -1,4 +1,4 @@
-import { Type } from "typebox";
+import { Type, type Static } from "typebox";
 
 export const TOOL_NAME = "interactive_shell";
 export const TOOL_LABEL = "Interactive Shell";
@@ -373,7 +373,10 @@ export const toolParameters = Type.Object({
 	handsFree: Type.Optional(
 		Type.Object({
 			updateMode: Type.Optional(
-				Type.String({
+				Type.Union([
+					Type.Literal("on-quiet"),
+					Type.Literal("interval"),
+				], {
 					description: "Update mode: 'on-quiet' (default, emit when output stops) or 'interval' (emit on fixed schedule)",
 				}),
 			),
@@ -422,63 +425,5 @@ export const toolParameters = Type.Object({
 	),
 });
 
-/** Parsed tool parameters type */
-export interface ToolParams {
-	command?: string;
-	spawn?: { agent?: "pi" | "codex" | "claude" | "cursor"; mode?: "fresh" | "fork"; worktree?: boolean; prompt?: string };
-	sessionId?: string;
-	kill?: boolean;
-	outputLines?: number;
-	outputMaxChars?: number;
-	outputOffset?: number;
-	drain?: boolean;
-	incremental?: boolean;
-	settings?: { updateInterval?: number; quietThreshold?: number };
-	input?: string;
-	submit?: boolean;
-	inputKeys?: string[];
-	inputHex?: string[];
-	inputPaste?: string;
-	cwd?: string;
-	name?: string;
-	reason?: string;
-	mode?: "interactive" | "hands-free" | "dispatch" | "monitor";
-	background?: boolean;
-	monitor?: {
-		strategy?: "stream" | "poll-diff" | "file-watch";
-		triggers: Array<{
-			id: string;
-			literal?: string;
-			regex?: string;
-			cooldownMs?: number;
-			threshold?: { captureGroup: number; op: "lt" | "lte" | "gt" | "gte"; value: number };
-		}>;
-		fileWatch?: { path: string; recursive?: boolean; events?: Array<"rename" | "change"> };
-		poll?: { intervalMs?: number };
-		persistence?: { stopAfterFirstEvent?: boolean; maxEvents?: number };
-		throttle?: { dedupeExactLine?: boolean; cooldownMs?: number };
-		detector?: { detectorCommand: string; timeoutMs?: number };
-	};
-	attach?: string;
-	listBackground?: boolean;
-	dismissBackground?: boolean | string;
-	monitorStatus?: boolean;
-	monitorEvents?: boolean;
-	monitorSessionId?: string;
-	monitorEventLimit?: number;
-	monitorEventOffset?: number;
-	monitorSinceEventId?: number;
-	monitorTriggerId?: string;
-	handsFree?: {
-		updateMode?: "on-quiet" | "interval";
-		updateInterval?: number;
-		quietThreshold?: number;
-		gracePeriod?: number;
-		updateMaxChars?: number;
-		maxTotalChars?: number;
-		autoExitOnQuiet?: boolean;
-	};
-	handoffPreview?: { enabled?: boolean; lines?: number; maxChars?: number };
-	handoffSnapshot?: { enabled?: boolean; lines?: number; maxChars?: number };
-	timeout?: number;
-}
+/** Parsed tool parameters type, derived from the schema so the two cannot drift. */
+export type ToolParams = Static<typeof toolParameters>;

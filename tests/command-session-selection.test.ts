@@ -70,7 +70,7 @@ async function setupHarness(initialSessions: MockBackgroundSession[]) {
 		ui: {
 			notify,
 			custom: vi.fn(),
-			select: vi.fn(async (_title: string, options: string[]) => options[0]),
+			select: vi.fn(async (_title: string, options: string[]): Promise<string | undefined> => options[0]),
 		},
 	};
 
