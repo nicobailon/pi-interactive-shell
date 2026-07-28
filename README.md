@@ -81,6 +81,8 @@ interactive_shell({ spawn: { mode: "fork" }, mode: "interactive" })
 
 Structured `spawn` uses the same resolver and config defaults as the user-facing `/spawn` command. Raw `command` is still supported for arbitrary CLIs and custom launch strings.
 
+Any extra key you add under `spawn.commands` becomes a first-class spawn agent, usable as `spawn: { agent: "aider" }` and `/spawn aider`, with its own `spawn.defaultArgs` entry, worktree support, and prompt passthrough. `fork` stays Pi-only. Agent names must start with a letter or digit, may contain letters, digits, `.`, `_`, and `-`, and cannot be `fresh` or `fork`, because those are `/spawn` keywords.
+
 For Codex image or design work, Codex can invoke `gpt-image-2` directly from the prompt. Natural language is usually enough, and `$imagegen` forces the image-generation tool when you need it. Attach references with `-i` for edits and iterations. See the bundled `codex-cli` skill for concrete examples. For Cursor CLI-specific command references, see the optional `examples/skills/cursor-cli` skill. Cursor structured spawn defaults to `--model composer-2-fast`, which explicitly selects Cursor's Composer 2 Fast model.
 
 ### Interactive
@@ -366,7 +368,7 @@ interactive_shell({ dismissBackground: "calm-reef" })        // specific session
 
 Monitor sessions work the same way — they're headless background sessions that wake you on monitor events instead of completion.
 
-User can also `/spawn` to launch the configured default spawn agent, `/spawn codex`, `/spawn cursor`, `/spawn claude`, `/spawn pi`, `/spawn fork`, or `/spawn pi fork`. Add `--worktree` to spawn in a separate git worktree, for example `/spawn cursor --worktree`, `/spawn codex --worktree`, or `/spawn pi fork --worktree`. Plain `/spawn cursor` stays a normal interactive overlay. `fork` is Pi-only. Worktrees are left in place and the overlay will tell you where they were created. `/attach` or `/attach <id>` reattaches, and `/dismiss` or `/dismiss <id>` cleans up from the chat. The keyboard spawn shortcut is separate from `/spawn` and uses `spawn.shortcut`.
+User can also `/spawn` to launch the configured default spawn agent, `/spawn codex`, `/spawn cursor`, `/spawn claude`, `/spawn pi`, `/spawn fork`, `/spawn pi fork`, or `/spawn <custom-agent>` for any agent added to `spawn.commands`. Add `--worktree` to spawn in a separate git worktree, for example `/spawn cursor --worktree`, `/spawn codex --worktree`, or `/spawn pi fork --worktree`. Plain `/spawn cursor` stays a normal interactive overlay. `fork` is Pi-only. Worktrees are left in place and the overlay will tell you where they were created. `/attach` or `/attach <id>` reattaches, and `/dismiss` or `/dismiss <id>` cleans up from the chat. The keyboard spawn shortcut is separate from `/spawn` and uses `spawn.shortcut`.
 
 ### Prompt-Bearing `/spawn`
 
@@ -412,13 +414,15 @@ Shortcut settings are pinned at startup. If you change `focusShortcut` or `spawn
       "pi": "pi",
       "codex": "codex",
       "claude": "claude",
-      "cursor": "agent"
+      "cursor": "agent",
+      "aider": "aider"
     },
     "defaultArgs": {
       "pi": [],
       "codex": [],
       "claude": [],
-      "cursor": ["--model", "composer-2-fast"]
+      "cursor": ["--model", "composer-2-fast"],
+      "aider": ["--yes-always"]
     },
     "worktree": false,
     "worktreeBaseDir": "../repo-worktrees"
@@ -451,7 +455,7 @@ Shortcut settings are pinned at startup. If you change `focusShortcut` or `spawn
 | `focusShortcut` | "alt+shift+f" | Toggle focus between overlay and main chat |
 | `spawn.defaultAgent` | "pi" | Configured default spawn agent for `/spawn`, the spawn shortcut, and agent-side structured spawn |
 | `spawn.shortcut` | "alt+shift+p" | Keyboard shortcut that launches the configured default spawn agent |
-| `spawn.commands.<agent>` | `pi` / `codex` / `claude` / `agent` (cursor) | Executable or path override per spawn agent |
+| `spawn.commands.<agent>` | `pi` / `codex` / `claude` / `agent` (cursor) | Executable or path per spawn agent. Extra keys define custom spawn agents |
 | `spawn.defaultArgs.<agent>` | `[]` (Cursor defaults to `--model composer-2-fast`) | Extra default CLI args per spawn agent |
 | `spawn.worktree` | `false` | Launch spawns in a separate git worktree by default |
 | `spawn.worktreeBaseDir` | unset | Optional base directory for generated worktrees |

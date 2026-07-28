@@ -27,7 +27,7 @@ export interface ResolvedSpawn {
 	worktreePath?: string;
 }
 
-export function parseSpawnArgs(args: string):
+export function parseSpawnArgs(args: string, agents: readonly SpawnAgent[]):
 	| { ok: true; parsed: ParsedSpawnArgs }
 	| { ok: false; error: string } {
 	const tokenized = tokenizeSpawnArgs(args);
@@ -59,18 +59,19 @@ export function parseSpawnArgs(args: string):
 			monitorMode = nextMonitorMode;
 			continue;
 		}
-		if (!token.quoted && (token.value === "pi" || token.value === "codex" || token.value === "claude" || token.value === "cursor")) {
-			if (agent) {
-				return { ok: false, error: `Duplicate spawn agent: ${token.value}` };
-			}
-			agent = token.value;
-			continue;
-		}
+		// Mode keywords are reserved, so they are matched before configured agent names.
 		if (!token.quoted && (token.value === "fresh" || token.value === "fork")) {
 			if (mode) {
 				return { ok: false, error: `Duplicate spawn mode: ${token.value}` };
 			}
 			mode = token.value;
+			continue;
+		}
+		if (!token.quoted && agents.includes(token.value)) {
+			if (agent) {
+				return { ok: false, error: `Duplicate spawn agent: ${token.value}` };
+			}
+			agent = token.value;
 			continue;
 		}
 		if (!token.quoted && token.value.startsWith("--")) {
@@ -129,6 +130,12 @@ export function resolveSpawn(
 		return { ok: false, error: "Spawn prompt cannot be empty." };
 	}
 
+	const executable = config.spawn.commands[agent];
+	if (!executable) {
+		const configured = Object.keys(config.spawn.commands).sort().join(", ");
+		return { ok: false, error: `Unknown spawn agent: ${agent}. Configured agents: ${configured}.` };
+	}
+
 	if (mode === "fork" && agent !== "pi") {
 		return { ok: false, error: `Cannot fork ${agent}. Fork is only supported for pi sessions.` };
 	}
@@ -152,8 +159,7 @@ export function resolveSpawn(
 		worktreePath = resolvedWorktree.path;
 	}
 
-	const executable = config.spawn.commands[agent];
-	const args = [...config.spawn.defaultArgs[agent]];
+	const args = [...(config.spawn.defaultArgs[agent] ?? [])];
 	let reason = `spawn ${agent} (${mode === "fork" ? "fork current session" : "fresh session"})`;
 
 	if (sourceSessionFile) {

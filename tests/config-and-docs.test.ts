@@ -31,8 +31,8 @@ describe("config + docs parity", () => {
 			spawn: {
 				defaultAgent: "codex",
 				shortcut: "alt+s",
-				commands: { codex: "/opt/codex/bin/codex" },
-				defaultArgs: { codex: ["--no-alt-screen"] },
+				commands: { codex: "/opt/codex/bin/codex", aider: "aider", fork: "nope", "--bad": "nope" },
+				defaultArgs: { codex: ["--no-alt-screen"], aider: ["--yes-always"] },
 				worktree: true,
 				worktreeBaseDir: "../worktrees",
 			},
@@ -63,6 +63,10 @@ describe("config + docs parity", () => {
 		expect(config.spawn.defaultArgs.codex).toEqual(["--no-alt-screen"]);
 		expect(config.spawn.defaultArgs.claude).toEqual(["--allowedTools", "Bash"]);
 		expect(config.spawn.defaultArgs.cursor).toEqual(["--model", "composer-2-fast"]);
+		expect(config.spawn.commands.aider).toBe("aider");
+		expect(config.spawn.defaultArgs.aider).toEqual(["--yes-always"]);
+		expect(config.spawn.commands.fork).toBeUndefined();
+		expect(config.spawn.commands["--bad"]).toBeUndefined();
 		expect(config.spawn.worktree).toBe(false);
 		expect(config.spawn.worktreeBaseDir).toBe("../worktrees");
 
@@ -109,7 +113,7 @@ describe("config + docs parity", () => {
 		expect(skill).toContain('raw `input` only types text. It does not submit the prompt.');
 		expect(toolSchema).toContain(`default: ${defaults.handsFreeQuietThreshold}ms`);
 		expect(toolSchema).toContain('submit: true');
-		expect(toolSchema).toContain('Type.Literal("cursor")');
+		expect(toolSchema).toContain("or any custom key configured by the user");
 		expect(toolSchema).toContain('Structured \\`spawn\\` also supports a \\`prompt\\` field for Pi, Codex, Claude, and Cursor');
 		expect(toolSchema).toContain('This only types the text; it does not submit it.');
 		expect(toolSchema).toContain(`default: ${defaults.autoExitGracePeriod}ms`);
