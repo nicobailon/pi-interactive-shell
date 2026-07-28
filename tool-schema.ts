@@ -125,6 +125,7 @@ DISMISS BACKGROUND SESSIONS:
 When using raw \`command\`, this tool does NOT inject prompts for you.
 If you want to start with a prompt, include it in the command using the CLI's own prompt form.
 Structured \`spawn\` also supports a \`prompt\` field for Pi, Codex, Claude, and Cursor using their native startup prompt forms.
+Users can configure extra spawn agents under \`spawn.commands\`; those custom keys work in \`spawn.agent\` exactly like the built-ins, and an unknown key returns the configured agent list as an error.
 
 Examples:
 - pi "Scan the current codebase"
@@ -145,13 +146,8 @@ export const toolParameters = Type.Object({
 	),
 	spawn: Type.Optional(
 		Type.Object({
-			agent: Type.Optional(Type.Union([
-				Type.Literal("pi"),
-				Type.Literal("codex"),
-				Type.Literal("claude"),
-				Type.Literal("cursor"),
-			], {
-				description: "Spawn agent to launch. Defaults to the configured spawn.defaultAgent.",
+			agent: Type.Optional(Type.String({
+				description: "Spawn agent key from spawn.commands: built-in 'pi', 'codex', 'claude', 'cursor', or any custom key configured by the user. Defaults to the configured spawn.defaultAgent.",
 			})),
 			mode: Type.Optional(Type.Union([
 				Type.Literal("fresh"),
@@ -163,10 +159,10 @@ export const toolParameters = Type.Object({
 				description: "Launch in a separate git worktree. Defaults to spawn.worktree from config.",
 			})),
 			prompt: Type.Optional(Type.String({
-				description: "Optional startup prompt for pi, codex, claude, or cursor. Uses each CLI's native prompt-bearing startup form.",
+				description: "Optional startup prompt, appended as the CLI's final argument. Uses each CLI's native prompt-bearing startup form.",
 			})),
 		}, {
-			description: "Structured spawn request for pi, codex, claude, or cursor. Use this instead of building the command string manually when you want the extension's spawn defaults, Pi-only fork behavior, worktree support, or native startup prompts.",
+			description: "Structured spawn request for any configured spawn agent. Use this instead of building the command string manually when you want the extension's spawn defaults, Pi-only fork behavior, worktree support, or native startup prompts.",
 		}),
 	),
 	sessionId: Type.Optional(

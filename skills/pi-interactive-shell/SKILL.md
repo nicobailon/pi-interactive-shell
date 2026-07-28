@@ -69,11 +69,11 @@ interactive_shell({ spawn: { agent: "claude", worktree: true }, mode: "hands-fre
 interactive_shell({ spawn: { mode: "fork" }, mode: "interactive" }) // Pi-only
 ```
 
-Structured `spawn` uses the same resolver and defaults as the user-facing `/spawn` command. Raw `command` is still the right choice for arbitrary CLIs and custom launch strings. Cursor structured spawn defaults to `--model composer-2-fast`, which explicitly selects Composer 2 Fast.
+Structured `spawn` uses the same resolver and defaults as the user-facing `/spawn` command. Raw `command` is still the right choice for arbitrary CLIs and custom launch strings. Users can add their own agents under `spawn.commands`; those keys work in `spawn: { agent: "..." }` just like the built-ins, and an unknown key returns the configured agent list as an error. Cursor structured spawn defaults to `--model composer-2-fast`, which explicitly selects Composer 2 Fast.
 
 For Codex image or design work, Codex can invoke `gpt-image-2` directly from the prompt. Natural language is usually enough, and `$imagegen` forces the image-generation tool when you need it. Attach references with `-i` for edits and iterations. See the bundled `codex-cli` skill for concrete examples.
 
-For users in chat, `/spawn` now supports the configured default agent plus explicit overrides like `/spawn codex`, `/spawn cursor`, `/spawn claude`, `/spawn pi`, `/spawn fork`, and `/spawn pi fork`. Add `--worktree` to run in a separate git worktree.
+For users in chat, `/spawn` now supports the configured default agent plus explicit overrides like `/spawn codex`, `/spawn cursor`, `/spawn claude`, `/spawn pi`, `/spawn fork`, `/spawn pi fork`, and any custom agent key from `spawn.commands`. Add `--worktree` to run in a separate git worktree.
 
 Quoted prompt text plus `--hands-free` or `--dispatch` turns `/spawn` into a monitored delegated run instead of a plain interactive overlay:
 

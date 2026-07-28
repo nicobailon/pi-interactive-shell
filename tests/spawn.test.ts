@@ -35,6 +35,8 @@ const config: InteractiveShellConfig = {
 	minQueryIntervalSeconds: 60,
 };
 
+const AGENTS = ["pi", "codex", "claude", "cursor"];
+
 describe("spawn helpers", () => {
 	beforeEach(() => {
 		vi.resetModules();
@@ -42,28 +44,28 @@ describe("spawn helpers", () => {
 
 	it("parses canonical agent tokens, mode, worktree flag, prompt, and monitor mode", async () => {
 		const { parseSpawnArgs } = await import("../spawn.ts");
-		expect(parseSpawnArgs('claude "review the diffs" --dispatch')).toEqual({
+		expect(parseSpawnArgs('claude "review the diffs" --dispatch', AGENTS)).toEqual({
 			ok: true,
 			parsed: {
 				request: { agent: "claude", mode: undefined, worktree: undefined, prompt: "review the diffs" },
 				monitorMode: "dispatch",
 			},
 		});
-		expect(parseSpawnArgs("codex fork --worktree")).toEqual({
+		expect(parseSpawnArgs("codex fork --worktree", AGENTS)).toEqual({
 			ok: true,
 			parsed: {
 				request: { agent: "codex", mode: "fork", worktree: true, prompt: undefined },
 				monitorMode: undefined,
 			},
 		});
-		expect(parseSpawnArgs('cursor "review the diffs" --dispatch')).toEqual({
+		expect(parseSpawnArgs('cursor "review the diffs" --dispatch', AGENTS)).toEqual({
 			ok: true,
 			parsed: {
 				request: { agent: "cursor", mode: undefined, worktree: undefined, prompt: "review the diffs" },
 				monitorMode: "dispatch",
 			},
 		});
-		expect(parseSpawnArgs('"fix the failing tests" --hands-free')).toEqual({
+		expect(parseSpawnArgs('"fix the failing tests" --hands-free', AGENTS)).toEqual({
 			ok: true,
 			parsed: {
 				request: { agent: undefined, mode: undefined, worktree: undefined, prompt: "fix the failing tests" },
@@ -74,25 +76,67 @@ describe("spawn helpers", () => {
 
 	it("rejects invalid prompt-bearing combinations and unknown tokens", async () => {
 		const { parseSpawnArgs } = await import("../spawn.ts");
-		expect(parseSpawnArgs("claude-code")).toEqual({
+		expect(parseSpawnArgs("claude-code", AGENTS)).toEqual({
 			ok: false,
 			error: "Unknown /spawn argument: claude-code",
 		});
-		expect(parseSpawnArgs('claude "review the diffs"')).toEqual({
+		expect(parseSpawnArgs('claude "review the diffs"', AGENTS)).toEqual({
 			ok: false,
 			error: "Prompt-bearing /spawn requires --hands-free or --dispatch.",
 		});
-		expect(parseSpawnArgs("claude --dispatch")).toEqual({
+		expect(parseSpawnArgs("claude --dispatch", AGENTS)).toEqual({
 			ok: false,
 			error: "Monitored /spawn requires a quoted prompt, for example /spawn claude \"review the diffs\" --dispatch.",
 		});
-		expect(parseSpawnArgs("claude review the diffs --dispatch")).toEqual({
+		expect(parseSpawnArgs("claude review the diffs --dispatch", AGENTS)).toEqual({
 			ok: false,
 			error: "Unknown /spawn argument: review",
 		});
-		expect(parseSpawnArgs('claude "review" --dispatch --hands-free')).toEqual({
+		expect(parseSpawnArgs('claude "review" --dispatch --hands-free', AGENTS)).toEqual({
 			ok: false,
 			error: "Cannot combine --hands-free and --dispatch.",
+		});
+	});
+
+	it("accepts custom configured agents and resolves them through their command mapping", async () => {
+		const { parseSpawnArgs, resolveSpawn } = await import("../spawn.ts");
+		expect(parseSpawnArgs("aider --worktree", [...AGENTS, "aider"])).toEqual({
+			ok: true,
+			parsed: {
+				request: { agent: "aider", mode: undefined, worktree: true, prompt: undefined },
+				monitorMode: undefined,
+			},
+		});
+		expect(resolveSpawn({
+			...config,
+			spawn: {
+				...config.spawn,
+				commands: { ...config.spawn.commands, aider: "aider" },
+				defaultArgs: { ...config.spawn.defaultArgs, aider: ["--yes-always"] },
+			},
+		}, "/tmp/project", { agent: "aider", prompt: "fix the build" }, () => undefined)).toEqual({
+			ok: true,
+			spawn: {
+				agent: "aider",
+				mode: "fresh",
+				command: "aider --yes-always 'fix the build'",
+				cwd: "/tmp/project",
+				reason: "spawn aider (fresh session)",
+				worktreePath: undefined,
+			},
+		});
+	});
+
+	it("rejects agents that are not configured, listing the configured ones", async () => {
+		const { resolveSpawn } = await import("../spawn.ts");
+		expect(resolveSpawn(config, "/tmp/project", { agent: "aider" }, () => undefined)).toEqual({
+			ok: false,
+			error: "Unknown spawn agent: aider. Configured agents: claude, codex, cursor, pi.",
+		});
+		// Object.prototype member names must not resolve as configured agents.
+		expect(resolveSpawn(config, "/tmp/project", { agent: "constructor" }, () => undefined)).toEqual({
+			ok: false,
+			error: "Unknown spawn agent: constructor. Configured agents: claude, codex, cursor, pi.",
 		});
 	});
 

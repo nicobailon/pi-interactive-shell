@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { KeyId } from "@earendil-works/pi-tui";
 
-export type SpawnAgent = "pi" | "codex" | "claude" | "cursor";
+/** A spawn agent is any key configured in `spawn.commands`, including the built-in defaults. */
+export type SpawnAgent = string;
 
 export interface SpawnConfig {
 	defaultAgent: SpawnAgent;
@@ -190,22 +191,11 @@ function mergeSpawnConfig(globalValue: unknown, projectValue: unknown): SpawnCon
 	const globalArgs = isPlainObject(globalSpawn?.defaultArgs) ? globalSpawn.defaultArgs : undefined;
 	const projectArgs = isPlainObject(projectSpawn?.defaultArgs) ? projectSpawn.defaultArgs : undefined;
 
-	const mergedCommands = {
-		pi: resolveNonEmptyString(projectCommands?.pi ?? globalCommands?.pi, DEFAULT_SPAWN_CONFIG.commands.pi),
-		codex: resolveNonEmptyString(projectCommands?.codex ?? globalCommands?.codex, DEFAULT_SPAWN_CONFIG.commands.codex),
-		claude: resolveNonEmptyString(projectCommands?.claude ?? globalCommands?.claude, DEFAULT_SPAWN_CONFIG.commands.claude),
-		cursor: resolveNonEmptyString(projectCommands?.cursor ?? globalCommands?.cursor, DEFAULT_SPAWN_CONFIG.commands.cursor),
-	};
-
-	const mergedDefaultArgs = {
-		pi: resolveStringArray(projectArgs?.pi ?? globalArgs?.pi, DEFAULT_SPAWN_CONFIG.defaultArgs.pi),
-		codex: resolveStringArray(projectArgs?.codex ?? globalArgs?.codex, DEFAULT_SPAWN_CONFIG.defaultArgs.codex),
-		claude: resolveStringArray(projectArgs?.claude ?? globalArgs?.claude, DEFAULT_SPAWN_CONFIG.defaultArgs.claude),
-		cursor: resolveStringArray(projectArgs?.cursor ?? globalArgs?.cursor, DEFAULT_SPAWN_CONFIG.defaultArgs.cursor),
-	};
+	const mergedCommands = mergeSpawnCommands(globalCommands, projectCommands);
+	const mergedDefaultArgs = mergeSpawnDefaultArgs(mergedCommands, globalArgs, projectArgs);
 
 	return {
-		defaultAgent: resolveSpawnAgent(projectSpawn?.defaultAgent ?? globalSpawn?.defaultAgent, DEFAULT_SPAWN_CONFIG.defaultAgent),
+		defaultAgent: resolveSpawnAgent(projectSpawn?.defaultAgent ?? globalSpawn?.defaultAgent, DEFAULT_SPAWN_CONFIG.defaultAgent, mergedCommands),
 		shortcut: resolveKeyId(projectSpawn?.shortcut ?? globalSpawn?.shortcut, DEFAULT_SPAWN_CONFIG.shortcut),
 		commands: mergedCommands,
 		defaultArgs: mergedDefaultArgs,
@@ -218,8 +208,60 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function resolveSpawnAgent(value: unknown, fallback: SpawnAgent): SpawnAgent {
-	return value === "pi" || value === "codex" || value === "claude" || value === "cursor" ? value : fallback;
+/**
+ * Agent names double as `/spawn` tokens and as generated worktree directory segments, so they must
+ * not collide with `/spawn` mode keywords, start with a dash, or contain path/shell characters.
+ * Object.prototype member names are rejected too, so agent maps are never read through the prototype.
+ */
+const SPAWN_AGENT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const RESERVED_SPAWN_AGENT_NAMES = new Set(["fresh", "fork"]);
+
+function isSpawnAgentName(name: string): boolean {
+	return SPAWN_AGENT_NAME_PATTERN.test(name)
+		&& !RESERVED_SPAWN_AGENT_NAMES.has(name)
+		&& !(name in Object.prototype);
+}
+
+function mergeSpawnCommands(
+	globalCommands: Record<string, unknown> | undefined,
+	projectCommands: Record<string, unknown> | undefined,
+): Record<SpawnAgent, string> {
+	const commands: Record<SpawnAgent, string> = { ...DEFAULT_SPAWN_CONFIG.commands };
+	for (const source of [globalCommands, projectCommands]) {
+		for (const [name, value] of Object.entries(source ?? {})) {
+			if (!isSpawnAgentName(name)) {
+				console.error(`pi-interactive-shell: ignoring invalid spawn agent name "${name}" in config`);
+				continue;
+			}
+			const command = resolveOptionalString(value);
+			if (command) commands[name] = command;
+		}
+	}
+	return commands;
+}
+
+function mergeSpawnDefaultArgs(
+	commands: Record<SpawnAgent, string>,
+	globalArgs: Record<string, unknown> | undefined,
+	projectArgs: Record<string, unknown> | undefined,
+): Record<SpawnAgent, string[]> {
+	const defaultArgs: Record<SpawnAgent, string[]> = {};
+	for (const name of Object.keys(commands)) {
+		defaultArgs[name] = resolveStringArray(
+			projectArgs?.[name] ?? globalArgs?.[name],
+			DEFAULT_SPAWN_CONFIG.defaultArgs[name] ?? [],
+		);
+	}
+	return defaultArgs;
+}
+
+function resolveSpawnAgent(value: unknown, fallback: SpawnAgent, commands: Record<SpawnAgent, string>): SpawnAgent {
+	if (typeof value !== "string") return fallback;
+	const trimmed = value.trim();
+	if (trimmed.length === 0) return fallback;
+	if (Object.hasOwn(commands, trimmed)) return trimmed;
+	console.error(`pi-interactive-shell: unknown spawn.defaultAgent "${trimmed}" in config, using "${fallback}"`);
+	return fallback;
 }
 
 function resolveStringArray(value: unknown, fallback: string[]): string[] {
@@ -246,12 +288,6 @@ function clampInt(value: number | undefined, fallback: number, min: number, max:
 	if (typeof value !== "number" || Number.isNaN(value)) return fallback;
 	const rounded = Math.trunc(value);
 	return Math.min(max, Math.max(min, rounded));
-}
-
-function resolveNonEmptyString(value: unknown, fallback: string): string {
-	if (typeof value !== "string") return fallback;
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : fallback;
 }
 
 const KEY_MODIFIERS = new Set(["ctrl", "shift", "alt", "super"]);

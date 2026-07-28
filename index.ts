@@ -1649,11 +1649,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 	}
 
 	pi.registerCommand("spawn", {
-		description: "Spawn the configured default agent, pi, codex, claude, or cursor in an interactive shell overlay",
+		description: "Spawn the configured default agent, a built-in agent, or a custom configured agent in an interactive shell overlay",
 		handler: async (args, ctx) => {
-			const parsed = parseSpawnArgs(args);
+			const agents = Object.keys(loadRuntimeConfig(ctx.cwd).spawn.commands).sort();
+			const parsed = parseSpawnArgs(args, agents);
 			if (!parsed.ok) {
-				ctx.ui.notify(`${parsed.error}\nUsage: /spawn [pi|codex|claude|cursor] [fresh|fork] [--worktree] [\"prompt\" --hands-free|--dispatch]`, "error");
+				ctx.ui.notify(`${parsed.error}\nUsage: /spawn [${agents.join("|")}] [fresh|fork] [--worktree] [\"prompt\" --hands-free|--dispatch]`, "error");
 				return;
 			}
 			if (parsed.parsed.monitorMode) {
