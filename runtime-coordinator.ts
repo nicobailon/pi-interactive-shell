@@ -4,6 +4,15 @@ import type { MonitorConfig, MonitorEventPayload, MonitorSessionState, MonitorTe
 
 const MONITOR_HISTORY_LIMIT = 200;
 
+export interface MonitorEventsQueryResult {
+	events: MonitorEventPayload[];
+	total: number;
+	limit: number;
+	offset: number;
+	sinceEventId?: number;
+	triggerId?: string;
+}
+
 /** Centralizes overlay, monitor, widget, and completion-suppression state for the extension runtime. */
 export class InteractiveShellCoordinator {
 	private overlayOpen = false;
@@ -151,14 +160,7 @@ export class InteractiveShellCoordinator {
 		return recorded;
 	}
 
-	getMonitorEvents(sessionId: string, options?: { limit?: number; offset?: number; sinceEventId?: number; triggerId?: string }): {
-		events: MonitorEventPayload[];
-		total: number;
-		limit: number;
-		offset: number;
-		sinceEventId?: number;
-		triggerId?: string;
-	} {
+	getMonitorEvents(sessionId: string, options?: { limit?: number; offset?: number; sinceEventId?: number; triggerId?: string }): MonitorEventsQueryResult {
 		let events = this.monitorEventHistory.get(sessionId) ?? [];
 		const sinceEventId = options?.sinceEventId !== undefined ? Math.max(0, Math.trunc(options.sinceEventId)) : undefined;
 		if (sinceEventId !== undefined) {

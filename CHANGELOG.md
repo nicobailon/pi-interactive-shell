@@ -9,6 +9,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 - Custom spawn agents (#16, reported by @krikchaip). Any key under `spawn.commands` is now a real spawn agent, usable through `spawn: { agent: "..." }`, `/spawn <agent>`, `spawn.defaultAgent`, `spawn.defaultArgs`, worktrees, and prompt passthrough. Agent names are validated when config loads, `fresh`/`fork` stay reserved `/spawn` keywords, `fork` stays Pi-only, and an unconfigured agent now fails with the list of configured agents instead of building a broken command.
 
 ### Changed
+- Tightened TypeScript/runtime boundaries for config and output queries: config JSON roots are now validated before merging, non-finite numeric config/query values fall back to defaults, and monitor/PTY internals avoid unnecessary type assertions.
 - Cut over to the current pi package scope: all imports now use `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui`, and local module specifiers use `.ts` extensions.
 - Declared `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, and `typebox` as peer dependencies with a `*` range, following pi's package contract. `typebox` is no longer a direct dependency because pi resolves all of these through its extension loader aliases.
 - Added `engines.node: >=22.19.0` to match pi's minimum supported Node version.

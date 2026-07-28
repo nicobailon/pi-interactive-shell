@@ -75,6 +75,30 @@ describe("config + docs parity", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
+	it("ignores invalid config roots and non-finite numeric config", async () => {
+		const root = mkdtempSync(join(tmpdir(), "interactive-shell-invalid-config-"));
+		const project = join(root, "project");
+		const agentDir = join(root, "agent");
+		const globalPath = join(agentDir, "interactive-shell.json");
+		const projectPath = join(project, ".pi", "interactive-shell.json");
+		mkdirSync(agentDir, { recursive: true });
+		mkdirSync(join(project, ".pi"), { recursive: true });
+		writeFileSync(globalPath, "[]", { encoding: "utf-8" });
+		writeFileSync(projectPath, '{ "overlayWidthPercent": 1e999, "scrollbackLines": -1e999 }', { encoding: "utf-8" });
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const { loadConfig } = await loadConfigModule(agentDir);
+			const config = loadConfig(project);
+
+			expect(config.overlayWidthPercent).toBe(95);
+			expect(config.scrollbackLines).toBe(5000);
+			expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`Ignoring ${globalPath}: config root must be an object`));
+		} finally {
+			errorSpy.mockRestore();
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	it("keeps README, SKILL, and tool help defaults aligned with config defaults", async () => {
 		const root = mkdtempSync(join(tmpdir(), "interactive-shell-defaults-"));
 		const { loadConfig } = await loadConfigModule(root);

@@ -100,6 +100,26 @@ describe("getSessionOutput", () => {
 		});
 	});
 
+	it("falls back for non-finite output query limits", () => {
+		const state = createSessionQueryState();
+		let captured: { lines: number; maxChars?: number } | undefined;
+		const session = {
+			getTailLines: (options: { lines: number; maxChars?: number }) => {
+				captured = options;
+				return { lines: ["alpha"], totalLinesInBuffer: 1, truncatedByChars: false };
+			},
+			getRawStream: () => "",
+			getLogSlice: () => ({ slice: "", totalLines: 0, totalChars: 0, sliceLineCount: 0 }),
+		} as any;
+
+		getSessionOutput(session, config, state, {
+			lines: Number.NaN,
+			maxChars: Number.POSITIVE_INFINITY,
+		});
+
+		expect(captured).toMatchObject({ lines: 20, maxChars: 5120 });
+	});
+
 	it("rate limits repeated queries until enough time has passed", () => {
 		const state = createSessionQueryState();
 		const session = makeSession();
