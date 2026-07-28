@@ -27,7 +27,6 @@ describe("config + docs parity", () => {
 		writeFileSync(globalPath, JSON.stringify({
 			handsFreeQuietThreshold: 999999,
 			overlayWidthPercent: 5,
-			overlayAnchor: "middle",
 			focusShortcut: "alt+f",
 			spawn: {
 				defaultAgent: "codex",
