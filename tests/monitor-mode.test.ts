@@ -19,18 +19,18 @@ async function setupHarness() {
 	const sendMessage = vi.fn();
 
 	vi.resetModules();
-	vi.doMock("@mariozechner/pi-coding-agent", () => ({
+	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => "/tmp/pi-agent",
 	}));
-	vi.doMock("@mariozechner/pi-tui", () => ({
+	vi.doMock("@earendil-works/pi-tui", () => ({
 		isKeyRelease: () => false,
 		isKeyRepeat: () => false,
 		matchesKey: () => false,
 		truncateToWidth: (value: string) => value,
 		visibleWidth: (value: string) => value.length,
 	}));
-	vi.doMock("../config.js", async () => {
-		const actual = await vi.importActual<typeof import("../config.js")>("../config.js");
+	vi.doMock("../config.ts", async () => {
+		const actual = await vi.importActual<typeof import("../config.ts")>("../config.ts");
 		return {
 			...actual,
 			loadConfig: vi.fn(() => ({
@@ -68,13 +68,13 @@ async function setupHarness() {
 			})),
 		};
 	});
-	vi.doMock("../overlay-component.js", () => ({
+	vi.doMock("../overlay-component.ts", () => ({
 		InteractiveShellOverlay: class MockInteractiveShellOverlay {},
 	}));
-	vi.doMock("../reattach-overlay.js", () => ({
+	vi.doMock("../reattach-overlay.ts", () => ({
 		ReattachOverlay: class MockReattachOverlay {},
 	}));
-	vi.doMock("../pty-session.js", () => ({
+	vi.doMock("../pty-session.ts", () => ({
 		PtyTerminalSession: class MockPtyTerminalSession {
 			exited = false;
 			exitCode: number | null = null;
@@ -92,7 +92,7 @@ async function setupHarness() {
 			getRawStream() { return ""; }
 		},
 	}));
-	vi.doMock("../headless-monitor.js", () => ({
+	vi.doMock("../headless-monitor.ts", () => ({
 		HeadlessDispatchMonitor: class MockHeadlessDispatchMonitor {
 			disposed = false;
 			constructor(
@@ -109,7 +109,7 @@ async function setupHarness() {
 			dispose() { this.disposed = true; }
 		},
 	}));
-	vi.doMock("../session-manager.js", () => ({
+	vi.doMock("../session-manager.ts", () => ({
 		sessionManager: {
 			getActive: vi.fn(() => undefined),
 			unregisterActive: vi.fn(),
@@ -131,7 +131,7 @@ async function setupHarness() {
 		generateSessionId: vi.fn(() => "monitor-1"),
 	}));
 
-	const extensionModule = await import("../index.js");
+	const extensionModule = await import("../index.ts");
 	extensionModule.default({
 		registerShortcut: vi.fn(),
 		registerCommand: vi.fn(),
@@ -154,14 +154,14 @@ async function setupHarness() {
 
 describe("monitor mode", () => {
 	afterEach(() => {
-		vi.doUnmock("@mariozechner/pi-coding-agent");
-		vi.doUnmock("@mariozechner/pi-tui");
-		vi.doUnmock("../config.js");
-		vi.doUnmock("../overlay-component.js");
-		vi.doUnmock("../reattach-overlay.js");
-		vi.doUnmock("../pty-session.js");
-		vi.doUnmock("../headless-monitor.js");
-		vi.doUnmock("../session-manager.js");
+		vi.doUnmock("@earendil-works/pi-coding-agent");
+		vi.doUnmock("@earendil-works/pi-tui");
+		vi.doUnmock("../config.ts");
+		vi.doUnmock("../overlay-component.ts");
+		vi.doUnmock("../reattach-overlay.ts");
+		vi.doUnmock("../pty-session.ts");
+		vi.doUnmock("../headless-monitor.ts");
+		vi.doUnmock("../session-manager.ts");
 	});
 
 	it("requires monitor object when mode is monitor", async () => {

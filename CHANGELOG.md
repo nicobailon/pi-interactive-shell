@@ -4,6 +4,16 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+- Cut over to the current pi package scope: all imports now use `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui`, and local module specifiers use `.ts` extensions.
+- Declared `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, and `typebox` as peer dependencies with a `*` range, following pi's package contract. `typebox` is no longer a direct dependency because pi resolves all of these through its extension loader aliases.
+- Added `engines.node: >=22.19.0` to match pi's minimum supported Node version.
+- Added strict TypeScript checking (`tsconfig.json`, `npm run typecheck`) and fixed all resulting errors.
+- `ToolParams` is now derived from the typebox schema (`Static<typeof toolParameters>`) instead of a hand-written duplicate; the drift this exposed was fixed by constraining `handsFree.updateMode` to `'on-quiet' | 'interval'` in the schema, so invalid values are rejected at the tool boundary instead of silently misbehaving.
+- Config shortcuts (`focusShortcut`, `spawn.shortcut`) are validated as key identifiers when loading config; invalid shortcuts now warn and fall back to the defaults instead of silently never matching.
+- Compiled monitor config is now a discriminated union on strategy, making `fileWatch` presence impossible to misuse for non-file-watch strategies.
+- `/dismiss` selection no longer treats an unmatched select label as "dismiss all".
+
 ## [0.13.0] - 2026-04-23
 
 ### Changed

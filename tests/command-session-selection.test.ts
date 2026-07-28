@@ -30,20 +30,20 @@ async function setupHarness(initialSessions: MockBackgroundSession[]) {
 	};
 
 	vi.resetModules();
-	vi.doMock("@mariozechner/pi-coding-agent", () => ({
+	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => "/tmp/pi-agent",
 	}));
-	vi.doMock("@mariozechner/pi-tui", () => ({
+	vi.doMock("@earendil-works/pi-tui", () => ({
 		matchesKey: () => false,
 		truncateToWidth: (value: string) => value,
 		visibleWidth: (value: string) => value.length,
 	}));
-	vi.doMock("../session-manager.js", () => ({
+	vi.doMock("../session-manager.ts", () => ({
 		sessionManager,
 		generateSessionId: () => "mock-session-id",
 	}));
 
-	const extensionModule = await import("../index.js");
+	const extensionModule = await import("../index.ts");
 	const extension = extensionModule.default;
 
 	const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> | void }>();
@@ -70,7 +70,7 @@ async function setupHarness(initialSessions: MockBackgroundSession[]) {
 		ui: {
 			notify,
 			custom: vi.fn(),
-			select: vi.fn(async (_title: string, options: string[]) => options[0]),
+			select: vi.fn(async (_title: string, options: string[]): Promise<string | undefined> => options[0]),
 		},
 	};
 
@@ -84,9 +84,9 @@ async function setupHarness(initialSessions: MockBackgroundSession[]) {
 
 describe("command session selection", () => {
 	afterEach(() => {
-		vi.doUnmock("@mariozechner/pi-coding-agent");
-		vi.doUnmock("@mariozechner/pi-tui");
-		vi.doUnmock("../session-manager.js");
+		vi.doUnmock("@earendil-works/pi-coding-agent");
+		vi.doUnmock("@earendil-works/pi-tui");
+		vi.doUnmock("../session-manager.ts");
 	});
 
 	it("/attach preserves full session id when id contains ' - '", async () => {

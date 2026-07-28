@@ -1,6 +1,6 @@
-import type { InteractiveShellResult, HandsFreeUpdate, MonitorEventPayload, MonitorSessionState } from "./types.js";
-import type { HeadlessCompletionInfo } from "./headless-monitor.js";
-import { formatDurationMs } from "./types.js";
+import type { InteractiveShellResult, HandsFreeUpdate, MonitorEventPayload, MonitorSessionState } from "./types.ts";
+import type { HeadlessCompletionInfo } from "./headless-monitor.ts";
+import { formatDurationMs } from "./types.ts";
 
 const BRIEF_TAIL_LINES = 5;
 

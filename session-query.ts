@@ -1,7 +1,7 @@
-import type { InteractiveShellConfig } from "./config.js";
-import type { OutputOptions, OutputResult } from "./session-manager.js";
-import type { InteractiveShellResult } from "./types.js";
-import type { PtyTerminalSession } from "./pty-session.js";
+import type { InteractiveShellConfig } from "./config.ts";
+import type { OutputOptions, OutputResult } from "./session-manager.ts";
+import type { InteractiveShellResult } from "./types.ts";
+import type { PtyTerminalSession } from "./pty-session.ts";
 
 /** Mutable query bookkeeping kept per active session. */
 export interface SessionQueryState {

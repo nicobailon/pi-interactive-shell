@@ -156,7 +156,7 @@ export interface InteractiveShellOptions {
 	// When false/undefined, keep registered so agent can query result later.
 	streamingMode?: boolean;
 	// Existing PTY session (for attach flow -- skip creating a new PTY)
-	existingSession?: import("./pty-session.js").PtyTerminalSession;
+	existingSession?: import("./pty-session.ts").PtyTerminalSession;
 	onUnfocus?: () => void;
 }
 

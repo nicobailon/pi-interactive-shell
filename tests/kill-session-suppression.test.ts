@@ -42,25 +42,25 @@ async function setupKillHarness(options: SetupOptions = {}) {
 
 	let coordinatorInstance: any;
 	vi.resetModules();
-	vi.doMock("@mariozechner/pi-coding-agent", () => ({
+	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => "/tmp/pi-agent",
 	}));
-	vi.doMock("@mariozechner/pi-tui", () => ({
+	vi.doMock("@earendil-works/pi-tui", () => ({
 		matchesKey: () => false,
 		truncateToWidth: (value: string) => value,
 		visibleWidth: (value: string) => value.length,
 	}));
-	vi.doMock("../overlay-component.js", () => ({
+	vi.doMock("../overlay-component.ts", () => ({
 		InteractiveShellOverlay: class MockInteractiveShellOverlay {},
 	}));
-	vi.doMock("../reattach-overlay.js", () => ({
+	vi.doMock("../reattach-overlay.ts", () => ({
 		ReattachOverlay: class MockReattachOverlay {},
 	}));
-	vi.doMock("../session-manager.js", () => ({
+	vi.doMock("../session-manager.ts", () => ({
 		sessionManager,
 		generateSessionId: () => "mock-session-id",
 	}));
-	vi.doMock("../runtime-coordinator.js", () => ({
+	vi.doMock("../runtime-coordinator.ts", () => ({
 		InteractiveShellCoordinator: class MockCoordinator {
 			markAgentHandledCompletion = vi.fn();
 			consumeAgentHandledCompletion = vi.fn(() => false);
@@ -84,7 +84,7 @@ async function setupKillHarness(options: SetupOptions = {}) {
 		},
 	}));
 
-	const extensionModule = await import("../index.js");
+	const extensionModule = await import("../index.ts");
 	const extension = extensionModule.default;
 
 	let toolDef: any;
@@ -112,12 +112,12 @@ async function setupKillHarness(options: SetupOptions = {}) {
 
 describe("session kill completion suppression", () => {
 	afterEach(() => {
-		vi.doUnmock("@mariozechner/pi-coding-agent");
-		vi.doUnmock("@mariozechner/pi-tui");
-		vi.doUnmock("../overlay-component.js");
-		vi.doUnmock("../reattach-overlay.js");
-		vi.doUnmock("../runtime-coordinator.js");
-		vi.doUnmock("../session-manager.js");
+		vi.doUnmock("@earendil-works/pi-coding-agent");
+		vi.doUnmock("@earendil-works/pi-tui");
+		vi.doUnmock("../overlay-component.ts");
+		vi.doUnmock("../reattach-overlay.ts");
+		vi.doUnmock("../runtime-coordinator.ts");
+		vi.doUnmock("../session-manager.ts");
 	});
 
 	it("marks kill as agent-handled when the session has not completed yet", async () => {

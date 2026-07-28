@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { InteractiveShellConfig } from "../config.js";
+import type { InteractiveShellConfig } from "../config.ts";
 
 const config: InteractiveShellConfig = {
 	exitAutoCloseDelay: 10,
@@ -66,15 +66,15 @@ function createExistingSession() {
 
 async function loadOverlay() {
 	vi.resetModules();
-	vi.doMock("@mariozechner/pi-tui", () => ({
+	vi.doMock("@earendil-works/pi-tui", () => ({
 		matchesKey: () => false,
 		truncateToWidth: (value: string, width: number) => value.length > width ? value.slice(0, width) : value,
 		visibleWidth: (value: string) => stripAnsi(value).length,
 	}));
-	vi.doMock("../pty-session.js", () => ({
+	vi.doMock("../pty-session.ts", () => ({
 		PtyTerminalSession: class MockPtyTerminalSession {},
 	}));
-	vi.doMock("../session-manager.js", () => ({
+	vi.doMock("../session-manager.ts", () => ({
 		sessionManager: {
 			registerActive: vi.fn(),
 			unregisterActive: vi.fn(),
@@ -82,26 +82,26 @@ async function loadOverlay() {
 		},
 		generateSessionId: vi.fn(() => "session-1"),
 	}));
-	vi.doMock("../handoff-utils.js", () => ({
+	vi.doMock("../handoff-utils.ts", () => ({
 		captureCompletionOutput: vi.fn(() => undefined),
 		captureTransferOutput: vi.fn(() => undefined),
 		maybeBuildHandoffPreview: vi.fn(() => undefined),
 		maybeWriteHandoffSnapshot: vi.fn(() => undefined),
 	}));
-	vi.doMock("../session-query.js", () => ({
+	vi.doMock("../session-query.ts", () => ({
 		createSessionQueryState: vi.fn(() => ({})),
 		getSessionOutput: vi.fn(() => ({ output: "", truncated: false, totalBytes: 0 })),
 	}));
-	return import("../overlay-component.js");
+	return import("../overlay-component.ts");
 }
 
 describe("InteractiveShellOverlay render focus cues", () => {
 	afterEach(() => {
-		vi.doUnmock("@mariozechner/pi-tui");
-		vi.doUnmock("../pty-session.js");
-		vi.doUnmock("../session-manager.js");
-		vi.doUnmock("../handoff-utils.js");
-		vi.doUnmock("../session-query.js");
+		vi.doUnmock("@earendil-works/pi-tui");
+		vi.doUnmock("../pty-session.ts");
+		vi.doUnmock("../session-manager.ts");
+		vi.doUnmock("../handoff-utils.ts");
+		vi.doUnmock("../session-query.ts");
 	});
 
 	it("shows distinct badges and border styles for focused and unfocused states", async () => {

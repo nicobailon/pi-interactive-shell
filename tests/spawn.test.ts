@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { InteractiveShellConfig } from "../config.js";
+import type { InteractiveShellConfig } from "../config.ts";
 
 const config: InteractiveShellConfig = {
 	exitAutoCloseDelay: 10,
@@ -41,7 +41,7 @@ describe("spawn helpers", () => {
 	});
 
 	it("parses canonical agent tokens, mode, worktree flag, prompt, and monitor mode", async () => {
-		const { parseSpawnArgs } = await import("../spawn.js");
+		const { parseSpawnArgs } = await import("../spawn.ts");
 		expect(parseSpawnArgs('claude "review the diffs" --dispatch')).toEqual({
 			ok: true,
 			parsed: {
@@ -73,7 +73,7 @@ describe("spawn helpers", () => {
 	});
 
 	it("rejects invalid prompt-bearing combinations and unknown tokens", async () => {
-		const { parseSpawnArgs } = await import("../spawn.js");
+		const { parseSpawnArgs } = await import("../spawn.ts");
 		expect(parseSpawnArgs("claude-code")).toEqual({
 			ok: false,
 			error: "Unknown /spawn argument: claude-code",
@@ -97,7 +97,7 @@ describe("spawn helpers", () => {
 	});
 
 	it("resolves the configured default agent and default args", async () => {
-		const { resolveSpawn } = await import("../spawn.js");
+		const { resolveSpawn } = await import("../spawn.ts");
 		const result = resolveSpawn({
 			...config,
 			spawn: { ...config.spawn, defaultAgent: "codex" },
@@ -116,7 +116,7 @@ describe("spawn helpers", () => {
 	});
 
 	it("appends prompt text using each CLI's native startup form", async () => {
-		const { resolveSpawn } = await import("../spawn.js");
+		const { resolveSpawn } = await import("../spawn.ts");
 		expect(resolveSpawn(config, "/tmp/project", { agent: "claude", prompt: "review the diffs" }, () => "/tmp/project/session.jsonl")).toEqual({
 			ok: true,
 			spawn: {
@@ -153,7 +153,7 @@ describe("spawn helpers", () => {
 	});
 
 	it("rejects empty structured spawn prompts", async () => {
-		const { resolveSpawn } = await import("../spawn.js");
+		const { resolveSpawn } = await import("../spawn.ts");
 		expect(resolveSpawn(config, "/tmp/project", { agent: "codex", prompt: "   " }, () => "/tmp/project/session.jsonl")).toEqual({
 			ok: false,
 			error: "Spawn prompt cannot be empty.",
@@ -161,7 +161,7 @@ describe("spawn helpers", () => {
 	});
 
 	it("keeps fork pi-only", async () => {
-		const { resolveSpawn } = await import("../spawn.js");
+		const { resolveSpawn } = await import("../spawn.ts");
 		expect(resolveSpawn(config, "/tmp/project", { agent: "claude", mode: "fork" }, () => "/tmp/project/session.jsonl")).toEqual({
 			ok: false,
 			error: "Cannot fork claude. Fork is only supported for pi sessions.",
@@ -171,7 +171,7 @@ describe("spawn helpers", () => {
 	it("fails fork before creating a worktree when no session file is available", async () => {
 		const execFileSync = vi.fn();
 		vi.doMock("node:child_process", () => ({ execFileSync }));
-		const { resolveSpawn } = await import("../spawn.js");
+		const { resolveSpawn } = await import("../spawn.ts");
 		expect(resolveSpawn({
 			...config,
 			spawn: { ...config.spawn, worktree: true },
@@ -198,7 +198,7 @@ describe("spawn helpers", () => {
 			const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
 			return { ...actual, existsSync: vi.fn(() => true), mkdirSync: vi.fn() };
 		});
-		const { resolveSpawn } = await import("../spawn.js");
+		const { resolveSpawn } = await import("../spawn.ts");
 		const result = resolveSpawn(config, "/tmp/repo/packages/app", { agent: "codex", worktree: true }, () => "/tmp/repo/session.jsonl");
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;

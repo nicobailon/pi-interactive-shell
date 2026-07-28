@@ -1,6 +1,6 @@
-import type { OverlayHandle } from "@mariozechner/pi-tui";
-import type { HeadlessDispatchMonitor } from "./headless-monitor.js";
-import type { MonitorConfig, MonitorEventPayload, MonitorSessionState, MonitorTerminalReason } from "./types.js";
+import type { OverlayHandle } from "@earendil-works/pi-tui";
+import type { HeadlessDispatchMonitor } from "./headless-monitor.ts";
+import type { MonitorConfig, MonitorEventPayload, MonitorSessionState, MonitorTerminalReason } from "./types.ts";
 
 const MONITOR_HISTORY_LIMIT = 200;
 

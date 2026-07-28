@@ -1,9 +1,9 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { isKeyRelease, isKeyRepeat, matchesKey } from "@mariozechner/pi-tui";
-import { InteractiveShellOverlay } from "./overlay-component.js";
-import { ReattachOverlay } from "./reattach-overlay.js";
-import { PtyTerminalSession } from "./pty-session.js";
-import { formatDuration, formatDurationMs } from "./types.js";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { isKeyRelease, isKeyRepeat, matchesKey } from "@earendil-works/pi-tui";
+import { InteractiveShellOverlay } from "./overlay-component.ts";
+import { ReattachOverlay } from "./reattach-overlay.ts";
+import { PtyTerminalSession } from "./pty-session.ts";
+import { formatDuration, formatDurationMs } from "./types.ts";
 import type {
 	HandsFreeUpdate,
 	InteractiveShellResult,
@@ -14,28 +14,31 @@ import type {
 	MonitorTerminalReason,
 	MonitorThresholdOperator,
 	MonitorTriggerConfig,
-} from "./types.js";
-import { sessionManager, generateSessionId } from "./session-manager.js";
-import { loadConfig } from "./config.js";
-import type { InteractiveShellConfig } from "./config.js";
-import { parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.js";
-import { translateInput } from "./key-encoding.js";
-import { TOOL_NAME, TOOL_LABEL, TOOL_DESCRIPTION, toolParameters, type ToolParams } from "./tool-schema.js";
-import { HeadlessDispatchMonitor } from "./headless-monitor.js";
+} from "./types.ts";
+import { sessionManager, generateSessionId } from "./session-manager.ts";
+import { loadConfig } from "./config.ts";
+import type { InteractiveShellConfig } from "./config.ts";
+import { parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.ts";
+import { translateInput } from "./key-encoding.ts";
+import { TOOL_NAME, TOOL_LABEL, TOOL_DESCRIPTION, toolParameters, type ToolParams } from "./tool-schema.ts";
+import { HeadlessDispatchMonitor } from "./headless-monitor.ts";
 import type {
 	HeadlessCompletionInfo,
 	MonitorMatchInfo,
 	MonitorRuntimeConfig,
 	MonitorTriggerMatcher,
-} from "./headless-monitor.js";
-import { setupBackgroundWidget } from "./background-widget.js";
-import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildMonitorEventNotification, buildMonitorLifecycleNotification, buildResultNotification, summarizeInteractiveResult } from "./notification-utils.js";
-import { createSessionQueryState, getSessionOutput } from "./session-query.js";
-import { InteractiveShellCoordinator } from "./runtime-coordinator.js";
+} from "./headless-monitor.ts";
+import { setupBackgroundWidget } from "./background-widget.ts";
+import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildMonitorEventNotification, buildMonitorLifecycleNotification, buildResultNotification, summarizeInteractiveResult } from "./notification-utils.ts";
+import { createSessionQueryState, getSessionOutput } from "./session-query.ts";
+import { InteractiveShellCoordinator } from "./runtime-coordinator.ts";
 import { spawn as spawnChildProcess } from "node:child_process";
 
 const coordinator = new InteractiveShellCoordinator();
 const SIDE_CHAT_SHORTCUT = "alt+/";
+
+/** Overlay options for ctx.ui.custom, derived from pi so width/anchor stay in sync with the host. */
+type CustomUiOptions = NonNullable<Parameters<ExtensionUIContext["custom"]>[1]>;
 
 function scheduleMonitorHistoryCleanup(sessionId: string, delayMs = 5 * 60 * 1000): void {
 	const attempt = () => {
@@ -109,19 +112,22 @@ function makeStructuredMonitorCompletionCallback(
 	};
 }
 
-type CompiledMonitorConfig = {
+type CompiledMonitorBase = {
 	runtime: MonitorRuntimeConfig;
 	persistence: {
 		stopAfterFirstEvent: boolean;
 		maxEvents?: number;
 	};
-	fileWatch?: Required<MonitorFileWatchConfig>;
 	detector?: {
 		detectorCommand: string;
 		timeoutMs: number;
 	};
 	publicConfig: MonitorConfig;
 };
+
+type CompiledMonitorConfig =
+	| (CompiledMonitorBase & { strategy: "file-watch"; fileWatch: Required<MonitorFileWatchConfig> })
+	| (CompiledMonitorBase & { strategy: "stream" | "poll-diff"; fileWatch?: undefined });
 
 type DetectorDecision = {
 	emit: boolean;
@@ -319,30 +325,7 @@ function compileMonitorConfig(raw: MonitorConfig | undefined):
 		compiledTriggers.push(compiled.compiled);
 	}
 
-	let fileWatch: Required<MonitorFileWatchConfig> | undefined;
-	if (strategy === "file-watch") {
-		if (!raw.fileWatch) {
-			return { ok: false, error: "monitor.fileWatch is required when monitor.strategy='file-watch'." };
-		}
-		const watchPath = raw.fileWatch.path?.trim();
-		if (!watchPath) {
-			return { ok: false, error: "monitor.fileWatch.path must be a non-empty string." };
-		}
-		const watchEvents = raw.fileWatch.events ?? ["rename", "change"];
-		if (!Array.isArray(watchEvents) || watchEvents.length === 0) {
-			return { ok: false, error: "monitor.fileWatch.events must contain at least one event." };
-		}
-		for (const eventName of watchEvents) {
-			if (eventName !== "rename" && eventName !== "change") {
-				return { ok: false, error: `Unsupported monitor.fileWatch event: ${String(eventName)}. Use 'rename' or 'change'.` };
-			}
-		}
-		fileWatch = {
-			path: watchPath,
-			recursive: raw.fileWatch.recursive === true,
-			events: Array.from(new Set(watchEvents)),
-		};
-	} else if (raw.fileWatch) {
+	if (strategy !== "file-watch" && raw.fileWatch) {
 		return { ok: false, error: "monitor.fileWatch is only valid when monitor.strategy='file-watch'." };
 	}
 
@@ -368,10 +351,17 @@ function compileMonitorConfig(raw: MonitorConfig | undefined):
 		}
 		: undefined;
 
+	const runtime: MonitorRuntimeConfig = {
+		strategy,
+		triggers: compiledTriggers,
+		pollIntervalMs,
+		dedupeExactLine,
+		cooldownMs,
+	};
+	const persistence = { stopAfterFirstEvent, maxEvents };
 	const publicConfig: MonitorConfig = {
 		strategy,
 		triggers: raw.triggers,
-		fileWatch,
 		poll: strategy === "poll-diff" ? { intervalMs: pollIntervalMs } : undefined,
 		persistence: {
 			stopAfterFirstEvent,
@@ -389,25 +379,35 @@ function compileMonitorConfig(raw: MonitorConfig | undefined):
 			: undefined,
 	};
 
-	return {
-		ok: true,
-		compiled: {
-			runtime: {
-				strategy,
-				triggers: compiledTriggers,
-				pollIntervalMs,
-				dedupeExactLine,
-				cooldownMs,
-			},
-			persistence: {
-				stopAfterFirstEvent,
-				maxEvents,
-			},
-			fileWatch,
-			detector,
-			publicConfig,
-		},
-	};
+	if (strategy === "file-watch") {
+		if (!raw.fileWatch) {
+			return { ok: false, error: "monitor.fileWatch is required when monitor.strategy='file-watch'." };
+		}
+		const watchPath = raw.fileWatch.path?.trim();
+		if (!watchPath) {
+			return { ok: false, error: "monitor.fileWatch.path must be a non-empty string." };
+		}
+		const watchEvents = raw.fileWatch.events ?? ["rename", "change"];
+		if (!Array.isArray(watchEvents) || watchEvents.length === 0) {
+			return { ok: false, error: "monitor.fileWatch.events must contain at least one event." };
+		}
+		for (const eventName of watchEvents) {
+			if (eventName !== "rename" && eventName !== "change") {
+				return { ok: false, error: `Unsupported monitor.fileWatch event: ${String(eventName)}. Use 'rename' or 'change'.` };
+			}
+		}
+		const fileWatch: Required<MonitorFileWatchConfig> = {
+			path: watchPath,
+			recursive: raw.fileWatch.recursive === true,
+			events: Array.from(new Set(watchEvents)),
+		};
+		return {
+			ok: true,
+			compiled: { strategy, fileWatch, runtime, persistence, detector, publicConfig: { ...publicConfig, fileWatch } },
+		};
+	}
+
+	return { ok: true, compiled: { strategy, runtime, persistence, detector, publicConfig } };
 }
 
 async function runDetectorCommand(
@@ -664,7 +664,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		coordinator.clearMonitorEvents(id);
 		sessionManager.unregisterActive(id, false);
 	};
-	const createOverlayUiOptions = (config: InteractiveShellConfig) => ({
+	const createOverlayUiOptions = (config: InteractiveShellConfig): CustomUiOptions => ({
 		overlay: true,
 		overlayOptions: {
 			width: `${config.overlayWidthPercent}%`,
@@ -729,7 +729,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		timeout?: number;
 		monitor?: ToolParams["monitor"];
 		onUpdate?: (update: { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }) => void;
-	}): Promise<{ content: Array<{ type: "text"; text: string }>; details?: any; isError?: boolean }> => {
+	}): Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown; isError?: boolean }> => {
 		const { ctx, command, spawn, cwd, name, reason, mode, background, handsFree, handoffPreview, handoffSnapshot, timeout, monitor, onUpdate } = params;
 		const allowsGeneratedCommand = mode === "monitor" && monitor?.strategy === "file-watch";
 		if (!command && !spawn && !allowsGeneratedCommand) {
@@ -789,14 +789,6 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			spawnAgent = resolvedSpawn.spawn.agent;
 			spawnMode = resolvedSpawn.spawn.mode;
 		}
-		const expectsGeneratedCommand = isMonitorMode && monitor?.strategy === "file-watch";
-		if (!effectiveCommand && !expectsGeneratedCommand) {
-			return {
-				content: [{ type: "text", text: "Failed to resolve the command to launch." }],
-				isError: true,
-			};
-		}
-
 		if (isMonitorMode) {
 			const compiledMonitor = compileMonitorConfig(monitor);
 			if (!compiledMonitor.ok) {
@@ -805,48 +797,66 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					isError: true,
 				};
 			}
+			const compiled = compiledMonitor.compiled;
+
+			let sessionCommand: string;
+			let monitorCommand: string;
+			if (compiled.strategy === "file-watch") {
+				sessionCommand = `file-watch ${compiled.fileWatch.path}`;
+				monitorCommand = buildFileWatchCommand(compiled.fileWatch);
+			} else if (!effectiveCommand) {
+				return {
+					content: [{ type: "text", text: "Failed to resolve the command to launch." }],
+					isError: true,
+				};
+			} else {
+				sessionCommand = effectiveCommand;
+				monitorCommand = compiled.strategy === "poll-diff"
+					? buildPollDiffLoopCommand(effectiveCommand, compiled.runtime.pollIntervalMs)
+					: effectiveCommand;
+			}
 
 			const id = generateSessionId(name);
-			const sessionCommand = compiledMonitor.compiled.runtime.strategy === "file-watch"
-				? `file-watch ${compiledMonitor.compiled.fileWatch?.path ?? "<unknown>"}`
-				: effectiveCommand!;
-			const monitorCommand = compiledMonitor.compiled.runtime.strategy === "poll-diff"
-				? buildPollDiffLoopCommand(sessionCommand, compiledMonitor.compiled.runtime.pollIntervalMs)
-				: compiledMonitor.compiled.runtime.strategy === "file-watch"
-					? buildFileWatchCommand(compiledMonitor.compiled.fileWatch!)
-					: sessionCommand;
 			const session = new PtyTerminalSession(
 				{ command: monitorCommand, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
 			);
 			const startTime = Date.now();
 			sessionManager.add(sessionCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
 
-			coordinator.registerMonitorSession(id, compiledMonitor.compiled.publicConfig, new Date(startTime));
+			coordinator.registerMonitorSession(id, compiled.publicConfig, new Date(startTime));
 			const monitorRunner = new HeadlessDispatchMonitor(session, config, {
 				autoExitOnQuiet: handsFree?.autoExitOnQuiet === true,
 				quietThreshold: handsFree?.quietThreshold ?? config.handsFreeQuietThreshold,
 				gracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 				timeout,
 				startedAt: startTime,
-				monitor: compiledMonitor.compiled.runtime,
-				onMonitorEvent: makeMonitorEventCallback(pi, id, compiledMonitor.compiled, effectiveCwd),
+				monitor: compiled.runtime,
+				onMonitorEvent: makeMonitorEventCallback(pi, id, compiled, effectiveCwd),
 			}, makeStructuredMonitorCompletionCallback(pi, id));
 			registerHeadlessActive(id, sessionCommand, effectiveReason, session, monitorRunner, startTime, config, "monitoring");
 
 			return {
-				content: [{ type: "text", text: appendWorktreeNotice(`Monitor started in background (id: ${id}).\nStrategy: ${compiledMonitor.compiled.publicConfig.strategy ?? "stream"}\nTriggers: ${compiledMonitor.compiled.publicConfig.triggers.map((trigger) => trigger.id).join(", ")}\nYou'll be notified when a trigger emits an event.`, spawnWorktreePath) }],
-				details: { sessionId: id, backgroundId: id, mode: "monitor", monitor: compiledMonitor.compiled.publicConfig, background: true, spawnAgent, spawnMode, spawnWorktreePath },
+				content: [{ type: "text", text: appendWorktreeNotice(`Monitor started in background (id: ${id}).\nStrategy: ${compiled.publicConfig.strategy ?? "stream"}\nTriggers: ${compiled.publicConfig.triggers.map((trigger) => trigger.id).join(", ")}\nYou'll be notified when a trigger emits an event.`, spawnWorktreePath) }],
+				details: { sessionId: id, backgroundId: id, mode: "monitor", monitor: compiled.publicConfig, background: true, spawnAgent, spawnMode, spawnWorktreePath },
 			};
 		}
+
+		if (!effectiveCommand) {
+			return {
+				content: [{ type: "text", text: "Failed to resolve the command to launch." }],
+				isError: true,
+			};
+		}
+		const launchCommand = effectiveCommand;
 
 		if (mode === "dispatch" && background) {
 			const id = generateSessionId(name);
 			const session = new PtyTerminalSession(
-				{ command: effectiveCommand, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
+				{ command: launchCommand, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
 			);
 
 			const startTime = Date.now();
-			sessionManager.add(effectiveCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
+			sessionManager.add(launchCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
 
 			const monitor = new HeadlessDispatchMonitor(session, config, {
 				autoExitOnQuiet: handsFree?.autoExitOnQuiet !== false,
@@ -855,7 +865,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				timeout,
 				startedAt: startTime,
 			}, makeMonitorCompletionCallback(pi, id, startTime));
-			registerHeadlessActive(id, effectiveCommand, effectiveReason, session, monitor, startTime, config);
+			registerHeadlessActive(id, launchCommand, effectiveReason, session, monitor, startTime, config);
 
 			return {
 				content: [{ type: "text", text: appendWorktreeNotice(`Session dispatched in background (id: ${id}).\nYou'll be notified when it completes. User can /attach ${id} to watch.`, spawnWorktreePath) }],
@@ -879,7 +889,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				overlayPromise = ctx.ui.custom<InteractiveShellResult>(
 					(tui, theme, _kb, done) =>
 						new InteractiveShellOverlay(tui, theme, {
-							command: effectiveCommand,
+							command: launchCommand,
 							cwd: effectiveCwd,
 							name,
 							reason: effectiveReason,
@@ -917,7 +927,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			setupDispatchCompletion(pi, overlayPromise, config, {
 				id: generatedSessionId,
 				mode,
-				command: effectiveCommand,
+				command: launchCommand,
 				reason: effectiveReason,
 				timeout,
 				handsFree,
@@ -927,12 +937,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			if (mode === "dispatch") {
 				return {
 					content: [{ type: "text", text: appendWorktreeNotice(`Session dispatched (id: ${generatedSessionId}).\nYou'll be notified when it completes.\nYou can still query with interactive_shell({ sessionId: "${generatedSessionId}" }) if needed.`, spawnWorktreePath) }],
-					details: { sessionId: generatedSessionId, status: "running", command: effectiveCommand, reason: effectiveReason, mode, spawnAgent, spawnMode, spawnWorktreePath },
+					details: { sessionId: generatedSessionId, status: "running", command: launchCommand, reason: effectiveReason, mode, spawnAgent, spawnMode, spawnWorktreePath },
 				};
 			}
 			return {
-				content: [{ type: "text", text: appendWorktreeNotice(`Session started: ${generatedSessionId}\nCommand: ${effectiveCommand}\n\nUse interactive_shell({ sessionId: "${generatedSessionId}" }) to check status/output.\nUse interactive_shell({ sessionId: "${generatedSessionId}", kill: true }) to end when done.`, spawnWorktreePath) }],
-				details: { sessionId: generatedSessionId, status: "running", command: effectiveCommand, reason: effectiveReason, spawnAgent, spawnMode, spawnWorktreePath },
+				content: [{ type: "text", text: appendWorktreeNotice(`Session started: ${generatedSessionId}\nCommand: ${launchCommand}\n\nUse interactive_shell({ sessionId: "${generatedSessionId}" }) to check status/output.\nUse interactive_shell({ sessionId: "${generatedSessionId}", kill: true }) to end when done.`, spawnWorktreePath) }],
+				details: { sessionId: generatedSessionId, status: "running", command: launchCommand, reason: effectiveReason, spawnAgent, spawnMode, spawnWorktreePath },
 			};
 		}
 
@@ -944,7 +954,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			};
 		}
 		onUpdate?.({
-			content: [{ type: "text", text: appendWorktreeNotice(`Opening: ${effectiveCommand}`, spawnWorktreePath) }],
+			content: [{ type: "text", text: appendWorktreeNotice(`Opening: ${launchCommand}`, spawnWorktreePath) }],
 			details: { exitCode: null, backgrounded: false, cancelled: false },
 		});
 
@@ -953,7 +963,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			result = await ctx.ui.custom<InteractiveShellResult>(
 				(tui, theme, _kb, done) =>
 					new InteractiveShellOverlay(tui, theme, {
-						command: effectiveCommand,
+						command: launchCommand,
 						cwd: effectiveCwd,
 						name,
 						reason: effectiveReason,
@@ -1022,7 +1032,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		}
 
 		return {
-			content: [{ type: "text", text: appendWorktreeNotice(summarizeInteractiveResult(effectiveCommand, result, timeout, effectiveReason), spawnWorktreePath) }],
+			content: [{ type: "text", text: appendWorktreeNotice(summarizeInteractiveResult(launchCommand, result, timeout, effectiveReason), spawnWorktreePath) }],
 			details: { ...result, spawnAgent, spawnMode, spawnWorktreePath },
 		};
 	};
@@ -1078,6 +1088,17 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		parameters: toolParameters,
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+			const result = await runTool(params, onUpdate, ctx);
+			// AgentToolResult requires `details`; normalize the paths that produce none.
+			return { content: result.content, details: result.details ?? {}, isError: result.isError };
+		},
+	});
+
+	async function runTool(
+		params: ToolParams,
+		onUpdate: ((update: { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }) => void) | undefined,
+		ctx: ExtensionContext,
+	): Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown; isError?: boolean }> {
 			const {
 				command,
 				spawn,
@@ -1114,7 +1135,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				handoffSnapshot,
 				timeout,
 				monitor,
-			} = params as ToolParams;
+			} = params;
 
 			const hasStructuredInput = inputKeys?.length || inputHex?.length || inputPaste;
 			const effectiveInput = hasStructuredInput
@@ -1625,8 +1646,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				timeout,
 				onUpdate,
 			});
-		},
-	});
+	}
 
 	pi.registerCommand("spawn", {
 		description: "Spawn the configured default agent, pi, codex, claude, or cursor in an interactive shell overlay",
@@ -1768,18 +1788,21 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			} else if (sessions.length === 1) {
 				targetIds = [sessions[0].id];
 			} else {
-				const options = [
-					{ label: "All sessions" },
-					...sessions.map((s) => {
-						const status = s.session.exited ? "exited" : "running";
-						const duration = formatDuration(Date.now() - s.startedAt.getTime());
-						return { id: s.id, label: `${s.id} (${status}, ${duration})` };
-					}),
-				];
-				const choice = await ctx.ui.select("Dismiss sessions", options.map((o) => o.label));
+				const allLabel = "All sessions";
+				const sessionOptions = sessions.map((s) => {
+					const status = s.session.exited ? "exited" : "running";
+					const duration = formatDuration(Date.now() - s.startedAt.getTime());
+					return { id: s.id, label: `${s.id} (${status}, ${duration})` };
+				});
+				const choice = await ctx.ui.select("Dismiss sessions", [allLabel, ...sessionOptions.map((o) => o.label)]);
 				if (!choice) return;
-				const selected = options.find((o) => o.label === choice);
-				targetIds = selected?.id ? [selected.id] : sessions.map((s) => s.id);
+				if (choice === allLabel) {
+					targetIds = sessions.map((s) => s.id);
+				} else {
+					const selected = sessionOptions.find((o) => o.label === choice);
+					if (!selected) return;
+					targetIds = [selected.id];
+				}
 			}
 
 			for (const tid of targetIds) {

@@ -1,12 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getAgentDir } from "@mariozechner/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { KeyId } from "@earendil-works/pi-tui";
 
 export type SpawnAgent = "pi" | "codex" | "claude" | "cursor";
 
 export interface SpawnConfig {
 	defaultAgent: SpawnAgent;
-	shortcut: string;
+	shortcut: KeyId;
 	commands: Record<SpawnAgent, string>;
 	defaultArgs: Record<SpawnAgent, string[]>;
 	worktree: boolean;
@@ -17,7 +18,7 @@ export interface InteractiveShellConfig {
 	exitAutoCloseDelay: number;
 	overlayWidthPercent: number;
 	overlayHeightPercent: number;
-	focusShortcut: string;
+	focusShortcut: KeyId;
 	spawn: SpawnConfig;
 	scrollbackLines: number;
 	ansiReemit: boolean;
@@ -117,7 +118,7 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 		exitAutoCloseDelay: clampInt(merged.exitAutoCloseDelay, DEFAULT_CONFIG.exitAutoCloseDelay, 0, 60),
 		overlayWidthPercent: clampPercent(merged.overlayWidthPercent, DEFAULT_CONFIG.overlayWidthPercent),
 		overlayHeightPercent: clampInt(merged.overlayHeightPercent, DEFAULT_CONFIG.overlayHeightPercent, 20, 90),
-		focusShortcut: resolveShortcut(merged.focusShortcut, DEFAULT_CONFIG.focusShortcut),
+		focusShortcut: resolveKeyId(merged.focusShortcut, DEFAULT_CONFIG.focusShortcut),
 		spawn: mergedSpawn,
 		scrollbackLines: clampInt(merged.scrollbackLines, DEFAULT_CONFIG.scrollbackLines, 200, 50000),
 		ansiReemit: merged.ansiReemit !== false,
@@ -190,10 +191,10 @@ function mergeSpawnConfig(globalValue: unknown, projectValue: unknown): SpawnCon
 	const projectArgs = isPlainObject(projectSpawn?.defaultArgs) ? projectSpawn.defaultArgs : undefined;
 
 	const mergedCommands = {
-		pi: resolveCommand(projectCommands?.pi ?? globalCommands?.pi, DEFAULT_SPAWN_CONFIG.commands.pi),
-		codex: resolveCommand(projectCommands?.codex ?? globalCommands?.codex, DEFAULT_SPAWN_CONFIG.commands.codex),
-		claude: resolveCommand(projectCommands?.claude ?? globalCommands?.claude, DEFAULT_SPAWN_CONFIG.commands.claude),
-		cursor: resolveCommand(projectCommands?.cursor ?? globalCommands?.cursor, DEFAULT_SPAWN_CONFIG.commands.cursor),
+		pi: resolveNonEmptyString(projectCommands?.pi ?? globalCommands?.pi, DEFAULT_SPAWN_CONFIG.commands.pi),
+		codex: resolveNonEmptyString(projectCommands?.codex ?? globalCommands?.codex, DEFAULT_SPAWN_CONFIG.commands.codex),
+		claude: resolveNonEmptyString(projectCommands?.claude ?? globalCommands?.claude, DEFAULT_SPAWN_CONFIG.commands.claude),
+		cursor: resolveNonEmptyString(projectCommands?.cursor ?? globalCommands?.cursor, DEFAULT_SPAWN_CONFIG.commands.cursor),
 	};
 
 	const mergedDefaultArgs = {
@@ -205,7 +206,7 @@ function mergeSpawnConfig(globalValue: unknown, projectValue: unknown): SpawnCon
 
 	return {
 		defaultAgent: resolveSpawnAgent(projectSpawn?.defaultAgent ?? globalSpawn?.defaultAgent, DEFAULT_SPAWN_CONFIG.defaultAgent),
-		shortcut: resolveShortcut(projectSpawn?.shortcut ?? globalSpawn?.shortcut, DEFAULT_SPAWN_CONFIG.shortcut),
+		shortcut: resolveKeyId(projectSpawn?.shortcut ?? globalSpawn?.shortcut, DEFAULT_SPAWN_CONFIG.shortcut),
 		commands: mergedCommands,
 		defaultArgs: mergedDefaultArgs,
 		worktree: resolveBoolean(projectSpawn?.worktree ?? globalSpawn?.worktree, DEFAULT_SPAWN_CONFIG.worktree),
@@ -219,10 +220,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function resolveSpawnAgent(value: unknown, fallback: SpawnAgent): SpawnAgent {
 	return value === "pi" || value === "codex" || value === "claude" || value === "cursor" ? value : fallback;
-}
-
-function resolveCommand(value: unknown, fallback: string): string {
-	return resolveShortcut(typeof value === "string" ? value : undefined, fallback);
 }
 
 function resolveStringArray(value: unknown, fallback: string[]): string[] {
@@ -251,8 +248,39 @@ function clampInt(value: number | undefined, fallback: number, min: number, max:
 	return Math.min(max, Math.max(min, rounded));
 }
 
-function resolveShortcut(value: string | undefined, fallback: string): string {
+function resolveNonEmptyString(value: unknown, fallback: string): string {
 	if (typeof value !== "string") return fallback;
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : fallback;
+}
+
+const KEY_MODIFIERS = new Set(["ctrl", "shift", "alt", "super"]);
+const KEY_SYMBOLS = "`-=[]\\;',./!@#$%^&*()_+|~{}:<>?";
+const KEY_SPECIALS = new Set([
+	"escape", "esc", "enter", "return", "tab", "space", "backspace", "delete", "insert", "clear",
+	"home", "end", "pageUp", "pageDown", "up", "down", "left", "right",
+	"f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
+]);
+
+function isKeyId(value: string): value is KeyId {
+	const parts = value.split("+");
+	let base = parts.pop() ?? "";
+	if (base === "") {
+		// A trailing "+" means the base key is the "+" symbol itself (e.g. "ctrl++").
+		if (parts.pop() !== "") return false;
+		base = "+";
+	}
+	if (parts.some((mod) => !KEY_MODIFIERS.has(mod))) return false;
+	if (new Set(parts).size !== parts.length) return false;
+	if (base.length === 1) return /[a-z0-9]/.test(base) || KEY_SYMBOLS.includes(base);
+	return KEY_SPECIALS.has(base);
+}
+
+function resolveKeyId(value: unknown, fallback: KeyId): KeyId {
+	if (typeof value !== "string") return fallback;
+	const trimmed = value.trim();
+	if (trimmed.length === 0) return fallback;
+	if (isKeyId(trimmed)) return trimmed;
+	console.error(`pi-interactive-shell: invalid shortcut "${trimmed}" in config, using "${fallback}"`);
+	return fallback;
 }
