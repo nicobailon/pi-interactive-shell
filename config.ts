@@ -211,12 +211,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 /**
  * Agent names double as `/spawn` tokens and as generated worktree directory segments, so they must
  * not collide with `/spawn` mode keywords, start with a dash, or contain path/shell characters.
+ * Object.prototype member names are rejected too, so agent maps are never read through the prototype.
  */
 const SPAWN_AGENT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const RESERVED_SPAWN_AGENT_NAMES = new Set(["fresh", "fork"]);
 
 function isSpawnAgentName(name: string): boolean {
-	return SPAWN_AGENT_NAME_PATTERN.test(name) && !RESERVED_SPAWN_AGENT_NAMES.has(name);
+	return SPAWN_AGENT_NAME_PATTERN.test(name)
+		&& !RESERVED_SPAWN_AGENT_NAMES.has(name)
+		&& !(name in Object.prototype);
 }
 
 function mergeSpawnCommands(
@@ -256,7 +259,7 @@ function resolveSpawnAgent(value: unknown, fallback: SpawnAgent, commands: Recor
 	if (typeof value !== "string") return fallback;
 	const trimmed = value.trim();
 	if (trimmed.length === 0) return fallback;
-	if (commands[trimmed]) return trimmed;
+	if (Object.hasOwn(commands, trimmed)) return trimmed;
 	console.error(`pi-interactive-shell: unknown spawn.defaultAgent "${trimmed}" in config, using "${fallback}"`);
 	return fallback;
 }

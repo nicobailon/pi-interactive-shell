@@ -133,6 +133,11 @@ describe("spawn helpers", () => {
 			ok: false,
 			error: "Unknown spawn agent: aider. Configured agents: claude, codex, cursor, pi.",
 		});
+		// Object.prototype member names must not resolve as configured agents.
+		expect(resolveSpawn(config, "/tmp/project", { agent: "constructor" }, () => undefined)).toEqual({
+			ok: false,
+			error: "Unknown spawn agent: constructor. Configured agents: claude, codex, cursor, pi.",
+		});
 	});
 
 	it("resolves the configured default agent and default args", async () => {

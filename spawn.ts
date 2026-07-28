@@ -130,7 +130,8 @@ export function resolveSpawn(
 		return { ok: false, error: "Spawn prompt cannot be empty." };
 	}
 
-	const executable = config.spawn.commands[agent];
+	// Own-property lookups only: an agent name like "constructor" must not resolve through Object.prototype.
+	const executable = Object.hasOwn(config.spawn.commands, agent) ? config.spawn.commands[agent] : undefined;
 	if (!executable) {
 		const configured = Object.keys(config.spawn.commands).sort().join(", ");
 		return { ok: false, error: `Unknown spawn agent: ${agent}. Configured agents: ${configured}.` };
@@ -159,7 +160,7 @@ export function resolveSpawn(
 		worktreePath = resolvedWorktree.path;
 	}
 
-	const args = [...(config.spawn.defaultArgs[agent] ?? [])];
+	const args = Object.hasOwn(config.spawn.defaultArgs, agent) ? [...config.spawn.defaultArgs[agent]] : [];
 	let reason = `spawn ${agent} (${mode === "fork" ? "fork current session" : "fresh session"})`;
 
 	if (sourceSessionFile) {
