@@ -1,14 +1,15 @@
 import { stripVTControlCharacters } from "node:util";
 import type { PtyTerminalSession } from "./pty-session.ts";
 import type { InteractiveShellConfig } from "./config.ts";
+import type { MonitorEventPayload, MonitorStrategy } from "./types.ts";
 
 export interface MonitorMatchInfo {
-	strategy: "stream" | "poll-diff" | "file-watch";
+	strategy: MonitorStrategy;
 	triggerId: string;
 	eventType: string;
 	matchedText: string;
 	lineOrDiff: string;
-	stream: "pty";
+	stream: MonitorEventPayload["stream"];
 }
 
 export interface MonitorTriggerMatcher {
@@ -18,7 +19,7 @@ export interface MonitorTriggerMatcher {
 }
 
 export interface MonitorRuntimeConfig {
-	strategy: "stream" | "poll-diff" | "file-watch";
+	strategy: MonitorStrategy;
 	triggers: MonitorTriggerMatcher[];
 	pollIntervalMs: number;
 	dedupeExactLine: boolean;
@@ -244,8 +245,8 @@ export class HeadlessDispatchMonitor {
 	private emitMonitorEvent(event: MonitorMatchInfo): void {
 		try {
 			const maybePromise = this.options.onMonitorEvent?.(event);
-			if (maybePromise && typeof (maybePromise as Promise<unknown>).then === "function") {
-				void (maybePromise as Promise<unknown>).catch((error) => {
+			if (isPromiseLike(maybePromise)) {
+				void Promise.resolve(maybePromise).catch((error) => {
 					console.error("interactive-shell: monitor event callback error:", error);
 				});
 			}
@@ -366,6 +367,10 @@ export class HeadlessDispatchMonitor {
 		if (this.timeoutTimer) { clearTimeout(this.timeoutTimer); this.timeoutTimer = null; }
 		this.unsubscribe();
 	}
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+	return typeof value === "object" && value !== null && "then" in value && typeof value.then === "function";
 }
 
 function normalizeMonitorSnapshot(raw: string): string {

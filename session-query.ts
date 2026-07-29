@@ -33,8 +33,8 @@ export function getSessionOutput(
 	}
 
 	const opts = typeof options === "boolean" ? { skipRateLimit: options } : options;
-	const requestedLines = clampPositive(opts.lines ?? DEFAULT_STATUS_LINES, MAX_STATUS_LINES);
-	const requestedMaxChars = clampPositive(opts.maxChars ?? DEFAULT_STATUS_OUTPUT, MAX_STATUS_OUTPUT);
+	const requestedLines = clampPositive(opts.lines, DEFAULT_STATUS_LINES, MAX_STATUS_LINES);
+	const requestedMaxChars = clampPositive(opts.maxChars, DEFAULT_STATUS_OUTPUT, MAX_STATUS_OUTPUT);
 	const rateLimited = maybeRateLimitQuery(config, state, opts.skipRateLimit ?? false);
 	if (rateLimited) return rateLimited;
 
@@ -165,6 +165,7 @@ function truncateForMaxChars(output: string, requestedMaxChars: number): { value
 	};
 }
 
-function clampPositive(value: number, max: number): number {
-	return Math.max(1, Math.min(max, value));
+function clampPositive(value: number | undefined, fallback: number, max: number): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+	return Math.max(1, Math.min(max, Math.trunc(value)));
 }

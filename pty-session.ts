@@ -478,9 +478,9 @@ export class PtyTerminalSession {
 		let remainingChars = maxChars;
 		let truncatedByChars = false;
 
-		const useAnsi = options.ansi && this.serializer;
-		if (useAnsi) {
-			const serialized = this.serializer!.serialize();
+		const serializer = options.ansi ? this.serializer : undefined;
+		if (serializer) {
+			const serialized = serializer.serialize();
 			const serializedLines = serialized.split(/\r?\n/);
 			if (serializedLines.length >= totalLinesInBuffer) {
 				for (let i = start; i < totalLinesInBuffer; i++) {

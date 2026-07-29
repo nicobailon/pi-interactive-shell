@@ -59,7 +59,6 @@ const DEFAULT_SPAWN_CONFIG: SpawnConfig = {
 		cursor: ["--model", "composer-2-fast"],
 	},
 	worktree: false,
-	worktreeBaseDir: undefined,
 };
 
 const DEFAULT_CONFIG: InteractiveShellConfig = {
@@ -94,24 +93,8 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 	const projectPath = join(cwd, ".pi", "interactive-shell.json");
 	const globalPath = join(getAgentDir(), "interactive-shell.json");
 
-	let globalConfig: Partial<InteractiveShellConfig> = {};
-	let projectConfig: Partial<InteractiveShellConfig> = {};
-
-	if (existsSync(globalPath)) {
-		try {
-			globalConfig = JSON.parse(readFileSync(globalPath, "utf-8"));
-		} catch (error) {
-			console.error(`Warning: Could not parse ${globalPath}:`, error);
-		}
-	}
-
-	if (existsSync(projectPath)) {
-		try {
-			projectConfig = JSON.parse(readFileSync(projectPath, "utf-8"));
-		} catch (error) {
-			console.error(`Warning: Could not parse ${projectPath}:`, error);
-		}
-	}
+	const globalConfig = loadConfigObject(globalPath);
+	const projectConfig = loadConfigObject(projectPath);
 
 	const mergedSpawn = mergeSpawnConfig(globalConfig.spawn, projectConfig.spawn);
 	const merged = { ...DEFAULT_CONFIG, ...globalConfig, ...projectConfig, spawn: mergedSpawn };
@@ -184,6 +167,18 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 			300,
 		),
 	};
+}
+
+function loadConfigObject(path: string): Record<string, unknown> {
+	if (!existsSync(path)) return {};
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		if (isPlainObject(parsed)) return parsed;
+		console.error(`Warning: Ignoring ${path}: config root must be an object`);
+	} catch (error) {
+		console.error(`Warning: Could not parse ${path}:`, error);
+	}
+	return {};
 }
 
 function mergeSpawnConfig(globalValue: unknown, projectValue: unknown): SpawnConfig {
@@ -302,12 +297,12 @@ function resolveOverlayAnchor(value: unknown, fallback: OverlayAnchor): OverlayA
 }
 
 function clampPercent(value: number | undefined, fallback: number): number {
-	if (typeof value !== "number" || Number.isNaN(value)) return fallback;
+	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
 	return Math.min(100, Math.max(10, value));
 }
 
 function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
-	if (typeof value !== "number" || Number.isNaN(value)) return fallback;
+	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
 	const rounded = Math.trunc(value);
 	return Math.min(max, Math.max(min, rounded));
 }
