@@ -4,7 +4,11 @@ import type { IBufferCell, Terminal as XtermTerminal } from "@xterm/headless";
 import xterm from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { sliceLogOutput, trimRawOutput } from "./pty-log.ts";
-import { splitAroundDsr, buildCursorPositionResponse } from "./pty-protocol.ts";
+import {
+	buildCursorPositionResponse,
+	buildPrimaryDeviceAttributesResponse,
+	splitAroundDeviceQueries,
+} from "./pty-protocol.ts";
 
 const Terminal = xterm.Terminal;
 
@@ -207,13 +211,10 @@ export class PtyTerminalSession {
 
 		this.ptyProcess.onData((data) => {
 			const chunk = typeof data === "string" ? data : data.toString("utf8");
-			// Handle DSR (Device Status Report) cursor position queries
-			// TUI apps send ESC[6n or ESC[?6n expecting ESC[row;colR response
-			// We must process in order: write text to xterm, THEN respond to DSR
-			const { segments, hasDsr } = splitAroundDsr(chunk);
+			// Handle terminal queries in order: write preceding text to xterm, then respond.
+			const { segments, trailingText, hasQuery } = splitAroundDeviceQueries(chunk);
 
-			if (!hasDsr) {
-				// Fast path: no DSR in data
+			if (!hasQuery) {
 				this.writeQueue.enqueue(async () => {
 					this.rawOutput += chunk;
 					this.trimRawOutputIfNeeded();
@@ -223,7 +224,6 @@ export class PtyTerminalSession {
 					this.notifyDataListeners(chunk);
 				});
 			} else {
-				// Process each segment in order, responding to DSR after writing preceding text
 				for (const segment of segments) {
 					this.writeQueue.enqueue(async () => {
 						if (segment.text) {
@@ -234,12 +234,22 @@ export class PtyTerminalSession {
 							});
 							this.notifyDataListeners(segment.text);
 						}
-						// If there was a DSR after this segment, respond with current cursor position
-						if (segment.dsrAfter) {
+						if (segment.queryAfter === "cursor-position") {
 							const buffer = this.xterm.buffer.active;
-							const response = buildCursorPositionResponse(buffer.cursorY + 1, buffer.cursorX + 1);
-							this.ptyProcess.write(response);
+							this.ptyProcess.write(buildCursorPositionResponse(buffer.cursorY + 1, buffer.cursorX + 1));
+						} else {
+							this.ptyProcess.write(buildPrimaryDeviceAttributesResponse());
 						}
+					});
+				}
+				if (trailingText) {
+					this.writeQueue.enqueue(async () => {
+						this.rawOutput += trailingText;
+						this.trimRawOutputIfNeeded();
+						await new Promise<void>((resolve) => {
+							this.xterm.write(trailingText, () => resolve());
+						});
+						this.notifyDataListeners(trailingText);
 					});
 				}
 			}
