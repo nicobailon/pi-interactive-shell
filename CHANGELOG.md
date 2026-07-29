@@ -4,6 +4,8 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-29
+
 ### Added
 - `overlayAnchor` config (#3, reported by @ttttmr). The overlay was always centered; it can now be pinned to any of the nine host anchors, for example `"top-center"` to move it up. Invalid values warn and fall back to `center`.
 - Custom spawn agents (#16, reported by @krikchaip). Any key under `spawn.commands` is now a real spawn agent, usable through `spawn: { agent: "..." }`, `/spawn <agent>`, `spawn.defaultAgent`, `spawn.defaultArgs`, worktrees, and prompt passthrough. Agent names are validated when config loads, `fresh`/`fork` stay reserved `/spawn` keywords, `fork` stays Pi-only, and an unconfigured agent now fails with the list of configured agents instead of building a broken command.
