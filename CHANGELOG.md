@@ -19,6 +19,9 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 - Compiled monitor config is now a discriminated union on strategy, making `fileWatch` presence impossible to misuse for non-file-watch strategies.
 - `/dismiss` selection no longer treats an unmatched select label as "dismiss all".
 
+### Fixed
+- Respond to fish's Primary Device Attribute query so interactive fish sessions do not wait for the 10-second terminal capability timeout (#21, reported by @PaulGrandperrin).
+
 ## [0.13.0] - 2026-04-23
 
 ### Changed
