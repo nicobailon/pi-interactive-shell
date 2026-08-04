@@ -16,7 +16,17 @@ describe("notification utilities", () => {
 		expect(text).toContain('Attach to review full output: interactive_shell({ attach: "calm-reef" })');
 	});
 
-	it("formats cancelled dispatch notifications as killed", () => {
+	it("distinguishes quiet auto-close from a killed dispatch session", () => {
+		const text = buildDispatchNotification("calm-reef", {
+			exitCode: null,
+			cancelled: true,
+			autoClosedOnQuiet: true,
+		}, "30s");
+		expect(text).toContain("Session calm-reef auto-closed after quiet (30s).");
+		expect(text).not.toContain("was killed");
+	});
+
+	it("formats explicitly cancelled dispatch notifications as killed", () => {
 		const text = buildDispatchNotification("calm-reef", {
 			exitCode: null,
 			cancelled: true,

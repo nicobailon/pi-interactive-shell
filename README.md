@@ -79,7 +79,7 @@ interactive_shell({ spawn: { agent: "claude", worktree: true }, mode: "hands-fre
 interactive_shell({ spawn: { mode: "fork" }, mode: "interactive" })
 ```
 
-Structured `spawn` uses the same resolver and config defaults as the user-facing `/spawn` command. Raw `command` is still supported for arbitrary CLIs and custom launch strings.
+Structured `spawn` uses the same resolver and config defaults as the user-facing `/spawn` command. Raw `command` is still supported for arbitrary CLIs and custom launch strings. For unattended coding-agent work in a repository, prefer structured `spawn` with `worktree: true` or set an explicitly isolated `cwd`; a raw agent command runs in the supplied working directory and can change its Git state.
 
 Any extra key you add under `spawn.commands` becomes a first-class spawn agent, usable as `spawn: { agent: "aider" }` and `/spawn aider`, with its own `spawn.defaultArgs` entry, worktree support, and prompt passthrough. `fork` stays Pi-only. Agent names must start with a letter or digit, may contain letters, digits, `.`, `_`, and `-`, and cannot be `fresh` or `fork`, because those are `/spawn` keywords.
 
@@ -153,7 +153,7 @@ Attach to review full output: interactive_shell({ attach: "calm-reef" })
 
 The notification includes a brief tail (last 5 lines) and a reattach instruction. The PTY is preserved for 5 minutes so the agent can attach to review full scrollback.
 
-Dispatch defaults `autoExitOnQuiet: true` — the session gets a 15s startup grace period, then is killed after output goes silent (8s by default), which signals completion for task-oriented subagents. Tune the grace period with `handsFree: { gracePeriod: 60000 }` or opt out entirely with `handsFree: { autoExitOnQuiet: false }`.
+Dispatch defaults `autoExitOnQuiet: true` — the session gets a 15s startup grace period, then auto-closes after output goes silent (8s by default). The completion notification identifies this as a quiet auto-close, not a user kill. Tune the grace period with `handsFree: { gracePeriod: 60000 }` or opt out entirely with `handsFree: { autoExitOnQuiet: false }`.
 
 The overlay still shows for the user, who can Ctrl+T to transfer output, Ctrl+B to background, take over by typing, or Ctrl+Q for more options. `Ctrl+G` only becomes meaningful after the user has taken over a monitored hands-free or dispatch session.
 

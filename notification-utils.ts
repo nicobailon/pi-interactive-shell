@@ -137,6 +137,7 @@ export function buildIdlePromptWarning(command: string, reason: string | undefin
 
 function buildDispatchStatusLine(sessionId: string, info: HeadlessCompletionInfo, duration: string): string {
 	if (info.timedOut) return `Session ${sessionId} timed out (${duration}).`;
+	if (info.autoClosedOnQuiet) return `Session ${sessionId} auto-closed after quiet (${duration}).`;
 	if (info.cancelled) return `Session ${sessionId} was killed (${duration}).`;
 	if (info.exitCode === 0) return `Session ${sessionId} completed successfully (${duration}).`;
 	return `Session ${sessionId} exited with code ${info.exitCode} (${duration}).`;

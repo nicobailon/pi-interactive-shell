@@ -18,6 +18,7 @@ MODES:
 RECOMMENDED DEFAULT FOR DELEGATED TASKS:
 - For fire-and-forget delegations and QA-style checks, prefer mode="dispatch".
 - Dispatch is the safest choice when the agent should continue immediately and be notified automatically on completion.
+- For unattended coding-agent work in a repository, prefer structured spawn with \`worktree: true\` or an explicitly isolated \`cwd\`; raw commands run in their supplied working directory and can change its Git state.
 
 The user will see the process in an overlay. They can:
 - Watch output in real-time
@@ -91,7 +92,7 @@ Workflow:
 2. Do other work - no polling needed
 3. When complete, you receive a notification with the session output
 
-Dispatch defaults autoExitOnQuiet to true (opt-out with handsFree.autoExitOnQuiet: false).
+Dispatch defaults autoExitOnQuiet to true (opt-out with handsFree.autoExitOnQuiet: false). A quiet TUI auto-closes after the threshold and reports that completion reason separately from a user kill.
 You can still query with sessionId if needed, but it's not required.
 
 BACKGROUND DISPATCH (HEADLESS):

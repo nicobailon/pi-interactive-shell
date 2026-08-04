@@ -58,7 +58,7 @@ Pi is the default because it's already available, has the same capabilities, and
 
 ## Structured Spawn and `/spawn`
 
-For Pi, Codex, Claude, and Cursor, prefer structured `spawn` params when you want the extension's shared resolver, config defaults, native startup prompt forms, or Pi-only fork/worktree behavior:
+For Pi, Codex, Claude, and Cursor, prefer structured `spawn` params when you want the extension's shared resolver, config defaults, native startup prompt forms, or Pi-only fork/worktree behavior. For unattended coding-agent work in a repository, use `worktree: true` or an explicitly isolated `cwd`; raw commands run in their supplied working directory and can change its Git state:
 
 ```typescript
 interactive_shell({ spawn: { agent: "pi" }, mode: "interactive" })
@@ -112,7 +112,7 @@ interactive_shell({
 // → Do other work. When session completes, you receive notification with output.
 ```
 
-Dispatch defaults `autoExitOnQuiet: true`. The agent can still query the sessionId if needed, but doesn't have to.
+Dispatch defaults `autoExitOnQuiet: true`. A quiet TUI auto-closes after the threshold and reports that completion reason separately from a user kill. The agent can still query the sessionId if needed, but doesn't have to.
 
 For fire-and-forget delegated runs (including QA-style delegated checks), prefer dispatch as the default mode.
 

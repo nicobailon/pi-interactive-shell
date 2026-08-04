@@ -87,7 +87,10 @@ describe("HeadlessDispatchMonitor", () => {
 		session.emitData("\u001b[2K\u001b[1G");
 		vi.advanceTimersByTime(1000);
 		expect(session.kill).toHaveBeenCalledTimes(1);
-		expect(onComplete).toHaveBeenCalledTimes(1);
+		expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({
+			cancelled: true,
+			autoClosedOnQuiet: true,
+		}));
 	});
 
 	it("respects startup grace period and preserves explicit startedAt", () => {
