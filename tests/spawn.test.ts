@@ -198,22 +198,21 @@ describe("spawn helpers", () => {
 		});
 	});
 
-	it("normalizes schema-generated empty spawn placeholders", async () => {
-		const { normalizeSpawnRequest } = await import("../spawn.ts");
+	it("normalizes serialized spawn fields without erasing standalone requests", async () => {
+		const { isEmptySpawnPlaceholder, normalizeSpawnRequest } = await import("../spawn.ts");
 		expect(normalizeSpawnRequest(undefined)).toBeUndefined();
-		expect(normalizeSpawnRequest({})).toBeUndefined();
-		expect(normalizeSpawnRequest({ agent: "", mode: "fresh", worktree: false, prompt: "" })).toBeUndefined();
-		expect(normalizeSpawnRequest({ agent: "  ", mode: "fresh", worktree: false, prompt: " \t " })).toBeUndefined();
+		expect(normalizeSpawnRequest({})).toEqual({});
+		expect(normalizeSpawnRequest({ agent: "", mode: "fresh", worktree: false, prompt: "" })).toEqual({ worktree: false });
+		expect(normalizeSpawnRequest({ agent: "  ", mode: "fresh", worktree: false, prompt: " \t " })).toEqual({ worktree: false });
+		expect(normalizeSpawnRequest({ agent: "codex", mode: "fresh", worktree: false, prompt: "" })).toEqual({ agent: "codex", worktree: false });
+		expect(normalizeSpawnRequest({ agent: "", mode: "fresh", worktree: false, prompt: "review diffs" })).toEqual({ worktree: false, prompt: "review diffs" });
 
-		const intentionalRequests: SpawnRequest[] = [
-			{ agent: "pi" },
-			{ mode: "fork" },
-			{ worktree: true },
-			{ prompt: "review diffs" },
-		];
-		for (const request of intentionalRequests) {
-			expect(normalizeSpawnRequest(request)).toBe(request);
-		}
+		expect(isEmptySpawnPlaceholder({ agent: "", mode: "fresh", worktree: false, prompt: "" })).toBe(true);
+		expect(isEmptySpawnPlaceholder({})).toBe(true);
+		expect(isEmptySpawnPlaceholder({ worktree: false })).toBe(true);
+		expect(isEmptySpawnPlaceholder({ agent: "pi", mode: "fresh", worktree: false, prompt: "" })).toBe(false);
+		expect(isEmptySpawnPlaceholder({ worktree: true })).toBe(false);
+		expect(isEmptySpawnPlaceholder({ prompt: "review diffs" })).toBe(false);
 	});
 
 	it("rejects empty structured spawn prompts", async () => {

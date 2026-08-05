@@ -18,7 +18,7 @@ import type {
 import { sessionManager, generateSessionId } from "./session-manager.ts";
 import { loadConfig } from "./config.ts";
 import type { InteractiveShellConfig } from "./config.ts";
-import { normalizeSpawnRequest, parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.ts";
+import { isEmptySpawnPlaceholder, normalizeSpawnRequest, parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.ts";
 import { translateInput } from "./key-encoding.ts";
 import { TOOL_NAME, TOOL_LABEL, TOOL_DESCRIPTION, toolParameters, type ToolParams } from "./tool-schema.ts";
 import { HeadlessDispatchMonitor } from "./headless-monitor.ts";
@@ -1142,14 +1142,17 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				? { text: input, keys: inputKeys, hex: inputHex, paste: inputPaste }
 				: input;
 			const normalizedSpawn = normalizeSpawnRequest(spawn);
+			const spawnForAction = command && isEmptySpawnPlaceholder(spawn)
+				? undefined
+				: normalizedSpawn;
 
-			if (normalizedSpawn && command) {
+			if (spawnForAction && command) {
 				return {
 					content: [{ type: "text", text: "Use either 'command' or 'spawn', not both." }],
 					isError: true,
 				};
 			}
-			if (normalizedSpawn && (sessionId || attach || listBackground || dismissBackground || monitorEvents || monitorStatus)) {
+			if (spawnForAction && (sessionId || attach || listBackground || dismissBackground || monitorEvents || monitorStatus)) {
 				return {
 					content: [{ type: "text", text: "'spawn' is only valid when starting a new session." }],
 					isError: true,
@@ -1625,7 +1628,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 			// ── Branch 4: Start new session ──
 			const allowsGeneratedCommand = mode === "monitor" && monitor?.strategy === "file-watch";
-			if (!command && !normalizedSpawn && !allowsGeneratedCommand) {
+			if (!command && !spawnForAction && !allowsGeneratedCommand) {
 				return {
 					content: [{ type: "text", text: "One of 'command', 'spawn', 'sessionId', 'attach', 'listBackground', or 'dismissBackground' is required." }],
 					isError: true,
@@ -1634,7 +1637,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			return startNewSession({
 				ctx,
 				command,
-				spawn: normalizedSpawn,
+				spawn: spawnForAction,
 				cwd,
 				name,
 				reason,
