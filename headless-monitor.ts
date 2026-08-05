@@ -44,6 +44,8 @@ export interface HeadlessCompletionInfo {
 	signal?: number;
 	timedOut?: boolean;
 	cancelled?: boolean;
+	/** The monitor ended an otherwise idle session after the configured quiet threshold. */
+	autoClosedOnQuiet?: boolean;
 	completionOutput?: {
 		lines: string[];
 		totalLines: number;
@@ -266,7 +268,7 @@ export class HeadlessDispatchMonitor {
 					return;
 				}
 				this.session.kill();
-				this.handleCompletion(null, undefined, false, true);
+				this.handleCompletion(null, undefined, false, true, true);
 			}
 		}, this.options.quietThreshold);
 	}
@@ -296,7 +298,7 @@ export class HeadlessDispatchMonitor {
 		}
 	}
 
-	private handleCompletion(exitCode: number | null, signal?: number, timedOut?: boolean, cancelled?: boolean): void {
+	private handleCompletion(exitCode: number | null, signal?: number, timedOut?: boolean, cancelled?: boolean, autoClosedOnQuiet?: boolean): void {
 		if (this._disposed) return;
 		if (this.options.monitor?.strategy !== "poll-diff" && this.options.onMonitorEvent) {
 			this.processMonitorData("", true);
@@ -312,7 +314,14 @@ export class HeadlessDispatchMonitor {
 		}
 
 		const completionOutput = this.captureOutput();
-		const info: HeadlessCompletionInfo = { exitCode, signal, timedOut, cancelled, completionOutput };
+		const info: HeadlessCompletionInfo = {
+			exitCode,
+			signal,
+			timedOut,
+			cancelled,
+			...(autoClosedOnQuiet ? { autoClosedOnQuiet: true } : {}),
+			completionOutput,
+		};
 		this.result = info;
 		this.triggerCompleteCallbacks();
 		this.onComplete(info);

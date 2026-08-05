@@ -4,6 +4,9 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
++- Identify dispatch sessions that auto-close after quiet separately from user-killed sessions, and clarify isolated-worktree guidance for unattended coding-agent runs.
+
 ## [0.14.0] - 2026-07-29
 
 ### Added

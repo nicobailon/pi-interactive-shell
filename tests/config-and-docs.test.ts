@@ -134,6 +134,9 @@ describe("config + docs parity", () => {
 		expect(readme).toContain(`"handsFreeQuietThreshold": ${defaults.handsFreeQuietThreshold}`);
 		expect(readme).toContain(`"autoExitGracePeriod": ${defaults.autoExitGracePeriod}`);
 		expect(readme).toContain(`Dispatch defaults \`autoExitOnQuiet: true\` — the session gets a 15s startup grace period`);
+		expect(readme).toContain("The completion notification identifies this as a quiet auto-close, not a user kill.");
+		expect(skill).toContain("reports that completion reason separately from a user kill");
+		expect(toolSchema).toContain("reports that completion reason separately from a user kill");
 		expect(readme).toContain('submit: true');
 		expect(readme).toContain('raw `input` only types text. It does not submit the prompt.');
 		expect(skill).toContain("~8s of quiet");
