@@ -18,6 +18,28 @@ export interface ParsedSpawnArgs {
 	monitorMode?: SpawnMonitorMode;
 }
 
+/**
+ * Treat schema-generated empty spawn objects as absent.
+ *
+ * Some tool callers serialize every optional field, producing a shape such as
+ * `{ agent: "", mode: "fresh", worktree: false, prompt: "" }` for a raw
+ * command launch. That object must not conflict with `command`. Deliberate
+ * spawn behavior remains meaningful when it selects an agent, forks, creates
+ * a worktree, or carries non-blank prompt text.
+ */
+export function normalizeSpawnRequest(request: SpawnRequest | undefined): SpawnRequest | undefined {
+	if (!request) return undefined;
+
+	const agent = request.agent?.trim();
+	const prompt = request.prompt?.trim();
+	const isMeaningful = Boolean(agent)
+		|| request.mode === "fork"
+		|| request.worktree === true
+		|| Boolean(prompt);
+
+	return isMeaningful ? request : undefined;
+}
+
 export interface ResolvedSpawn {
 	agent: SpawnAgent;
 	mode: SpawnMode;

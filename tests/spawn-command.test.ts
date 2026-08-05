@@ -251,6 +251,21 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(harness.getLastOverlayOptions()).toMatchObject({ command: "claude" });
 	});
 
+	it("interactive_shell accepts raw commands beside empty spawn placeholders", async () => {
+		const harness = await setupExtensionHarness();
+		const tool = harness.getTool();
+		expect(tool).toBeTruthy();
+
+		const result = await tool!.execute("call-1", {
+			command: "printf placeholder-ok",
+			spawn: { agent: "", mode: "fresh", worktree: false, prompt: "" },
+			mode: "interactive",
+		}, undefined, undefined, harness.ctx as any);
+
+		expect(result.isError).not.toBe(true);
+		expect(harness.getLastOverlayOptions()).toMatchObject({ command: "printf placeholder-ok" });
+	});
+
 	it("interactive_shell structured spawn uses the shared resolver", async () => {
 		const harness = await setupExtensionHarness({
 			spawn: { defaultAgent: "pi", commands: { codex: "/opt/codex/bin/codex" } },

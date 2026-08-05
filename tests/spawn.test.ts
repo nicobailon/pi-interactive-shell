@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { InteractiveShellConfig } from "../config.ts";
+import type { SpawnRequest } from "../spawn.ts";
 
 const config: InteractiveShellConfig = {
 	exitAutoCloseDelay: 10,
@@ -195,6 +196,24 @@ describe("spawn helpers", () => {
 				worktreePath: undefined,
 			},
 		});
+	});
+
+	it("normalizes schema-generated empty spawn placeholders", async () => {
+		const { normalizeSpawnRequest } = await import("../spawn.ts");
+		expect(normalizeSpawnRequest(undefined)).toBeUndefined();
+		expect(normalizeSpawnRequest({})).toBeUndefined();
+		expect(normalizeSpawnRequest({ agent: "", mode: "fresh", worktree: false, prompt: "" })).toBeUndefined();
+		expect(normalizeSpawnRequest({ agent: "  ", mode: "fresh", worktree: false, prompt: " \t " })).toBeUndefined();
+
+		const intentionalRequests: SpawnRequest[] = [
+			{ agent: "pi" },
+			{ mode: "fork" },
+			{ worktree: true },
+			{ prompt: "review diffs" },
+		];
+		for (const request of intentionalRequests) {
+			expect(normalizeSpawnRequest(request)).toBe(request);
+		}
 	});
 
 	it("rejects empty structured spawn prompts", async () => {
