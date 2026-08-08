@@ -19,7 +19,7 @@ import { sessionManager, generateSessionId } from "./session-manager.ts";
 import { loadConfig } from "./config.ts";
 import type { InteractiveShellConfig } from "./config.ts";
 import { isEmptySpawnPlaceholder, normalizeSpawnRequest, parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.ts";
-import { translateInput } from "./key-encoding.ts";
+import { translateInput, type InputSpec } from "./key-encoding.ts";
 import { TOOL_NAME, TOOL_LABEL, TOOL_DESCRIPTION, toolParameters, type ToolParams } from "./tool-schema.ts";
 import { HeadlessDispatchMonitor } from "./headless-monitor.ts";
 import type {
@@ -228,18 +228,19 @@ function compileMonitorTrigger(trigger: MonitorTriggerConfig, index: number):
 		return { ok: false, error: `monitor.triggers[${index}] requires non-empty id.` };
 	}
 
-	const hasLiteral = typeof trigger.literal === "string";
-	const hasRegex = typeof trigger.regex === "string";
-	if ((hasLiteral ? 1 : 0) + (hasRegex ? 1 : 0) !== 1) {
+	const literalPattern = typeof trigger.literal === "string" ? trigger.literal : undefined;
+	const regexPattern = typeof trigger.regex === "string" ? trigger.regex : undefined;
+	const matcherCount = (literalPattern === undefined ? 0 : 1) + (regexPattern === undefined ? 0 : 1);
+	if (matcherCount !== 1) {
 		return { ok: false, error: `monitor.triggers[${index}] must define exactly one matcher: literal or regex.` };
 	}
 
-	if (trigger.threshold && !hasRegex) {
+	if (trigger.threshold && regexPattern === undefined) {
 		return { ok: false, error: `monitor.triggers[${index}].threshold requires regex matcher.` };
 	}
 
-	if (hasLiteral) {
-		const literal = trigger.literal!.trim();
+	if (literalPattern !== undefined) {
+		const literal = literalPattern.trim();
 		if (!literal) {
 			return { ok: false, error: `monitor.triggers[${index}].literal cannot be empty.` };
 		}
@@ -257,7 +258,11 @@ function compileMonitorTrigger(trigger: MonitorTriggerConfig, index: number):
 		};
 	}
 
-	const parsed = parseRegexPattern(trigger.regex!);
+	if (regexPattern === undefined) {
+		return { ok: false, error: `monitor.triggers[${index}] must define exactly one matcher: literal or regex.` };
+	}
+
+	const parsed = parseRegexPattern(regexPattern);
 	if (!parsed.ok) {
 		return { ok: false, error: `monitor.triggers[${index}].regex ${parsed.error}` };
 	}
@@ -547,6 +552,22 @@ function makeMonitorEventCallback(
 			console.error(`interactive-shell: monitor callback queue error for ${sessionId}:`, error);
 		});
 	};
+}
+
+function describeInput(input: InputSpec | undefined): string {
+	if (input === undefined) return "";
+	if (typeof input === "string") {
+		if (input.length === 0) return "(empty)";
+		return input.length > 50 ? `${input.slice(0, 50)}...` : input;
+	}
+
+	const parts = [
+		input.text ?? "",
+		input.keys ? `keys:[${input.keys.join(",")}]` : "",
+		input.hex ? `hex:[${input.hex.length} bytes]` : "",
+		input.paste ? `paste:[${input.paste.length} chars]` : "",
+	].filter((part) => part.length > 0);
+	return parts.join(" + ") || "(empty)";
 }
 
 function registerHeadlessActive(
@@ -1336,11 +1357,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 							details: { sessionId, error: "write_failed" },
 						};
 					}
-					const inputDesc = effectiveInput === undefined
-						? ""
-						: typeof effectiveInput === "string"
-							? effectiveInput.length === 0 ? "(empty)" : effectiveInput.length > 50 ? `${effectiveInput.slice(0, 50)}...` : effectiveInput
-							: [effectiveInput.text ?? "", effectiveInput.keys ? `keys:[${effectiveInput.keys.join(",")}]` : "", effectiveInput.hex ? `hex:[${effectiveInput.hex.length} bytes]` : "", effectiveInput.paste ? `paste:[${effectiveInput.paste.length} chars]` : ""].filter(Boolean).join(" + ") || "(empty)";
+					const inputDesc = describeInput(effectiveInput);
 					if (submit) {
 						actions.push(inputDesc ? `sent: ${inputDesc} + enter` : "sent: enter");
 					} else {
@@ -1705,7 +1722,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				});
 				const choice = await ctx.ui.select("Background Sessions", options.map((o) => o.label));
 				if (!choice) return;
-				targetId = options.find((o) => o.label === choice)!.id;
+				const selected = options.find((o) => o.label === choice);
+				if (!selected) return;
+				targetId = selected.id;
 			}
 
 			const monitor = coordinator.getMonitor(targetId);
