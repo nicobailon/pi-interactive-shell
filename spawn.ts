@@ -18,6 +18,37 @@ export interface ParsedSpawnArgs {
 	monitorMode?: SpawnMonitorMode;
 }
 
+/**
+ * Remove string and mode defaults that schema-driven callers may serialize.
+ *
+ * The returned object always preserves the presence of a spawn request, which
+ * keeps `spawn: {}` and `worktree: false` valid standalone requests. Raw
+ * command handling may separately identify a fully-default placeholder.
+ */
+export function normalizeSpawnRequest(request: SpawnRequest | undefined): SpawnRequest | undefined {
+	if (!request) return undefined;
+
+	const agent = request.agent?.trim() || undefined;
+	const prompt = request.prompt?.trim() || undefined;
+	const mode = request.mode === "fresh" ? undefined : request.mode;
+
+	return {
+		...(agent === undefined ? {} : { agent }),
+		...(mode === undefined ? {} : { mode }),
+		...(request.worktree === undefined ? {} : { worktree: request.worktree }),
+		...(prompt === undefined ? {} : { prompt }),
+	};
+}
+
+/** True only for the complete default shape emitted beside a raw command. */
+export function isEmptySpawnPlaceholder(request: SpawnRequest | undefined): boolean {
+	return request !== undefined
+		&& (request.agent?.trim() ?? "") === ""
+		&& (request.prompt?.trim() ?? "") === ""
+		&& (request.mode === undefined || request.mode === "fresh")
+		&& (request.worktree === undefined || request.worktree === false);
+}
+
 export interface ResolvedSpawn {
 	agent: SpawnAgent;
 	mode: SpawnMode;

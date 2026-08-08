@@ -251,6 +251,58 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(harness.getLastOverlayOptions()).toMatchObject({ command: "claude" });
 	});
 
+	it("interactive_shell accepts raw commands beside empty spawn placeholders", async () => {
+		const harness = await setupExtensionHarness();
+		const tool = harness.getTool();
+		expect(tool).toBeTruthy();
+
+		const result = await tool!.execute("call-1", {
+			command: "printf placeholder-ok",
+			spawn: { agent: "", mode: "fresh", worktree: false, prompt: "" },
+			mode: "interactive",
+		}, undefined, undefined, harness.ctx as any);
+
+		expect(result.isError).not.toBe(true);
+		expect(harness.getLastOverlayOptions()).toMatchObject({ command: "printf placeholder-ok" });
+	});
+
+	it("interactive_shell preserves standalone default spawn and explicit false worktree", async () => {
+		const defaultHarness = await setupExtensionHarness({ spawn: { defaultAgent: "codex" } });
+		const defaultTool = defaultHarness.getTool();
+		expect(defaultTool).toBeTruthy();
+
+		const defaultResult = await defaultTool!.execute("call-1", {
+			spawn: {},
+			mode: "interactive",
+		}, undefined, undefined, defaultHarness.ctx as any);
+		expect(defaultResult.isError).not.toBe(true);
+		expect(defaultHarness.getLastOverlayOptions()).toMatchObject({ command: "codex" });
+
+		const falseOverrideHarness = await setupExtensionHarness({ spawn: { defaultAgent: "codex", worktree: true } });
+		const falseOverrideTool = falseOverrideHarness.getTool();
+		expect(falseOverrideTool).toBeTruthy();
+		const falseOverrideResult = await falseOverrideTool!.execute("call-2", {
+			spawn: { worktree: false },
+			mode: "interactive",
+		}, undefined, undefined, falseOverrideHarness.ctx as any);
+		expect(falseOverrideResult.isError).not.toBe(true);
+		expect(falseOverrideHarness.getLastOverlayOptions()).toMatchObject({ command: "codex", cwd: "/tmp/project" });
+	});
+
+	it("interactive_shell accepts serialized intentional spawn requests", async () => {
+		const harness = await setupExtensionHarness();
+		const tool = harness.getTool();
+		expect(tool).toBeTruthy();
+
+		const result = await tool!.execute("call-1", {
+			spawn: { agent: "codex", mode: "fresh", worktree: false, prompt: "" },
+			mode: "interactive",
+		}, undefined, undefined, harness.ctx as any);
+
+		expect(result.isError).not.toBe(true);
+		expect(harness.getLastOverlayOptions()).toMatchObject({ command: "codex" });
+	});
+
 	it("interactive_shell structured spawn uses the shared resolver", async () => {
 		const harness = await setupExtensionHarness({
 			spawn: { defaultAgent: "pi", commands: { codex: "/opt/codex/bin/codex" } },

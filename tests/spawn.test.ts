@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { InteractiveShellConfig } from "../config.ts";
+import type { SpawnRequest } from "../spawn.ts";
 
 const config: InteractiveShellConfig = {
 	exitAutoCloseDelay: 10,
@@ -195,6 +196,23 @@ describe("spawn helpers", () => {
 				worktreePath: undefined,
 			},
 		});
+	});
+
+	it("normalizes serialized spawn fields without erasing standalone requests", async () => {
+		const { isEmptySpawnPlaceholder, normalizeSpawnRequest } = await import("../spawn.ts");
+		expect(normalizeSpawnRequest(undefined)).toBeUndefined();
+		expect(normalizeSpawnRequest({})).toEqual({});
+		expect(normalizeSpawnRequest({ agent: "", mode: "fresh", worktree: false, prompt: "" })).toEqual({ worktree: false });
+		expect(normalizeSpawnRequest({ agent: "  ", mode: "fresh", worktree: false, prompt: " \t " })).toEqual({ worktree: false });
+		expect(normalizeSpawnRequest({ agent: "codex", mode: "fresh", worktree: false, prompt: "" })).toEqual({ agent: "codex", worktree: false });
+		expect(normalizeSpawnRequest({ agent: "", mode: "fresh", worktree: false, prompt: "review diffs" })).toEqual({ worktree: false, prompt: "review diffs" });
+
+		expect(isEmptySpawnPlaceholder({ agent: "", mode: "fresh", worktree: false, prompt: "" })).toBe(true);
+		expect(isEmptySpawnPlaceholder({})).toBe(true);
+		expect(isEmptySpawnPlaceholder({ worktree: false })).toBe(true);
+		expect(isEmptySpawnPlaceholder({ agent: "pi", mode: "fresh", worktree: false, prompt: "" })).toBe(false);
+		expect(isEmptySpawnPlaceholder({ worktree: true })).toBe(false);
+		expect(isEmptySpawnPlaceholder({ prompt: "review diffs" })).toBe(false);
 	});
 
 	it("rejects empty structured spawn prompts", async () => {
