@@ -67,6 +67,11 @@ function createExistingSession() {
 
 async function loadOverlay() {
 	vi.resetModules();
+	const sessionManager = {
+		registerActive: vi.fn(),
+		unregisterActive: vi.fn(),
+		add: vi.fn(() => "bg-1"),
+	};
 	vi.doMock("@earendil-works/pi-tui", () => ({
 		matchesKey: () => false,
 		truncateToWidth: (value: string, width: number) => value.length > width ? value.slice(0, width) : value,
@@ -76,11 +81,7 @@ async function loadOverlay() {
 		PtyTerminalSession: class MockPtyTerminalSession {},
 	}));
 	vi.doMock("../session-manager.ts", () => ({
-		sessionManager: {
-			registerActive: vi.fn(),
-			unregisterActive: vi.fn(),
-			add: vi.fn(() => "bg-1"),
-		},
+		sessionManager,
 		generateSessionId: vi.fn(() => "session-1"),
 	}));
 	vi.doMock("../handoff-utils.ts", () => ({
@@ -93,7 +94,7 @@ async function loadOverlay() {
 		createSessionQueryState: vi.fn(() => ({})),
 		getSessionOutput: vi.fn(() => ({ output: "", truncated: false, totalBytes: 0 })),
 	}));
-	return import("../overlay-component.ts");
+	return { ...(await import("../overlay-component.ts")), sessionManager };
 }
 
 describe("InteractiveShellOverlay render focus cues", () => {
@@ -103,6 +104,43 @@ describe("InteractiveShellOverlay render focus cues", () => {
 		vi.doUnmock("../session-manager.ts");
 		vi.doUnmock("../handoff-utils.ts");
 		vi.doUnmock("../session-query.ts");
+	});
+
+	it("registers interactive sessions under the supplied control id", async () => {
+		const { InteractiveShellOverlay, sessionManager } = await loadOverlay();
+		const session = createExistingSession();
+		let result: any;
+		const overlay = new InteractiveShellOverlay(
+			{ terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() } as any,
+			{
+				fg: (_color: string, text: string) => text,
+				bg: (_color: string, text: string) => text,
+				bold: (text: string) => text,
+			} as any,
+			{
+				command: "pi",
+				existingSession: session as any,
+				mode: "interactive",
+				sessionId: "control-1",
+			},
+			config,
+			(value) => { result = value; },
+		);
+
+		expect(sessionManager.registerActive).toHaveBeenCalledWith(expect.objectContaining({
+			id: "control-1",
+			command: "pi",
+		}));
+
+		overlay.backgroundSession();
+		expect(sessionManager.add).toHaveBeenCalledWith(
+			"pi",
+			session,
+			undefined,
+			undefined,
+			expect.objectContaining({ id: "control-1" }),
+		);
+		expect(result).toMatchObject({ backgrounded: true, backgroundId: "bg-1", sessionId: "control-1" });
 	});
 
 	it("shows distinct badges and border styles for focused and unfocused states", async () => {

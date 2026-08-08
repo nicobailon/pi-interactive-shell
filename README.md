@@ -38,14 +38,14 @@ The `interactive-shell` skill is automatically symlinked to `~/.pi/agent/skills/
 
 | Mode | Agent waits? | How output reaches agent | Best for |
 |---|---|---|---|
-| **Interactive** (default) | Yes — blocks until exit | Tool return value | Editors, REPLs, SSH — when you need the result now |
-| **Hands-free** | No | Poll with `sessionId` | Dev servers, builds — when you want to watch progress and send follow-up commands |
+| **Interactive** (default) | No | Stable `sessionId` for input/status | Editors, REPLs, SSH — when the agent or user will drive the shell |
+| **Hands-free** | No | Poll with `sessionId` plus quiet updates | Dev servers, builds — when you want to watch progress and send follow-up commands |
 | **Dispatch** | No | Notification on completion via `triggerTurn` | Delegating tasks to subagents — fire and forget |
 | **Monitor** | No | Notification on structured monitor trigger events | Watchers, logs, tests, and state checks — wake only when something specific happens |
 
-**Interactive** — The overlay opens, user controls the session, agent waits for it to close. Use for editors (`vim`), database shells (`psql`), or any task where the agent needs the final result immediately.
+**Interactive** — The overlay opens and returns a stable `sessionId` immediately. The user can type directly, and the agent can send `input` with `submit: true`, check status, or background the same id. Use for editors (`vim`), database shells (`psql`), SSH, or manual CLI flows where the next step is still interactive.
 
-**Hands-free** — The overlay opens but returns immediately. The agent polls periodically with `sessionId` to check status and get new output. Good for long-running builds or dev servers where you want to react mid-flight (send input, check logs, kill when ready).
+**Hands-free** — The overlay opens and returns a stable `sessionId` immediately. The agent polls periodically with `sessionId` and also receives quiet/output updates. Good for long-running builds or dev servers where you want to react mid-flight (send input, check logs, kill when ready).
 
 **Dispatch** — Returns immediately. No polling. The agent gets woken up via `triggerTurn` only when the session completes (natural exit, timeout, quiet detection, or user kill). The notification includes a tail of the output. This is the default for delegating work to subagents. Add `background: true` to skip the overlay entirely.
 
@@ -98,7 +98,7 @@ interactive_shell({ command: 'psql -d mydb' })
 interactive_shell({ command: 'ssh user@server' })
 ```
 
-The agent's turn is blocked until the overlay closes. User controls the session directly.
+The tool returns a stable `sessionId` immediately. The agent can drive the same shell with `interactive_shell({ sessionId, input, submit: true })`, while the user can still type directly in the focused overlay.
 
 ### Hands-Free
 

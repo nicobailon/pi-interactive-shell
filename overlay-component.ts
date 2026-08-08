@@ -151,6 +151,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		if (options.mode === "hands-free" || options.mode === "dispatch") {
 			this.state = "hands-free";
+		}
+		if (options.sessionId || this.state === "hands-free") {
 			this.sessionId = options.sessionId ?? generateSessionId(options.name);
 			sessionManager.registerActive({
 				id: this.sessionId,
@@ -167,6 +169,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 				setQuietThreshold: (thresholdMs) => this.setQuietThreshold(thresholdMs),
 				onComplete: (callback) => this.registerCompleteCallback(callback),
 			});
+		}
+		if (this.state === "hands-free") {
 			this.startHandsFreeUpdates();
 		}
 

@@ -10,8 +10,8 @@ Use this ONLY for delegating tasks to other AI coding agents (Claude Code, Curso
 DO NOT use this for regular bash commands - use the standard bash tool instead.
 
 MODES:
-- interactive (default): User supervises and controls the session
-- hands-free: Agent monitors with periodic updates, user can take over anytime by typing
+- interactive (default): Opens an overlay and immediately returns a stable sessionId for agent/user control
+- hands-free: Opens an overlay, returns a stable sessionId, and sends periodic updates; user can take over anytime by typing
 - dispatch: Agent is notified on completion via triggerTurn (no polling needed)
 - monitor: Run in background and wake the agent on structured monitor events (stream, poll-diff, or file-watch)
 
@@ -28,9 +28,14 @@ The user will see the process in an overlay. They can:
 - Detach (Ctrl+Q) for menu: transfer/background/kill
 - In hands-free mode: type anything to take over control
 
+INTERACTIVE MODE (NON-BLOCKING DEFAULT):
+When mode="interactive" or mode is omitted, the tool returns IMMEDIATELY with a stable sessionId.
+The overlay opens for the user to drive manually, and you can also send input with interactive_shell({ sessionId, input, submit: true }).
+It does not send automatic progress feedback; use the sessionId to query, send input, background, or kill.
+
 HANDS-FREE MODE (NON-BLOCKING):
-When mode="hands-free", the tool returns IMMEDIATELY with a sessionId.
-The overlay opens for the user to watch, but you (the agent) get control back right away.
+When mode="hands-free", the tool returns IMMEDIATELY with a stable sessionId.
+The overlay opens for the user to watch, but you (the agent) get control back right away and receive periodic updates.
 
 Workflow:
 1. Start session: interactive_shell({ command: 'pi "Fix bugs"', mode: "hands-free" })

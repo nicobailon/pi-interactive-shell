@@ -20,7 +20,7 @@ Pi has two ways to delegate work to other AI coding agents:
 | **User control** | Can take over anytime | Can take over anytime | No intervention |
 | **Best for** | Long tasks needing supervision | Fire-and-forget delegations | Parallel tasks, structured delegation |
 
-**Foreground subagents** run in an overlay where the user watches (and can intervene). Use `interactive_shell` with `mode: "hands-free"` to monitor while receiving periodic updates, or `mode: "dispatch"` to be notified on completion without polling.
+**Foreground subagents** run in an overlay where the user watches and can intervene. Use `interactive_shell` with `mode: "interactive"` when the agent or user will drive the shell by session id, `mode: "hands-free"` to monitor while receiving periodic updates, or `mode: "dispatch"` to be notified on completion without polling.
 
 **Dispatch subagents** also use `interactive_shell` but with `mode: "dispatch"`. The agent fires the session and moves on. When the session completes, the agent is woken up via `triggerTurn` with the output in context. Add `background: true` for headless execution (no overlay).
 
@@ -87,9 +87,10 @@ Quoted prompt text plus `--hands-free` or `--dispatch` turns `/spawn` into a mon
 ## Foreground Subagent Modes
 
 ### Interactive (default)
-User has full control, types directly into the agent.
+The overlay opens and returns a stable `sessionId` immediately. The user can type directly, and the agent can send input to the same shell.
 ```typescript
-interactive_shell({ command: 'pi' })
+const { sessionId } = interactive_shell({ command: 'pi' })
+interactive_shell({ sessionId, input: '/help', submit: true })
 ```
 
 ### Interactive with Initial Prompt
