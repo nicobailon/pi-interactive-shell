@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-type OverlayOptionsCapture = { command: string; reason?: string; cwd?: string } | null;
+type OverlayOptionsCapture = { command: string; reason?: string; cwd?: string; mode?: string; sessionId?: string } | null;
 
 type SpawnConfigOverrides = {
 	focusShortcut?: string;
@@ -78,8 +78,8 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 	});
 	vi.doMock("../overlay-component.ts", () => ({
 		InteractiveShellOverlay: class MockInteractiveShellOverlay {
-			constructor(_tui: unknown, _theme: unknown, options: { command: string; reason?: string; cwd?: string }) {
-				lastOverlayOptions = { command: options.command, reason: options.reason, cwd: options.cwd };
+			constructor(_tui: unknown, _theme: unknown, options: { command: string; reason?: string; cwd?: string; mode?: string; sessionId?: string }) {
+				lastOverlayOptions = { command: options.command, reason: options.reason, cwd: options.cwd, mode: options.mode, sessionId: options.sessionId };
 			}
 		},
 	}));
@@ -319,8 +319,30 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(harness.getLastOverlayOptions()).toMatchObject({
 			command: "/opt/codex/bin/codex",
 			reason: "spawn codex (fresh session)",
+			mode: "interactive",
 		});
-		expect(result.content[0].text).toContain("Session ended successfully");
+		expect(harness.getLastOverlayOptions()?.sessionId).toBeTruthy();
+		expect(result.content[0].text).toContain("Interactive session started:");
+		expect(result.content[0].text).toContain("input: \"...\", submit: true");
+		expect(result.details.sessionId).toBe(harness.getLastOverlayOptions()?.sessionId);
+	});
+
+	it("interactive_shell defaults to an agent-controllable interactive session id", async () => {
+		const harness = await setupExtensionHarness();
+		const tool = harness.getTool();
+		expect(tool).toBeTruthy();
+
+		const result = await tool!.execute("call-1", {
+			command: "pi",
+		}, undefined, undefined, harness.ctx as any);
+
+		expect(result.isError).not.toBe(true);
+		expect(result.content[0].text).toContain("Interactive session started:");
+		expect(result.content[0].text).toContain("interactive_shell({ sessionId:");
+		expect(result.content[0].text).toContain("submit: true");
+		expect(result.details.mode).toBe("interactive");
+		expect(result.details.sessionId).toBe(harness.getLastOverlayOptions()?.sessionId);
+		expect(harness.getLastOverlayOptions()).toMatchObject({ command: "pi", mode: "interactive" });
 	});
 
 	it("interactive_shell structured spawn supports native startup prompts", async () => {

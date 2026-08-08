@@ -762,17 +762,18 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 		let effectiveCwd = cwd ?? ctx.cwd;
 		const config = loadRuntimeConfig(effectiveCwd);
-		const isMonitorMode = mode === "monitor";
-		const isNonBlocking = mode === "hands-free" || mode === "dispatch" || isMonitorMode;
+		const effectiveMode = mode ?? "interactive";
+		const isMonitorMode = effectiveMode === "monitor";
+		const returnsImmediately = effectiveMode === "interactive" || effectiveMode === "hands-free" || effectiveMode === "dispatch" || isMonitorMode;
 		const hasUI = ctx.hasUI !== false;
 
-		if (background && mode !== "dispatch" && mode !== "monitor") {
+		if (background && effectiveMode !== "dispatch" && effectiveMode !== "monitor") {
 			return {
 				content: [{ type: "text", text: "background: true requires mode='dispatch' or mode='monitor' for new sessions." }],
 				isError: true,
 			};
 		}
-		if (!isMonitorMode && !(mode === "dispatch" && background)) {
+		if (!isMonitorMode && !(effectiveMode === "dispatch" && background)) {
 			if (!hasUI) {
 				return {
 					content: [{ type: "text", text: "Interactive shell requires interactive TUI mode" }],
@@ -870,7 +871,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		}
 		const launchCommand = effectiveCommand;
 
-		if (mode === "dispatch" && background) {
+		if (effectiveMode === "dispatch" && background) {
 			const id = generateSessionId(name);
 			const session = new PtyTerminalSession(
 				{ command: launchCommand, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
@@ -894,8 +895,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			};
 		}
 
-		const generatedSessionId = isNonBlocking ? generateSessionId(name) : undefined;
-		if (isNonBlocking && generatedSessionId) {
+		const generatedSessionId = returnsImmediately ? generateSessionId(name) : undefined;
+		if (returnsImmediately && generatedSessionId) {
 			if (!coordinator.beginOverlay()) {
 				return {
 					content: [{ type: "text", text: appendWorktreeNotice("An interactive shell overlay is already open. Wait for it to close or kill the active session before starting a new one.", spawnWorktreePath) }],
@@ -914,7 +915,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 							cwd: effectiveCwd,
 							name,
 							reason: effectiveReason,
-							mode,
+							mode: effectiveMode,
 							sessionId: generatedSessionId,
 							startedAt: overlayStartTime,
 							handsFreeUpdateMode: handsFree?.updateMode,
@@ -922,12 +923,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 							handsFreeQuietThreshold: handsFree?.quietThreshold,
 							handsFreeUpdateMaxChars: handsFree?.updateMaxChars,
 							handsFreeMaxTotalChars: handsFree?.maxTotalChars,
-							autoExitOnQuiet: mode === "dispatch"
+							autoExitOnQuiet: effectiveMode === "dispatch"
 								? handsFree?.autoExitOnQuiet !== false
-								: handsFree?.autoExitOnQuiet === true,
+								: effectiveMode === "hands-free" && handsFree?.autoExitOnQuiet === true,
 							autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 							onUnfocus: () => coordinator.unfocusOverlay(),
-							onHandsFreeUpdate: mode === "hands-free"
+							onHandsFreeUpdate: effectiveMode === "hands-free"
 								? makeNonBlockingUpdateHandler(pi)
 								: undefined,
 							handoffPreviewEnabled: handoffPreview?.enabled,
@@ -947,7 +948,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 			setupDispatchCompletion(pi, overlayPromise, config, {
 				id: generatedSessionId,
-				mode,
+				mode: effectiveMode,
 				command: launchCommand,
 				reason: effectiveReason,
 				timeout,
@@ -955,15 +956,15 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				overlayStartTime,
 			});
 
-			if (mode === "dispatch") {
+			if (effectiveMode === "dispatch") {
 				return {
 					content: [{ type: "text", text: appendWorktreeNotice(`Session dispatched (id: ${generatedSessionId}).\nYou'll be notified when it completes.\nYou can still query with interactive_shell({ sessionId: "${generatedSessionId}" }) if needed.`, spawnWorktreePath) }],
-					details: { sessionId: generatedSessionId, status: "running", command: launchCommand, reason: effectiveReason, mode, spawnAgent, spawnMode, spawnWorktreePath },
+					details: { sessionId: generatedSessionId, status: "running", command: launchCommand, reason: effectiveReason, mode: effectiveMode, spawnAgent, spawnMode, spawnWorktreePath },
 				};
 			}
 			return {
-				content: [{ type: "text", text: appendWorktreeNotice(`Session started: ${generatedSessionId}\nCommand: ${launchCommand}\n\nUse interactive_shell({ sessionId: "${generatedSessionId}" }) to check status/output.\nUse interactive_shell({ sessionId: "${generatedSessionId}", kill: true }) to end when done.`, spawnWorktreePath) }],
-				details: { sessionId: generatedSessionId, status: "running", command: launchCommand, reason: effectiveReason, spawnAgent, spawnMode, spawnWorktreePath },
+				content: [{ type: "text", text: appendWorktreeNotice(`Interactive session started: ${generatedSessionId}\nCommand: ${launchCommand}\n\nUse interactive_shell({ sessionId: "${generatedSessionId}", input: "...", submit: true }) to send input.\nUse interactive_shell({ sessionId: "${generatedSessionId}" }) to check status/output.\nUse interactive_shell({ sessionId: "${generatedSessionId}", kill: true }) to end when done.`, spawnWorktreePath) }],
+				details: { sessionId: generatedSessionId, status: "running", command: launchCommand, reason: effectiveReason, mode: effectiveMode, spawnAgent, spawnMode, spawnWorktreePath },
 			};
 		}
 
