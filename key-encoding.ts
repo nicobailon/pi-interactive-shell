@@ -227,8 +227,10 @@ function encodeKeyToken(token: string): string {
 	return token;
 }
 
+export type InputSpec = string | { text?: string; keys?: string[]; paste?: string; hex?: string[] };
+
 /** Translate input specification to terminal escape sequences */
-export function translateInput(input: string | { text?: string; keys?: string[]; paste?: string; hex?: string[] }): string {
+export function translateInput(input: InputSpec): string {
 	if (typeof input === "string") {
 		return input;
 	}
