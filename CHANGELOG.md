@@ -4,6 +4,8 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-08-09
+
 ### Fixed
 - Identify dispatch sessions that auto-close after quiet separately from user-killed sessions, and clarify isolated-worktree guidance for unattended coding-agent runs.
 - Ignore schema-generated empty `spawn` placeholders on raw `interactive_shell` commands so serialized optional fields do not block command launches (#26, by @dathtd119).
