@@ -3,6 +3,7 @@ import { HeadlessDispatchMonitor } from "../headless-monitor.ts";
 import type { InteractiveShellConfig } from "../config.ts";
 
 const config: InteractiveShellConfig = {
+	defer: false,
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 60,

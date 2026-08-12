@@ -3,6 +3,7 @@ import type { InteractiveShellConfig } from "../config.ts";
 import type { SpawnRequest } from "../spawn.ts";
 
 const config: InteractiveShellConfig = {
+	defer: false,
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 60,

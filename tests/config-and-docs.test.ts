@@ -84,12 +84,13 @@ describe("config + docs parity", () => {
 		mkdirSync(agentDir, { recursive: true });
 		mkdirSync(join(project, ".pi"), { recursive: true });
 		writeFileSync(globalPath, "[]", { encoding: "utf-8" });
-		writeFileSync(projectPath, '{ "overlayWidthPercent": 1e999, "scrollbackLines": -1e999 }', { encoding: "utf-8" });
+		writeFileSync(projectPath, '{ "defer": true, "overlayWidthPercent": 1e999, "scrollbackLines": -1e999 }', { encoding: "utf-8" });
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		try {
 			const { loadConfig } = await loadConfigModule(agentDir);
 			const config = loadConfig(project);
 
+			expect(config.defer).toBe(true);
 			expect(config.overlayWidthPercent).toBe(95);
 			expect(config.scrollbackLines).toBe(5000);
 			expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`Ignoring ${globalPath}: config root must be an object`));
@@ -107,9 +108,12 @@ describe("config + docs parity", () => {
 		const skill = readFileSync("skills/pi-interactive-shell/SKILL.md", "utf-8");
 		const toolSchema = readFileSync("tool-schema.ts", "utf-8");
 
+		expect(defaults.defer).toBe(false);
 		expect(defaults.handsFreeQuietThreshold).toBe(8000);
 		expect(defaults.autoExitGracePeriod).toBe(15000);
 		expect(defaults.overlayAnchor).toBe("center");
+		expect(readme).toContain(`"defer": ${defaults.defer}`);
+		expect(readme).toContain("enable_interactive_shell");
 		expect(readme).toContain(`"overlayAnchor": "${defaults.overlayAnchor}"`);
 		expect(defaults.focusShortcut).toBe("alt+shift+f");
 		expect(defaults.spawn.defaultAgent).toBe("pi");
@@ -135,6 +139,8 @@ describe("config + docs parity", () => {
 		expect(readme).toContain(`"autoExitGracePeriod": ${defaults.autoExitGracePeriod}`);
 		expect(readme).toContain(`Dispatch defaults \`autoExitOnQuiet: true\` — the session gets a 15s startup grace period`);
 		expect(readme).toContain("The completion notification identifies this as a quiet auto-close, not a user kill.");
+		expect(skill).toContain("enable_interactive_shell");
+		expect(skill).toContain("reloaded, new, resumed, and forked sessions reset it to inactive");
 		expect(skill).toContain("reports that completion reason separately from a user kill");
 		expect(toolSchema).toContain("reports that completion reason separately from a user kill");
 		expect(readme).toContain('submit: true');
