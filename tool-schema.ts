@@ -2,6 +2,10 @@ import { Type, type Static } from "typebox";
 
 export const TOOL_NAME = "interactive_shell";
 export const TOOL_LABEL = "Interactive Shell";
+export const ENABLE_TOOL_NAME = "enable_interactive_shell";
+export const ENABLE_TOOL_LABEL = "Enable Interactive Shell";
+export const ENABLE_TOOL_DESCRIPTION = "Enable the interactive_shell tool for interactive CLI coding agents, overlay supervision, background dispatch, and event-driven monitoring. Call this when interactive_shell is not available; it becomes callable on the next turn.";
+export const enableToolParameters = Type.Object({});
 
 export const TOOL_DESCRIPTION = `Run an interactive CLI coding agent in an overlay.
 

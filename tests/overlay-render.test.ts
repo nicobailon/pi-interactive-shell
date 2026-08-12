@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InteractiveShellConfig } from "../config.ts";
 
 const config: InteractiveShellConfig = {
+	defer: false,
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 60,
