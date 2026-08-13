@@ -1,4 +1,4 @@
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, isKeyRepeat, matchesKey } from "@earendil-works/pi-tui";
 import { InteractiveShellOverlay } from "./overlay-component.ts";
 import { ReattachOverlay } from "./reattach-overlay.ts";
