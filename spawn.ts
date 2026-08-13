@@ -135,13 +135,16 @@ export function parseSpawnArgs(args: string, agents: readonly SpawnAgent[]):
 		};
 	}
 
-	return {
-		ok: true,
-		parsed: {
-			request: { agent, mode, worktree: worktree || undefined, prompt },
-			monitorMode,
-		},
-	};
+	const request: SpawnRequest = {};
+	if (agent !== undefined) request.agent = agent;
+	if (mode !== undefined) request.mode = mode;
+	if (worktree) request.worktree = true;
+	if (prompt !== undefined) request.prompt = prompt;
+
+	const parsed: ParsedSpawnArgs = { request };
+	if (monitorMode !== undefined) parsed.monitorMode = monitorMode;
+
+	return { ok: true, parsed };
 }
 
 export function resolveSpawn(
@@ -204,17 +207,16 @@ export function resolveSpawn(
 		reason += ` • worktree: ${worktreePath}`;
 	}
 
-	return {
-		ok: true,
-		spawn: {
-			agent,
-			mode,
-			command: buildShellCommand(executable, args),
-			cwd: effectiveCwd,
-			reason,
-			worktreePath,
-		},
+	const resolved: ResolvedSpawn = {
+		agent,
+		mode,
+		command: buildShellCommand(executable, args),
+		cwd: effectiveCwd,
+		reason,
 	};
+	if (worktreePath !== undefined) resolved.worktreePath = worktreePath;
+
+	return { ok: true, spawn: resolved };
 }
 
 function createSpawnWorktree(

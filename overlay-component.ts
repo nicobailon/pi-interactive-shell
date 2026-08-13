@@ -7,7 +7,6 @@ import { sessionManager, generateSessionId } from "./session-manager.ts";
 import type { InteractiveShellConfig } from "./config.ts";
 import {
 	type InteractiveShellResult,
-	type HandsFreeUpdate,
 	type InteractiveShellOptions,
 	type DialogChoice,
 	type OverlayState,
