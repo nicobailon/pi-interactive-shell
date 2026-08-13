@@ -4,6 +4,9 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+- Broadened the `interactive_shell` tool guidance to cover user-facing CLIs that need typed input or approval (#32, by @Rianico).
+
 ## [0.14.1] - 2026-08-09
 
 ### Fixed

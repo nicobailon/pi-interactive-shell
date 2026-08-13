@@ -3,7 +3,7 @@ import { Type, type Static } from "typebox";
 export const TOOL_NAME = "interactive_shell";
 export const TOOL_LABEL = "Interactive Shell";
 
-export const TOOL_DESCRIPTION = `Run an interactive CLI coding agent in an overlay.
+export const TOOL_DESCRIPTION = `Run an interactive CLI in an overlay.
 
 Use this for delegating tasks to other AI coding agents (Claude Code, Cursor CLI, Gemini CLI, Codex, etc.) that have their own TUI and benefit from user interaction, or for any user-facing CLI that needs the user to type or approve mid-run (e.g. \`npm login\`, credential prompts, interactive wizards).
 
