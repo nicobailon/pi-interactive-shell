@@ -394,16 +394,33 @@ Quoted prompt text plus `--hands-free` or `--dispatch` turns `/spawn` into a mon
 | Alt+Shift+P (default) | Launch the configured default spawn agent (`spawn.shortcut`) |
 | Any key (hands-free) | Take over control |
 
+## Deferred tool loading
+
+`interactive_shell` is active by default. Set `"defer": true` to keep its large tool definition out of the initial model request:
+
+```json
+{
+  "defer": true
+}
+```
+
+Pi then exposes the small `enable_interactive_shell` loader. When a task needs the shell, the agent calls the loader and `interactive_shell` becomes available on the next model turn. `/spawn`, `/attach`, `/dismiss`, and the keyboard shortcuts continue to work directly.
+
+Each reloaded, new, resumed, or forked session starts with `interactive_shell` inactive again. Pi versions without the active-tool API print a warning and keep the tool active. A CLI `--tools` allowlist must include both `enable_interactive_shell` and `interactive_shell`; deferred activation cannot override an allowlist that excludes the target tool.
+
+Deferred mode omits `interactive_shell`'s `promptSnippet`; the same operating guidance remains in the tool description. This keeps the system-prompt prefix stable when Pi uses native deferred loading.
+
 ## Config
 
 Configuration files (project overrides global):
 - **Global:** `~/.pi/agent/interactive-shell.json`
 - **Project:** `.pi/interactive-shell.json`
 
-Shortcut settings are pinned at startup. If you change `focusShortcut` or `spawn.shortcut`, reload or restart Pi to apply them.
+Deferred loading and shortcut settings are pinned at startup. If you change `defer`, `focusShortcut`, or `spawn.shortcut`, reload or restart Pi to apply them.
 
 ```json
 {
+  "defer": false,
   "overlayWidthPercent": 95,
   "overlayHeightPercent": 60,
   "overlayAnchor": "center",
@@ -451,6 +468,7 @@ Shortcut settings are pinned at startup. If you change `focusShortcut` or `spawn
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `defer` | `false` | Start each session with only `enable_interactive_shell`; the full tool loads on demand |
 | `overlayWidthPercent` | 95 | Overlay width (10-100%) |
 | `overlayHeightPercent` | 60 | Overlay height (20-90%) |
 | `overlayAnchor` | "center" | Overlay position: `center`, `top-left`, `top-center`, `top-right`, `left-center`, `right-center`, `bottom-left`, `bottom-center`, `bottom-right` |

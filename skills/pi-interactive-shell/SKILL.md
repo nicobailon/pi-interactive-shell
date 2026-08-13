@@ -1,11 +1,17 @@
 ---
 name: pi-interactive-shell
-description: Cheat sheet + workflow for launching interactive coding-agent CLIs (Claude Code, Gemini CLI, Codex CLI, Cursor CLI, and pi itself) via the interactive_shell overlay, headless dispatch, or monitor mode. Use for TUI agents and long-running processes that need supervision, fire-and-forget delegation, or event-driven background monitoring. Regular bash commands should use the bash tool instead.
+description: Cheat sheet + workflow for launching interactive coding-agent CLIs (Claude Code, Gemini CLI, Codex CLI, Cursor CLI, and pi itself) via the interactive_shell overlay, headless dispatch, or monitor mode. Use for TUI agents and long-running processes that need supervision, fire-and-forget delegation, or event-driven background monitoring. If interactive_shell is unavailable, enable it with enable_interactive_shell first. Regular bash commands should use the bash tool instead.
 ---
 
 # Interactive Shell (Skill)
 
-Last verified: 2026-04-11
+Last verified: 2026-08-12
+
+## Deferred activation
+
+When `interactive_shell` is unavailable, call `enable_interactive_shell` first. The tool becomes callable on the next turn and stays active until Pi reloads or the session changes; reloaded, new, resumed, and forked sessions reset it to inactive. Do not call the loader when `interactive_shell` is already available.
+
+Users opt in with `"defer": true` in `interactive-shell.json`. Older Pi versions without active-tool APIs warn and keep eager loading. A CLI `--tools` allowlist must include both `enable_interactive_shell` and `interactive_shell`.
 
 ## Foreground vs Background Subagents
 
