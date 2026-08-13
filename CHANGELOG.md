@@ -4,6 +4,11 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-13
+
+### Added
+- Add optional deferred loading for `interactive_shell` with the `enable_interactive_shell` loader (#30, by @AndriiSemenkov).
+
 ### Changed
 - Broadened the `interactive_shell` tool guidance to cover user-facing CLIs that need typed input or approval (#32, by @Rianico).
 - Keep `interactive_shell` active when deferred loading cannot expose `enable_interactive_shell` through Pi's tool allowlist (#30, by @AndriiSemenkov).
