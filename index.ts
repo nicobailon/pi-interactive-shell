@@ -1106,7 +1106,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		label: TOOL_LABEL,
 		description: TOOL_DESCRIPTION,
 		promptSnippet:
-			"Use this only to delegate tasks to interactive CLI coding agents (pi/claude/cursor/gemini/codex/aider). Prefer mode='dispatch' for fire-and-forget delegations. When sending slash commands or prompts to an existing session, use submit=true so the text is actually submitted.",
+			"Use this for interactive CLIs that need user input or approval, including coding agents (pi/claude/cursor/gemini/codex/aider) and auth flows such as npm login. Prefer mode='dispatch' for fire-and-forget delegations. Use bash for non-interactive shell commands. When sending slash commands or prompts to an existing session, use submit=true so the text is actually submitted.",
 		parameters: toolParameters,
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
