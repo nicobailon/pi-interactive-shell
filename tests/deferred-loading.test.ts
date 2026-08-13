@@ -35,7 +35,7 @@ const baseConfig = {
 	minQueryIntervalSeconds: 60,
 };
 
-async function setupHarness(defer: boolean, dynamicApis = true, allowInteractiveShell = true) {
+async function setupHarness(defer: boolean, dynamicApis = true, allowedTools = ["interactive_shell", "enable_interactive_shell"]) {
 	vi.resetModules();
 	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => "/tmp/pi-agent",
@@ -69,7 +69,7 @@ async function setupHarness(defer: boolean, dynamicApis = true, allowInteractive
 	const handlers = new Map<string, any>();
 	let activeTools = ["read"];
 	const setActiveTools = vi.fn((names: string[]) => {
-		activeTools = allowInteractiveShell ? [...names] : names.filter((name) => name !== "interactive_shell");
+		activeTools = names.filter((name) => !["interactive_shell", "enable_interactive_shell"].includes(name) || allowedTools.includes(name));
 	});
 	const pi: Record<string, any> = {
 		registerShortcut: vi.fn(),
@@ -146,8 +146,18 @@ describe("deferred interactive_shell loading", () => {
 		expect(repeated.details.added).toEqual([]);
 	});
 
+	it("keeps interactive_shell active when a CLI tool allowlist excludes the loader", async () => {
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const harness = await setupHarness(true, true, ["interactive_shell"]);
+		const sessionStart = harness.handlers.get("session_start");
+
+		sessionStart({ reason: "startup" }, sessionContext);
+		expect(harness.getActiveTools()).toEqual(["read", "interactive_shell"]);
+		expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("include both enable_interactive_shell and interactive_shell"));
+	});
+
 	it("fails clearly when a CLI tool allowlist excludes interactive_shell", async () => {
-		const harness = await setupHarness(true, true, false);
+		const harness = await setupHarness(true, true, ["enable_interactive_shell"]);
 		const sessionStart = harness.handlers.get("session_start");
 		const loader = harness.tools.get("enable_interactive_shell");
 

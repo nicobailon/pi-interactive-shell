@@ -1088,6 +1088,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		if (deferToolLoading) {
 			const activeTools = pi.getActiveTools().filter((name) => name !== TOOL_NAME);
 			pi.setActiveTools([...new Set([...activeTools, ENABLE_TOOL_NAME])]);
+			if (!pi.getActiveTools().includes(ENABLE_TOOL_NAME)) {
+				console.error(
+					"pi-interactive-shell: deferred loading requires enable_interactive_shell; include both enable_interactive_shell and interactive_shell in Pi's --tools allowlist. Keeping interactive_shell active.",
+				);
+				pi.setActiveTools([...new Set([...activeTools, TOOL_NAME])]);
+			}
 		}
 		coordinator.replaceBackgroundWidgetCleanup(setupBackgroundWidget(ctx, sessionManager, coordinator));
 		terminalInputCleanup?.();
