@@ -606,7 +606,7 @@ function registerHeadlessActive(
 			}
 			const liveMonitor = coordinator.getMonitor(id);
 			if (liveMonitor && !liveMonitor.disposed) {
-				session.kill();
+				liveMonitor.kill();
 				return;
 			}
 			coordinator.disposeMonitor(id);
@@ -1979,11 +1979,12 @@ function setupDispatchCompletion(
 					customType: "interactive-shell-transfer",
 					content,
 					display: true,
-					details: { sessionId: id, exitCode: result.exitCode, signal: result.signal, timedOut: result.timedOut, cancelled: result.cancelled, completionOutput: result.completionOutput },
+					details: { sessionId: id, exitCode: result.exitCode, signal: result.signal, completionReason: result.completionReason, timedOut: result.timedOut, cancelled: result.cancelled, completionOutput: result.completionOutput },
 				}, { triggerTurn: true });
 			}
 			pi.events.emit("interactive-shell:transfer", {
 				sessionId: id,
+				completionReason: result.completionReason,
 				completionOutput: result.completionOutput,
 				exitCode: result.exitCode,
 				signal: result.signal,

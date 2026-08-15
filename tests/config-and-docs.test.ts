@@ -138,11 +138,15 @@ describe("config + docs parity", () => {
 		expect(readme).toContain(`"handsFreeQuietThreshold": ${defaults.handsFreeQuietThreshold}`);
 		expect(readme).toContain(`"autoExitGracePeriod": ${defaults.autoExitGracePeriod}`);
 		expect(readme).toContain(`Dispatch defaults \`autoExitOnQuiet: true\` — the session gets a 15s startup grace period`);
-		expect(readme).toContain("The completion notification identifies this as a quiet auto-close, not a user kill.");
+		expect(readme).toContain('completionReason: "auto-close-quiet"');
+		expect(readme).toContain("this is not a terminal command verdict.");
+		expect(readme).toContain("provider-agnostic watch-until-terminal pattern");
 		expect(skill).toContain("enable_interactive_shell");
 		expect(skill).toContain("reloaded, new, resumed, and forked sessions reset it to inactive");
-		expect(skill).toContain("reports that completion reason separately from a user kill");
-		expect(toolSchema).toContain("reports that completion reason separately from a user kill");
+		expect(skill).toContain('completionReason: "auto-close-quiet"');
+		expect(skill).toContain("provider-agnostic external gate watcher");
+		expect(toolSchema).toContain('completionReason: "auto-close-quiet"');
+		expect(toolSchema).toContain("WATCH-UNTIL-TERMINAL RECIPE:");
 		expect(readme).toContain('submit: true');
 		expect(readme).toContain('raw `input` only types text. It does not submit the prompt.');
 		expect(skill).toContain("~8s of quiet");

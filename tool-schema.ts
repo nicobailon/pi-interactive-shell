@@ -101,8 +101,11 @@ Workflow:
 2. Do other work - no polling needed
 3. When complete, you receive a notification with the session output
 
-Dispatch defaults autoExitOnQuiet to true (opt-out with handsFree.autoExitOnQuiet: false). A quiet TUI auto-closes after the threshold and reports that completion reason separately from a user kill.
+Dispatch defaults autoExitOnQuiet to true (opt-out with handsFree.autoExitOnQuiet: false). A quiet TUI auto-closes after the threshold and reports completionReason: "auto-close-quiet" separately from a user kill. This is not a terminal command verdict.
 You can still query with sessionId if needed, but it's not required.
+
+WATCH-UNTIL-TERMINAL RECIPE:
+For external gates, use mode="monitor" with explicit ready/blocked/stale trigger lines, handsFree: { autoExitOnQuiet: false }, and a timeout. Have the command exit only after it emits a terminal line. This is provider-agnostic: it works with CI, deploy, health, and custom CLI watchers. If raw dispatch is required, set handsFree.autoExitOnQuiet to false and treat completionReason: "auto-close-quiet" as non-terminal.
 
 BACKGROUND DISPATCH (HEADLESS):
 Start a session without any overlay. Process runs headlessly, agent notified on completion:
