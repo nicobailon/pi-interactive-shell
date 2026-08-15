@@ -91,6 +91,7 @@ describe("HeadlessDispatchMonitor", () => {
 		expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({
 			cancelled: true,
 			autoClosedOnQuiet: true,
+			completionReason: "auto-close-quiet",
 		}));
 	});
 
@@ -124,6 +125,7 @@ describe("HeadlessDispatchMonitor", () => {
 		expect(onComplete).toHaveBeenCalledWith({
 			exitCode: 0,
 			signal: undefined,
+			completionReason: "exited",
 			timedOut: undefined,
 			cancelled: undefined,
 			completionOutput: {
@@ -133,6 +135,23 @@ describe("HeadlessDispatchMonitor", () => {
 			},
 		});
 		expect(monitor.getResult()?.completionOutput?.lines).toEqual(["final"]);
+	});
+
+	it("reports an explicit monitor kill as killed", () => {
+		const session = createSession();
+		const onComplete = vi.fn();
+		const monitor = new HeadlessDispatchMonitor(session, config, {
+			autoExitOnQuiet: false,
+			quietThreshold: 1000,
+		}, onComplete);
+
+		monitor.kill();
+
+		expect(session.kill).toHaveBeenCalledTimes(1);
+		expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({
+			cancelled: true,
+			completionReason: "killed",
+		}));
 	});
 
 	it("emits stream monitor events from ANSI-stripped line output", () => {

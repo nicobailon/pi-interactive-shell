@@ -153,7 +153,28 @@ Attach to review full output: interactive_shell({ attach: "calm-reef" })
 
 The notification includes a brief tail (last 5 lines) and a reattach instruction. The PTY is preserved for 5 minutes so the agent can attach to review full scrollback.
 
-Dispatch defaults `autoExitOnQuiet: true` — the session gets a 15s startup grace period, then auto-closes after output goes silent (8s by default). The completion notification identifies this as a quiet auto-close, not a user kill. Tune the grace period with `handsFree: { gracePeriod: 60000 }` or opt out entirely with `handsFree: { autoExitOnQuiet: false }`.
+Dispatch defaults `autoExitOnQuiet: true` — the session gets a 15s startup grace period, then auto-closes after output goes silent (8s by default). The completion notification and details set `completionReason: "auto-close-quiet"`; this is not a terminal command verdict. Tune the grace period with `handsFree: { gracePeriod: 60000 }` or opt out entirely with `handsFree: { autoExitOnQuiet: false }`.
+
+For an external gate, use this provider-agnostic watch-until-terminal pattern. The watcher must print one of the terminal lines and exit only after it has a verdict:
+
+```typescript
+interactive_shell({
+  command: "your-watch-command",
+  mode: "monitor",
+  handsFree: { autoExitOnQuiet: false },
+  timeout: 20 * 60_000,
+  monitor: {
+    strategy: "stream",
+    triggers: [
+      { id: "ready", literal: "ready" },
+      { id: "blocked", literal: "blocked" },
+      { id: "stale-head", literal: "stale-head" }
+    ]
+  }
+})
+```
+
+This works with CI, deploy, health, and custom CLI watchers. If raw dispatch is required, disable quiet auto-close and treat `completionReason: "auto-close-quiet"` as non-terminal.
 
 The overlay still shows for the user, who can Ctrl+T to transfer output, Ctrl+B to background, take over by typing, or Ctrl+Q for more options. `Ctrl+G` only becomes meaningful after the user has taken over a monitored hands-free or dispatch session.
 

@@ -352,8 +352,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 						this.emitHandsFreeUpdate();
 						this.hasUnsentData = false;
 					}
-					// Send completion notification and auto-close
-					// Use "killed" status since we're forcibly terminating (matches finishWithKill's cancelled=true)
+					// Send completion notification and auto-close.
+					// This is a quiet auto-close, not a command completion verdict.
 					if (this.options.onHandsFreeUpdate && this.sessionId) {
 						this.options.onHandsFreeUpdate({
 							status: "killed",
@@ -365,7 +365,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 							budgetExhausted: this.budgetExhausted,
 						});
 					}
-					this.finishWithKill();
+					this.finishWithKill("auto-close-quiet");
 					return;
 				}
 				// Normal behavior: just emit update
@@ -685,7 +685,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.done(result);
 	}
 
-	private finishWithKill(): void {
+	private finishWithKill(completionReason: InteractiveShellResult["completionReason"] = "killed"): void {
 		if (this.finished) return;
 		this.finished = true;
 		this.stopCountdown();
@@ -699,6 +699,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.session.dispose();
 		const result: InteractiveShellResult = {
 			exitCode: null,
+			completionReason,
 			backgrounded: false,
 			cancelled: true,
 			sessionId: this.sessionId ?? undefined,

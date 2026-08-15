@@ -4,6 +4,12 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+- Expose dispatch quiet auto-close as `completionReason: "auto-close-quiet"` and mark it as non-terminal in notifications.
+
+### Changed
+- Document a provider-agnostic watch-until-terminal monitor recipe for external gates.
+
 ## [0.15.0] - 2026-08-13
 
 ### Added

@@ -119,7 +119,9 @@ interactive_shell({
 // → Do other work. When session completes, you receive notification with output.
 ```
 
-Dispatch defaults `autoExitOnQuiet: true`. A quiet TUI auto-closes after the threshold and reports that completion reason separately from a user kill. The agent can still query the sessionId if needed, but doesn't have to.
+Dispatch defaults `autoExitOnQuiet: true`. A quiet TUI auto-closes after the threshold and reports `completionReason: "auto-close-quiet"` separately from a user kill. This is not a terminal command verdict. The agent can still query the sessionId if needed, but doesn't have to.
+
+For a provider-agnostic external gate watcher, use `mode: "monitor"`, set `handsFree: { autoExitOnQuiet: false }`, set a hard `timeout`, and match explicit terminal lines such as `ready`, `blocked`, and `stale-head`. The watcher command must exit only after it emits a terminal line. If raw dispatch is required, disable quiet auto-close and treat `completionReason: "auto-close-quiet"` as non-terminal.
 
 For fire-and-forget delegated runs (including QA-style delegated checks), prefer dispatch as the default mode.
 
