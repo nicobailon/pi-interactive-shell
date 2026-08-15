@@ -30,7 +30,7 @@ Works with any CLI: `vim`, `htop`, `psql`, `ssh`, `docker logs -f`, `npm run dev
 pi install npm:pi-interactive-shell
 ```
 
-The `interactive-shell` skill is automatically symlinked to `~/.pi/agent/skills/interactive-shell/`.
+Pi loads the bundled `pi-interactive-shell` skill directly from the package manifest; no manual copy or symlink is required.
 
 **Requires:** Node.js. PTY support uses `zigpty` prebuilt binaries (no `node-gyp` toolchain required on supported platforms).
 
@@ -537,16 +537,18 @@ pi install npm:pi-interactive-shell
 The Codex workflow prompts and supporting skills are opt-in examples. Copy them into your agent config if you want to use them:
 
 ```bash
+PACKAGE_DIR="$HOME/.pi/agent/npm/node_modules/pi-interactive-shell"
+
 # Prompt templates (slash commands)
-cp ~/.pi/agent/extensions/pi-interactive-shell/examples/prompts/*.md ~/.pi/agent/prompts/
+cp "$PACKAGE_DIR"/examples/prompts/*.md ~/.pi/agent/prompts/
 
 # Optional skills used by the templates
-cp -r ~/.pi/agent/extensions/pi-interactive-shell/examples/skills/codex-cli ~/.pi/agent/skills/
-cp -r ~/.pi/agent/extensions/pi-interactive-shell/examples/skills/gpt-5-4-prompting ~/.pi/agent/skills/
-cp -r ~/.pi/agent/extensions/pi-interactive-shell/examples/skills/codex-5-3-prompting ~/.pi/agent/skills/
+cp -r "$PACKAGE_DIR"/examples/skills/codex-cli ~/.pi/agent/skills/
+cp -r "$PACKAGE_DIR"/examples/skills/gpt-5-4-prompting ~/.pi/agent/skills/
+cp -r "$PACKAGE_DIR"/examples/skills/codex-5-3-prompting ~/.pi/agent/skills/
 
 # Optional CLI reference skill
-cp -r ~/.pi/agent/extensions/pi-interactive-shell/examples/skills/cursor-cli ~/.pi/agent/skills/
+cp -r "$PACKAGE_DIR"/examples/skills/cursor-cli ~/.pi/agent/skills/
 ```
 
 ### Usage
