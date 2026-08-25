@@ -97,7 +97,7 @@ Workflow:
 2. Do other work - no polling needed
 3. When complete, you receive a notification with the session output
 
-Dispatch defaults autoExitOnQuiet to true (opt-out with handsFree.autoExitOnQuiet: false). A quiet TUI auto-closes after the threshold and reports that completion reason separately from a user kill.
+Dispatch waits for process exit by default. Enable handsFree.autoExitOnQuiet only when silence is an explicit completion condition; otherwise a quiet coding agent may still be working.
 You can still query with sessionId if needed, but it's not required.
 
 BACKGROUND DISPATCH (HEADLESS):

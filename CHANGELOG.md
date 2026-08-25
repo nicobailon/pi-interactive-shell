@@ -4,6 +4,9 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+- Keep dispatch sessions alive through quiet output by default; quiet auto-exit now requires explicit opt-in so coding-agent workers are not killed while still running.
+
 ## [0.14.1] - 2026-08-09
 
 ### Fixed

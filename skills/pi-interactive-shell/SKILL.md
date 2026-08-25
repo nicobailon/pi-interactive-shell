@@ -113,7 +113,7 @@ interactive_shell({
 // → Do other work. When session completes, you receive notification with output.
 ```
 
-Dispatch defaults `autoExitOnQuiet: true`. A quiet TUI auto-closes after the threshold and reports that completion reason separately from a user kill. The agent can still query the sessionId if needed, but doesn't have to.
+Dispatch waits for process exit by default. Enable `handsFree.autoExitOnQuiet` only when silence is an explicit completion condition; quiet coding agents may still be reasoning or using tools. Quiet auto-close reports that completion reason separately from a user kill.
 
 For fire-and-forget delegated runs (including QA-style delegated checks), prefer dispatch as the default mode.
 

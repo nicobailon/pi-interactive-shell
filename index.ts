@@ -881,7 +881,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			sessionManager.add(launchCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
 
 			const monitor = new HeadlessDispatchMonitor(session, config, {
-				autoExitOnQuiet: handsFree?.autoExitOnQuiet !== false,
+				autoExitOnQuiet: handsFree?.autoExitOnQuiet === true,
 				quietThreshold: handsFree?.quietThreshold ?? config.handsFreeQuietThreshold,
 				gracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 				timeout,
@@ -923,9 +923,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 							handsFreeQuietThreshold: handsFree?.quietThreshold,
 							handsFreeUpdateMaxChars: handsFree?.updateMaxChars,
 							handsFreeMaxTotalChars: handsFree?.maxTotalChars,
-							autoExitOnQuiet: effectiveMode === "dispatch"
-								? handsFree?.autoExitOnQuiet !== false
-								: effectiveMode === "hands-free" && handsFree?.autoExitOnQuiet === true,
+							autoExitOnQuiet: handsFree?.autoExitOnQuiet === true,
 							autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 							onUnfocus: () => coordinator.unfocusOverlay(),
 							onHandsFreeUpdate: effectiveMode === "hands-free"
@@ -1524,9 +1522,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 								handsFreeQuietThreshold: handsFree?.quietThreshold,
 								handsFreeUpdateMaxChars: handsFree?.updateMaxChars,
 								handsFreeMaxTotalChars: handsFree?.maxTotalChars,
-								autoExitOnQuiet: mode === "dispatch"
-									? handsFree?.autoExitOnQuiet !== false
-									: handsFree?.autoExitOnQuiet === true,
+								autoExitOnQuiet: handsFree?.autoExitOnQuiet === true,
 								autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 								onUnfocus: () => coordinator.unfocusOverlay(),
 								onHandsFreeUpdate: mode === "hands-free"
@@ -1903,7 +1899,7 @@ function setupDispatchCompletion(
 			const remainingTimeout = ctx.timeout ? Math.max(0, ctx.timeout - elapsed) : undefined;
 			const bgStartTime = bgSession.startedAt.getTime();
 			const monitor = new HeadlessDispatchMonitor(bgSession.session, config, {
-				autoExitOnQuiet: ctx.handsFree?.autoExitOnQuiet !== false,
+				autoExitOnQuiet: ctx.handsFree?.autoExitOnQuiet === true,
 				quietThreshold: ctx.handsFree?.quietThreshold ?? config.handsFreeQuietThreshold,
 				gracePeriod: ctx.handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 				timeout: remainingTimeout,
