@@ -145,6 +145,7 @@ function buildDispatchStatusLine(sessionId: string, info: HeadlessCompletionInfo
 
 function buildResultStatusLine(sessionId: string, result: InteractiveShellResult): string {
 	if (result.timedOut) return `Session ${sessionId} timed out.`;
+	if (result.autoClosedOnQuiet) return `Session ${sessionId} auto-closed after quiet.`;
 	if (result.cancelled) return `Session ${sessionId} was killed.`;
 	if (result.exitCode === 0) return `Session ${sessionId} completed successfully.`;
 	return `Session ${sessionId} exited with code ${result.exitCode}.`;
@@ -158,6 +159,7 @@ function buildInteractiveSummary(result: InteractiveShellResult, timeout?: numbe
 	if (result.backgrounded) {
 		return `Session running in background (id: ${result.backgroundId}). User can reattach with /attach ${result.backgroundId}`;
 	}
+	if (result.autoClosedOnQuiet) return "Session auto-closed after quiet";
 	if (result.cancelled) return "User killed the interactive session";
 	if (result.timedOut) return `Session killed after timeout (${timeout ?? "?"}ms)`;
 	const status = result.exitCode === 0 ? "successfully" : `with code ${result.exitCode}`;

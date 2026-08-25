@@ -9,6 +9,8 @@ export interface InteractiveShellResult {
 	backgroundId?: string;
 	cancelled: boolean;
 	timedOut?: boolean;
+	/** The session was intentionally closed after the configured quiet threshold. */
+	autoClosedOnQuiet?: boolean;
 	sessionId?: string;
 	userTookOver?: boolean;
 	/** When user triggers "Transfer" action, this contains the captured output */

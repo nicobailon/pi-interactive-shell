@@ -41,6 +41,30 @@ describe("ShellSessionManager", () => {
 		expect(manager.list()).toHaveLength(0);
 	});
 
+	it("retains completed active output until scheduled cleanup releases it", () => {
+		const manager = new ShellSessionManager();
+		const dispose = vi.fn();
+		manager.registerActive({
+			id: "completed-dispatch",
+			command: "pi \"scan\"",
+			write: vi.fn(),
+			kill: vi.fn(),
+			background: vi.fn(),
+			getOutput: vi.fn() as any,
+			getStatus: vi.fn(() => "auto-closed-on-quiet") as any,
+			getRuntime: vi.fn(() => 0),
+			getResult: vi.fn(() => ({ exitCode: null, cancelled: true, autoClosedOnQuiet: true })),
+			dispose,
+			onComplete: vi.fn(),
+		});
+
+		manager.scheduleActiveCleanup("completed-dispatch", 100);
+		expect(manager.getActive("completed-dispatch")).toBeDefined();
+		vi.advanceTimersByTime(100);
+		expect(dispose).toHaveBeenCalledTimes(1);
+		expect(manager.getActive("completed-dispatch")).toBeUndefined();
+	});
+
 	it("killAll kills active sessions and removes background sessions", () => {
 		const manager = new ShellSessionManager();
 		const backgroundSession = createSession() as any;

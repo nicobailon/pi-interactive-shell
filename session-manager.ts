@@ -9,7 +9,7 @@ export interface BackgroundSession {
 	startedAt: Date;
 }
 
-export type ActiveSessionStatus = "running" | "monitoring" | "user-takeover" | "exited" | "killed" | "backgrounded";
+export type ActiveSessionStatus = "running" | "monitoring" | "user-takeover" | "exited" | "killed" | "auto-closed-on-quiet" | "backgrounded";
 
 export interface ActiveSessionResult {
 	exitCode: number | null;
@@ -18,6 +18,7 @@ export interface ActiveSessionResult {
 	backgroundId?: string;
 	cancelled?: boolean;
 	timedOut?: boolean;
+	autoClosedOnQuiet?: boolean;
 }
 
 export interface OutputResult {
@@ -52,6 +53,10 @@ export interface ActiveSession {
 	getStatus: () => ActiveSessionStatus;
 	getRuntime: () => number;
 	getResult: () => ActiveSessionResult | undefined;
+	/** Keep completed dispatch output available until its retention cleanup runs. */
+	retainAfterCompletion?: boolean;
+	/** Release retained terminal resources when their retention period expires. */
+	dispose?: () => void;
 	setUpdateInterval?: (intervalMs: number) => void;
 	setQuietThreshold?: (thresholdMs: number) => void;
 	onComplete: (callback: () => void) => void;
@@ -137,6 +142,7 @@ export class ShellSessionManager {
 	private exitWatchers = new Map<string, NodeJS.Timeout>();
 	private cleanupTimers = new Map<string, NodeJS.Timeout>();
 	private activeSessions = new Map<string, ActiveSession>();
+	private activeCleanupTimers = new Map<string, NodeJS.Timeout>();
 	private changeListeners = new Set<() => void>();
 
 	onChange(listener: () => void): () => void {
@@ -155,10 +161,20 @@ export class ShellSessionManager {
 	}
 
 	registerActive(session: ActiveSession): void {
+		const cleanupTimer = this.activeCleanupTimers.get(session.id);
+		if (cleanupTimer) {
+			clearTimeout(cleanupTimer);
+			this.activeCleanupTimers.delete(session.id);
+		}
 		this.activeSessions.set(session.id, session);
 	}
 
 	unregisterActive(id: string, releaseId = false): void {
+		const cleanupTimer = this.activeCleanupTimers.get(id);
+		if (cleanupTimer) {
+			clearTimeout(cleanupTimer);
+			this.activeCleanupTimers.delete(id);
+		}
 		this.activeSessions.delete(id);
 		// Only release the ID if explicitly requested (when session fully terminates)
 		// This prevents ID reuse while session is still running after takeover
@@ -169,6 +185,20 @@ export class ShellSessionManager {
 
 	getActive(id: string): ActiveSession | undefined {
 		return this.activeSessions.get(id);
+	}
+
+	scheduleActiveCleanup(id: string, delayMs: number): void {
+		if (this.activeCleanupTimers.has(id)) return;
+		const timer = setTimeout(() => {
+			this.activeCleanupTimers.delete(id);
+			const session = this.activeSessions.get(id);
+			try {
+				session?.dispose?.();
+			} finally {
+				this.unregisterActive(id, true);
+			}
+		}, delayMs);
+		this.activeCleanupTimers.set(id, timer);
 	}
 
 	writeToActive(id: string, data: string): boolean {

@@ -165,6 +165,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 				getStatus: () => this.getSessionStatus(),
 				getRuntime: () => this.getRuntime(),
 				getResult: () => this.getCompletionResult(),
+				retainAfterCompletion: options.mode === "dispatch",
+				dispose: () => this.session.dispose(),
 				setUpdateInterval: (intervalMs) => this.setUpdateInterval(intervalMs),
 				setQuietThreshold: (thresholdMs) => this.setQuietThreshold(thresholdMs),
 				onComplete: (callback) => this.registerCompleteCallback(callback),
@@ -216,8 +218,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	}
 
 	/** Get current session status */
-	getSessionStatus(): "running" | "user-takeover" | "exited" | "killed" | "backgrounded" {
+	getSessionStatus(): "running" | "user-takeover" | "exited" | "killed" | "auto-closed-on-quiet" | "backgrounded" {
 		if (this.completionResult) {
+			if (this.completionResult.autoClosedOnQuiet) return "auto-closed-on-quiet";
 			if (this.completionResult.cancelled) return "killed";
 			if (this.completionResult.backgrounded) return "backgrounded";
 			if (this.userTookOver) return "user-takeover";
@@ -353,8 +356,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 						this.emitHandsFreeUpdate();
 						this.hasUnsentData = false;
 					}
-					// Send completion notification and auto-close
-					// Use "killed" status since we're forcibly terminating (matches finishWithKill's cancelled=true)
+					// Send completion notification and auto-close.
 					if (this.options.onHandsFreeUpdate && this.sessionId) {
 						this.options.onHandsFreeUpdate({
 							status: "killed",
@@ -366,7 +368,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 							budgetExhausted: this.budgetExhausted,
 						});
 					}
-					this.finishWithKill();
+					this.finishWithQuietAutoClose();
 					return;
 				}
 				// Normal behavior: just emit update
@@ -555,6 +557,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 				getStatus: () => this.getSessionStatus(),
 				getRuntime: () => this.getRuntime(),
 				getResult: () => this.getCompletionResult(),
+				retainAfterCompletion: this.options.mode === "dispatch",
+				dispose: () => this.session.dispose(),
 				setUpdateInterval: (intervalMs) => this.setUpdateInterval(intervalMs),
 				setQuietThreshold: (thresholdMs) => this.setQuietThreshold(thresholdMs),
 				onComplete: (callback) => this.registerCompleteCallback(callback),
@@ -713,6 +717,41 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		// In streaming mode (blocking tool call), unregister now since the agent
 		// gets the result via tool return. Otherwise keep registered for queries.
+		if (this.options.streamingMode) {
+			this.unregisterActiveSession(true);
+		}
+
+		this.done(result);
+	}
+
+	private finishWithQuietAutoClose(): void {
+		if (this.finished) return;
+		this.finished = true;
+		this.stopCountdown();
+		this.stopTimeout();
+		this.stopHandsFreeUpdates();
+
+		const handoffPreview = this.maybeBuildHandoffPreview("kill");
+		const handoff = this.maybeWriteHandoffSnapshot("kill");
+		const completionOutput = this.captureCompletionOutput();
+		this.session.kill();
+		if (this.options.mode !== "dispatch") {
+			this.session.dispose();
+		}
+		const result: InteractiveShellResult = {
+			exitCode: null,
+			backgrounded: false,
+			cancelled: true,
+			autoClosedOnQuiet: true,
+			sessionId: this.sessionId ?? undefined,
+			userTookOver: this.userTookOver,
+			completionOutput,
+			handoffPreview,
+			handoff,
+		};
+		this.completionResult = result;
+		this.triggerCompleteCallbacks();
+
 		if (this.options.streamingMode) {
 			this.unregisterActiveSession(true);
 		}

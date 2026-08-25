@@ -9,6 +9,7 @@ async function setupHarness() {
 	let nextOverlayResult: Promise<any> = new Promise(() => {});
 	const overlayOptions: OverlayOptions[] = [];
 	const monitorOptions: MonitorOptions[] = [];
+	const activeSessions = new Map<string, any>();
 	const backgroundSession = {
 		id: "background-session",
 		command: "pi",
@@ -96,25 +97,27 @@ async function setupHarness() {
 			dispose() { this.disposed = true; }
 		},
 	}));
+	const sessionManager = {
+		getActive: vi.fn((id: string) => activeSessions.get(id)),
+		unregisterActive: vi.fn((id: string) => { activeSessions.delete(id); }),
+		registerActive: vi.fn((session: any) => { activeSessions.set(session.id, session); }),
+		list: vi.fn(() => []),
+		add: vi.fn(),
+		take: vi.fn((id: string) => id === attachedSession.id ? attachedSession : undefined),
+		get: vi.fn((id: string) => id === backgroundSession.id ? backgroundSession : undefined),
+		restore: vi.fn(),
+		remove: vi.fn(),
+		scheduleCleanup: vi.fn(),
+		scheduleActiveCleanup: vi.fn(),
+		restartAutoCleanup: vi.fn(),
+		killAll: vi.fn(),
+		onChange: vi.fn(() => () => {}),
+		setActiveUpdateInterval: vi.fn(() => false),
+		setActiveQuietThreshold: vi.fn(() => false),
+		writeToActive: vi.fn(() => false),
+	};
 	vi.doMock("../session-manager.ts", () => ({
-		sessionManager: {
-			getActive: vi.fn(() => undefined),
-			unregisterActive: vi.fn(),
-			registerActive: vi.fn(),
-			list: vi.fn(() => []),
-			add: vi.fn(),
-			take: vi.fn((id: string) => id === attachedSession.id ? attachedSession : undefined),
-			get: vi.fn((id: string) => id === backgroundSession.id ? backgroundSession : undefined),
-			restore: vi.fn(),
-			remove: vi.fn(),
-			scheduleCleanup: vi.fn(),
-			restartAutoCleanup: vi.fn(),
-			killAll: vi.fn(),
-			onChange: vi.fn(() => () => {}),
-			setActiveUpdateInterval: vi.fn(() => false),
-			setActiveQuietThreshold: vi.fn(() => false),
-			writeToActive: vi.fn(() => false),
-		},
+		sessionManager,
 		generateSessionId: vi.fn(() => `session-${++nextId}`),
 	}));
 	vi.doMock("../runtime-coordinator.ts", () => ({
@@ -139,6 +142,7 @@ async function setupHarness() {
 		},
 	}));
 
+	const sendMessage = vi.fn();
 	const extensionModule = await import("../index.ts");
 	extensionModule.default({
 		registerShortcut: vi.fn(),
@@ -146,7 +150,7 @@ async function setupHarness() {
 		registerTool: vi.fn((definition: any) => { toolDef = definition; }),
 		on: vi.fn(),
 		events: { emit: vi.fn() },
-		sendMessage: vi.fn(),
+		sendMessage,
 	} as any);
 
 	const context = {
@@ -168,6 +172,9 @@ async function setupHarness() {
 		monitorOptions,
 		setOverlayResult: (result: Promise<any>) => { nextOverlayResult = result; },
 		backgroundSession,
+		sessionManager,
+		setActiveSession: (id: string, session: any) => { activeSessions.set(id, session); },
+		sendMessage,
 	};
 }
 
@@ -204,6 +211,43 @@ describe("dispatch quiet auto-exit", () => {
 		await Promise.resolve();
 		await Promise.resolve();
 		expect(harness.monitorOptions.at(-1)?.autoExitOnQuiet).toBe(false);
+	});
+
+	it.each([
+		["foreground", { command: "pi", mode: "dispatch", handsFree: { autoExitOnQuiet: true } }, "session-1"],
+		["reattach", { attach: "attached-session", mode: "dispatch", handsFree: { autoExitOnQuiet: true } }, "attached-session"],
+	])("reports and retains an explicit quiet close for %s dispatch", async (_path, params, sessionId) => {
+		const harness = await setupHarness();
+		harness.setOverlayResult(Promise.resolve({
+			exitCode: null,
+			backgrounded: false,
+			cancelled: true,
+			autoClosedOnQuiet: true,
+			completionOutput: { lines: ["final output"], totalLines: 1, truncated: false },
+		}));
+
+		await harness.toolDef.execute("quiet", params, undefined, undefined, harness.context);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(harness.overlayOptions.at(-1)?.autoExitOnQuiet).toBe(true);
+		expect(harness.sendMessage).toHaveBeenCalledWith(
+			expect.objectContaining({ content: expect.stringContaining("auto-closed after quiet") }),
+			expect.any(Object),
+		);
+		expect(harness.sessionManager.scheduleActiveCleanup).toHaveBeenCalledWith(sessionId, 5 * 60 * 1000);
+
+		harness.setActiveSession(sessionId, {
+			getOutput: vi.fn(() => ({ output: "final output", truncated: false, totalBytes: 12 })),
+			getStatus: vi.fn(() => "auto-closed-on-quiet"),
+			getRuntime: vi.fn(() => 100),
+			getResult: vi.fn(() => ({ cancelled: true, autoClosedOnQuiet: true })),
+			retainAfterCompletion: true,
+		});
+		const query = await harness.toolDef.execute("query", { sessionId }, undefined, undefined, harness.context);
+		expect(query.content[0].text).toContain("final output");
+		expect(query.details.status).toBe("auto-closed-on-quiet");
+		expect(harness.sessionManager.unregisterActive).not.toHaveBeenCalledWith(sessionId, true);
 	});
 
 	it("enables quiet auto-exit only when explicitly requested", async () => {

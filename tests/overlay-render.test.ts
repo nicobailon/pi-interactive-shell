@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InteractiveShellConfig } from "../config.ts";
+import { buildResultNotification } from "../notification-utils.ts";
 
 const config: InteractiveShellConfig = {
 	exitAutoCloseDelay: 10,
@@ -67,6 +68,7 @@ function createExistingSession() {
 
 async function loadOverlay() {
 	vi.resetModules();
+	const spawnedSessions: ReturnType<typeof createExistingSession>[] = [];
 	const sessionManager = {
 		registerActive: vi.fn(),
 		unregisterActive: vi.fn(),
@@ -78,27 +80,38 @@ async function loadOverlay() {
 		visibleWidth: (value: string) => stripAnsi(value).length,
 	}));
 	vi.doMock("../pty-session.ts", () => ({
-		PtyTerminalSession: class MockPtyTerminalSession {},
+		PtyTerminalSession: class MockPtyTerminalSession {
+			constructor() {
+				const session = createExistingSession();
+				spawnedSessions.push(session);
+				return session;
+			}
+		},
 	}));
 	vi.doMock("../session-manager.ts", () => ({
 		sessionManager,
 		generateSessionId: vi.fn(() => "session-1"),
 	}));
 	vi.doMock("../handoff-utils.ts", () => ({
-		captureCompletionOutput: vi.fn(() => undefined),
+		captureCompletionOutput: vi.fn(() => ({ lines: ["final output"], totalLines: 1, truncated: false })),
 		captureTransferOutput: vi.fn(() => undefined),
 		maybeBuildHandoffPreview: vi.fn(() => undefined),
 		maybeWriteHandoffSnapshot: vi.fn(() => undefined),
 	}));
 	vi.doMock("../session-query.ts", () => ({
 		createSessionQueryState: vi.fn(() => ({})),
-		getSessionOutput: vi.fn(() => ({ output: "", truncated: false, totalBytes: 0 })),
+		getSessionOutput: vi.fn((_session, _config, _state, _options, completionOutput) => ({
+			output: completionOutput?.lines.join("\n") ?? "",
+			truncated: false,
+			totalBytes: completionOutput?.lines.join("\n").length ?? 0,
+		})),
 	}));
-	return { ...(await import("../overlay-component.ts")), sessionManager };
+	return { ...(await import("../overlay-component.ts")), sessionManager, spawnedSessions };
 }
 
 describe("InteractiveShellOverlay render focus cues", () => {
 	afterEach(() => {
+		vi.useRealTimers();
 		vi.doUnmock("@earendil-works/pi-tui");
 		vi.doUnmock("../pty-session.ts");
 		vi.doUnmock("../session-manager.ts");
@@ -172,5 +185,61 @@ describe("InteractiveShellOverlay render focus cues", () => {
 		expect(focused).toContain("SHELL FOCUSED");
 		expect(focused).toContain("╔");
 		expect(focused).toContain("╝");
+	});
+
+	it("keeps a quiet dispatch alive unless auto-exit is explicitly enabled", async () => {
+		vi.useFakeTimers();
+		const { InteractiveShellOverlay, spawnedSessions } = await loadOverlay();
+		let result: any;
+		const overlay = new InteractiveShellOverlay(
+			{ terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() } as any,
+			{ fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text } as any,
+			{ command: "pi", mode: "dispatch", sessionId: "default-dispatch", handsFreeQuietThreshold: 10, autoExitGracePeriod: 0 },
+			config,
+			(value) => { result = value; },
+		);
+
+		vi.advanceTimersByTime(10);
+
+		expect(result).toBeUndefined();
+		expect(spawnedSessions[0]?.kill).not.toHaveBeenCalled();
+		overlay.dispose();
+	});
+
+	it.each([
+		["foreground", undefined],
+		["reattach", createExistingSession()],
+	])("reports and retains an explicit quiet close for %s dispatch", async (_path, existingSession) => {
+		vi.useFakeTimers();
+		const { InteractiveShellOverlay, sessionManager, spawnedSessions } = await loadOverlay();
+		let result: any;
+		const overlay = new InteractiveShellOverlay(
+			{ terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() } as any,
+			{ fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text } as any,
+			{
+				command: "pi",
+				existingSession: existingSession as any,
+				mode: "dispatch",
+				sessionId: `${_path}-dispatch`,
+				autoExitOnQuiet: true,
+				handsFreeQuietThreshold: 10,
+				autoExitGracePeriod: 0,
+			},
+			config,
+			(value) => { result = value; },
+		);
+
+		vi.advanceTimersByTime(10);
+
+		const session = existingSession ?? spawnedSessions[0]!;
+		const active = sessionManager.registerActive.mock.calls.at(-1)?.[0];
+		expect(result).toMatchObject({ cancelled: true, autoClosedOnQuiet: true });
+		expect(buildResultNotification(`${_path}-dispatch`, result)).toContain("auto-closed after quiet");
+		expect(active.retainAfterCompletion).toBe(true);
+		expect(active.getStatus()).toBe("auto-closed-on-quiet");
+		expect(active.getOutput(true).output).toBe("final output");
+		expect(session.kill).toHaveBeenCalledTimes(1);
+		expect(session.dispose).not.toHaveBeenCalled();
+		overlay.dispose();
 	});
 });
