@@ -207,12 +207,14 @@ export class InteractiveShellCoordinator {
 	}
 
 	replaceBackgroundWidgetCleanup(cleanup: (() => void) | null): void {
-		this.bgWidgetCleanup?.();
+		const previous = this.bgWidgetCleanup;
 		this.bgWidgetCleanup = cleanup;
+		previous?.();
 	}
 
 	clearBackgroundWidget(): void {
-		this.bgWidgetCleanup?.();
+		const previous = this.bgWidgetCleanup;
 		this.bgWidgetCleanup = null;
+		previous?.();
 	}
 }

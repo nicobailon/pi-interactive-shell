@@ -84,6 +84,10 @@ export function setupBackgroundWidget(
 			clearInterval(durationTimer);
 			durationTimer = null;
 		}
-		ctx.ui.setWidget("bg-sessions", undefined);
+		try {
+			ctx.ui.setWidget("bg-sessions", undefined);
+		} catch {
+			// The session ctx can be stale during replacement. Local cleanup is already done.
+		}
 	};
 }

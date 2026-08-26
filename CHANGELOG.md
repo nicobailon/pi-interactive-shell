@@ -5,6 +5,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 ## [Unreleased]
 
 ### Fixed
+- Prevent stale background-widget cleanup from reusing an expired session context after `/clear` or session replacement (#42, reported by [@luluxiang06](https://github.com/luluxiang06)).
 - Expose dispatch quiet auto-close as `completionReason: "auto-close-quiet"` and mark it as non-terminal in notifications.
 - Fix existing-session calls that include schema-generated empty spawn placeholders, and force PTY cleanup to SIGKILL when SIGTERM does not exit (#44, by [@ZacharyQin](https://github.com/ZacharyQin)).
 
