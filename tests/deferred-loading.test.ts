@@ -114,9 +114,18 @@ describe("deferred interactive_shell loading", () => {
 
 	it("keeps the current eager tool contract by default", async () => {
 		const harness = await setupHarness(false);
+		const tool = harness.tools.get("interactive_shell");
 
 		expect([...harness.tools.keys()]).toEqual(["interactive_shell"]);
-		expect(harness.tools.get("interactive_shell").promptSnippet).toContain("submit=true");
+		expect(tool.description.length).toBeLessThan(900);
+		expect(tool.description).toContain("Query output defaults to 20 rendered lines and 5KB");
+		expect(tool.promptSnippet).toBe("Run interactive CLIs, coding agents, and auth flows in an overlay");
+		expect(tool.promptGuidelines).toEqual([
+			"Use interactive_shell for CLIs that need typed input, user approval, or live supervision; use bash for non-interactive commands.",
+			"Use interactive_shell with mode='dispatch' for fire-and-forget coding-agent delegation.",
+			"Use interactive_shell with submit=true when sending slash commands or prompts to an existing session.",
+			"Load the interactive-shell skill for detailed interactive_shell mode, query, spawn, attach, and monitor recipes.",
+		]);
 		expect(harness.setActiveTools).not.toHaveBeenCalled();
 	});
 
@@ -126,6 +135,7 @@ describe("deferred interactive_shell loading", () => {
 
 		expect([...harness.tools.keys()]).toEqual(["interactive_shell", "enable_interactive_shell"]);
 		expect(harness.tools.get("interactive_shell").promptSnippet).toBeUndefined();
+		expect(harness.tools.get("interactive_shell").promptGuidelines).toBeUndefined();
 		expect(harness.pi.registerCommand).toHaveBeenCalledWith("spawn", expect.anything());
 		expect(harness.pi.registerCommand).toHaveBeenCalledWith("attach", expect.anything());
 		expect(harness.pi.registerCommand).toHaveBeenCalledWith("dismiss", expect.anything());
@@ -185,7 +195,8 @@ describe("deferred interactive_shell loading", () => {
 		const harness = await setupHarness(true, false);
 
 		expect([...harness.tools.keys()]).toEqual(["interactive_shell"]);
-		expect(harness.tools.get("interactive_shell").promptSnippet).toContain("submit=true");
+		expect(harness.tools.get("interactive_shell").promptSnippet).toBe("Run interactive CLIs, coding agents, and auth flows in an overlay");
+		expect(harness.tools.get("interactive_shell").promptGuidelines).toHaveLength(4);
 		expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("deferred loading requires"));
 	});
 });
