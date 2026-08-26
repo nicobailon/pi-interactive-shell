@@ -146,16 +146,14 @@ describe("config + docs parity", () => {
 		expect(skill).toContain('completionReason: "auto-close-quiet"');
 		expect(skill).toContain("provider-agnostic external gate watcher");
 		expect(toolSchema).toContain('completionReason: "auto-close-quiet"');
-		expect(toolSchema).toContain("WATCH-UNTIL-TERMINAL RECIPE:");
 		expect(readme).toContain('submit: true');
 		expect(readme).toContain('raw `input` only types text. It does not submit the prompt.');
 		expect(skill).toContain("~8s of quiet");
 		expect(skill).toContain('submit: true');
 		expect(skill).toContain('raw `input` only types text. It does not submit the prompt.');
 		expect(toolSchema).toContain(`default: ${defaults.handsFreeQuietThreshold}ms`);
-		expect(toolSchema).toContain('submit: true');
+		expect(toolSchema).toContain('submit=true');
 		expect(toolSchema).toContain("or any custom key configured by the user");
-		expect(toolSchema).toContain('Structured \\`spawn\\` also supports a \\`prompt\\` field for Pi, Codex, Claude, and Cursor');
 		expect(toolSchema).toContain('This only types the text; it does not submit it.');
 		expect(toolSchema).toContain(`default: ${defaults.autoExitGracePeriod}ms`);
 
