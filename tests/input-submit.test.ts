@@ -77,11 +77,11 @@ describe("interactive_shell submit input helper", () => {
 		vi.doUnmock("../session-manager.ts");
 	});
 
-	it("mentions submit=true in the prompt snippet so agents are nudged toward real submission", async () => {
+	it("mentions submit=true in prompt guidelines so agents are nudged toward real submission", async () => {
 		const harness = await setupHarness();
 		expect(harness.tool).toBeTruthy();
-		expect((harness.tool as any).promptSnippet).toContain("submit=true");
-		expect((harness.tool as any).promptSnippet).toContain("existing session");
+		expect((harness.tool as any).promptSnippet).toBe("Run interactive CLIs, coding agents, and auth flows in an overlay");
+		expect((harness.tool as any).promptGuidelines).toContain("Use interactive_shell with submit=true when sending slash commands or prompts to an existing session.");
 	});
 
 	it("appends Enter after plain text input when submit=true", async () => {

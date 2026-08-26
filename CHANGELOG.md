@@ -11,6 +11,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ### Changed
 - Document a provider-agnostic watch-until-terminal monitor recipe for external gates.
+- Shrink `interactive_shell` prompt metadata and move detailed usage guidance to active-only guidelines and existing docs. Thanks to [@Rianico](https://github.com/Rianico) for #41.
 
 ## [0.15.0] - 2026-08-13
 

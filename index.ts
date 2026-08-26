@@ -1133,8 +1133,13 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		...(deferToolLoading
 			? {}
 			: {
-				promptSnippet:
-					"Use this for interactive CLIs that need user input or approval, including coding agents (pi/claude/cursor/gemini/codex/aider) and auth flows such as npm login. Prefer mode='dispatch' for fire-and-forget delegations. Use bash for non-interactive shell commands. When sending slash commands or prompts to an existing session, use submit=true so the text is actually submitted.",
+				promptSnippet: "Run interactive CLIs, coding agents, and auth flows in an overlay",
+				promptGuidelines: [
+					"Use interactive_shell for CLIs that need typed input, user approval, or live supervision; use bash for non-interactive commands.",
+					"Use interactive_shell with mode='dispatch' for fire-and-forget coding-agent delegation.",
+					"Use interactive_shell with submit=true when sending slash commands or prompts to an existing session.",
+					"Load the interactive-shell skill for detailed interactive_shell mode, query, spawn, attach, and monitor recipes.",
+				],
 			}),
 		parameters: toolParameters,
 
