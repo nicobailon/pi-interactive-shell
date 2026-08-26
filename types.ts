@@ -2,15 +2,17 @@
  * Shared types and interfaces for the interactive shell extension.
  */
 
+export type DispatchCompletionReason = "exited" | "timed-out" | "killed" | "auto-close-quiet";
+
 export interface InteractiveShellResult {
 	exitCode: number | null;
 	signal?: number;
+	/** Why a dispatch session completed. `auto-close-quiet` is not a command verdict. */
+	completionReason?: DispatchCompletionReason;
 	backgrounded: boolean;
 	backgroundId?: string;
 	cancelled: boolean;
 	timedOut?: boolean;
-	/** The session was intentionally closed after the configured quiet threshold. */
-	autoClosedOnQuiet?: boolean;
 	sessionId?: string;
 	userTookOver?: boolean;
 	/** When user triggers "Transfer" action, this contains the captured output */

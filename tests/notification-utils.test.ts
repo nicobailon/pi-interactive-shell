@@ -5,6 +5,7 @@ describe("notification utilities", () => {
 	it("formats compact dispatch notifications with a trimmed tail", () => {
 		const text = buildDispatchNotification("calm-reef", {
 			exitCode: 0,
+			completionReason: "exited",
 			completionOutput: {
 				lines: ["1", "2", "3", "4", "5", "6", ""],
 				totalLines: 6,
@@ -19,19 +20,31 @@ describe("notification utilities", () => {
 	it("distinguishes quiet auto-close from a killed dispatch session", () => {
 		const text = buildDispatchNotification("calm-reef", {
 			exitCode: null,
+			completionReason: "auto-close-quiet",
 			cancelled: true,
-			autoClosedOnQuiet: true,
 		}, "30s");
-		expect(text).toContain("Session calm-reef auto-closed after quiet (30s).");
+		expect(text).toContain("Session calm-reef auto-closed after quiet (30s). This is not a terminal command verdict.");
 		expect(text).not.toContain("was killed");
+		expect(text).not.toContain("completed successfully");
 	});
 
 	it("formats explicitly cancelled dispatch notifications as killed", () => {
 		const text = buildDispatchNotification("calm-reef", {
 			exitCode: null,
+			completionReason: "killed",
 			cancelled: true,
 		}, "30s");
 		expect(text).toContain("Session calm-reef was killed (30s).");
+	});
+
+	it("marks an overlay quiet auto-close as non-terminal", () => {
+		const text = buildResultNotification("calm-reef", {
+			exitCode: null,
+			completionReason: "auto-close-quiet",
+			backgrounded: false,
+			cancelled: true,
+		});
+		expect(text).toContain("This is not a terminal command verdict.");
 	});
 
 	it("formats final result notifications", () => {

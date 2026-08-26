@@ -33,9 +33,8 @@ it("waits through quiet PTY output by default and retains explicit quiet auto-cl
 	try {
 		const result = await natural.completion;
 		expect(Date.now() - startedAt).toBeGreaterThanOrEqual(150);
-		expect(result).toMatchObject({ exitCode: 0 });
+		expect(result).toMatchObject({ exitCode: 0, completionReason: "exited" });
 		expect(result.cancelled).not.toBe(true);
-		expect(result.autoClosedOnQuiet).not.toBe(true);
 	} finally {
 		natural.session.dispose();
 	}
@@ -43,7 +42,7 @@ it("waits through quiet PTY output by default and retains explicit quiet auto-cl
 	const quietClose = monitorProcess(true, "process.stdout.write('started\\n'); setTimeout(() => process.exit(0), 2000)");
 	try {
 		const result = await quietClose.completion;
-		expect(result).toMatchObject({ cancelled: true, autoClosedOnQuiet: true });
+		expect(result).toMatchObject({ cancelled: true, completionReason: "auto-close-quiet" });
 	} finally {
 		quietClose.session.dispose();
 	}

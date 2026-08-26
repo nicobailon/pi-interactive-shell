@@ -3,6 +3,7 @@ import type { InteractiveShellConfig } from "../config.ts";
 import { buildResultNotification } from "../notification-utils.ts";
 
 const config: InteractiveShellConfig = {
+	defer: false,
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 60,
@@ -233,7 +234,7 @@ describe("InteractiveShellOverlay render focus cues", () => {
 
 		const session = existingSession ?? spawnedSessions[0]!;
 		const active = sessionManager.registerActive.mock.calls.at(-1)?.[0];
-		expect(result).toMatchObject({ cancelled: true, autoClosedOnQuiet: true });
+		expect(result).toMatchObject({ cancelled: true, completionReason: "auto-close-quiet" });
 		expect(buildResultNotification(`${_path}-dispatch`, result)).toContain("auto-closed after quiet");
 		expect(active.retainAfterCompletion).toBe(true);
 		expect(active.getStatus()).toBe("auto-closed-on-quiet");

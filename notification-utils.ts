@@ -137,7 +137,7 @@ export function buildIdlePromptWarning(command: string, reason: string | undefin
 
 function buildDispatchStatusLine(sessionId: string, info: HeadlessCompletionInfo, duration: string): string {
 	if (info.timedOut) return `Session ${sessionId} timed out (${duration}).`;
-	if (info.autoClosedOnQuiet) return `Session ${sessionId} auto-closed after quiet (${duration}).`;
+	if (info.completionReason === "auto-close-quiet") return `Session ${sessionId} auto-closed after quiet (${duration}). This is not a terminal command verdict.`;
 	if (info.cancelled) return `Session ${sessionId} was killed (${duration}).`;
 	if (info.exitCode === 0) return `Session ${sessionId} completed successfully (${duration}).`;
 	return `Session ${sessionId} exited with code ${info.exitCode} (${duration}).`;
@@ -145,7 +145,7 @@ function buildDispatchStatusLine(sessionId: string, info: HeadlessCompletionInfo
 
 function buildResultStatusLine(sessionId: string, result: InteractiveShellResult): string {
 	if (result.timedOut) return `Session ${sessionId} timed out.`;
-	if (result.autoClosedOnQuiet) return `Session ${sessionId} auto-closed after quiet.`;
+	if (result.completionReason === "auto-close-quiet") return `Session ${sessionId} auto-closed after quiet. This is not a terminal command verdict.`;
 	if (result.cancelled) return `Session ${sessionId} was killed.`;
 	if (result.exitCode === 0) return `Session ${sessionId} completed successfully.`;
 	return `Session ${sessionId} exited with code ${result.exitCode}.`;
@@ -159,7 +159,7 @@ function buildInteractiveSummary(result: InteractiveShellResult, timeout?: numbe
 	if (result.backgrounded) {
 		return `Session running in background (id: ${result.backgroundId}). User can reattach with /attach ${result.backgroundId}`;
 	}
-	if (result.autoClosedOnQuiet) return "Session auto-closed after quiet";
+	if (result.completionReason === "auto-close-quiet") return "Session auto-closed after quiet";
 	if (result.cancelled) return "User killed the interactive session";
 	if (result.timedOut) return `Session killed after timeout (${timeout ?? "?"}ms)`;
 	const status = result.exitCode === 0 ? "successfully" : `with code ${result.exitCode}`;

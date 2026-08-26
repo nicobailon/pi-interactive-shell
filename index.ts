@@ -1,4 +1,4 @@
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, isKeyRepeat, matchesKey } from "@earendil-works/pi-tui";
 import { InteractiveShellOverlay } from "./overlay-component.ts";
 import { ReattachOverlay } from "./reattach-overlay.ts";
@@ -20,7 +20,17 @@ import { loadConfig } from "./config.ts";
 import type { InteractiveShellConfig } from "./config.ts";
 import { isEmptySpawnPlaceholder, normalizeSpawnRequest, parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.ts";
 import { translateInput, type InputSpec } from "./key-encoding.ts";
-import { TOOL_NAME, TOOL_LABEL, TOOL_DESCRIPTION, toolParameters, type ToolParams } from "./tool-schema.ts";
+import {
+	ENABLE_TOOL_DESCRIPTION,
+	ENABLE_TOOL_LABEL,
+	ENABLE_TOOL_NAME,
+	enableToolParameters,
+	TOOL_NAME,
+	TOOL_LABEL,
+	TOOL_DESCRIPTION,
+	toolParameters,
+	type ToolParams,
+} from "./tool-schema.ts";
 import { HeadlessDispatchMonitor } from "./headless-monitor.ts";
 import type {
 	HeadlessCompletionInfo,
@@ -596,7 +606,7 @@ function registerHeadlessActive(
 			}
 			const liveMonitor = coordinator.getMonitor(id);
 			if (liveMonitor && !liveMonitor.disposed) {
-				session.kill();
+				liveMonitor.kill();
 				return;
 			}
 			coordinator.disposeMonitor(id);
@@ -667,6 +677,11 @@ function appendWorktreeNotice(text: string, worktreePath: string | undefined): s
 
 export default function interactiveShellExtension(pi: ExtensionAPI) {
 	const startupConfig = loadConfig(process.cwd());
+	const supportsDeferredTools = typeof pi.getActiveTools === "function" && typeof pi.setActiveTools === "function";
+	const deferToolLoading = startupConfig.defer && supportsDeferredTools;
+	if (startupConfig.defer && !supportsDeferredTools) {
+		console.error("pi-interactive-shell: deferred loading requires Pi's active-tool APIs; keeping interactive_shell active");
+	}
 	let terminalInputCleanup: (() => void) | null = null;
 	const loadRuntimeConfig = (cwd: string): InteractiveShellConfig => {
 		const config = loadConfig(cwd);
@@ -1068,6 +1083,16 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", (_event, ctx) => {
+		if (deferToolLoading) {
+			const activeTools = pi.getActiveTools().filter((name) => name !== TOOL_NAME);
+			pi.setActiveTools([...new Set([...activeTools, ENABLE_TOOL_NAME])]);
+			if (!pi.getActiveTools().includes(ENABLE_TOOL_NAME)) {
+				console.error(
+					"pi-interactive-shell: deferred loading requires enable_interactive_shell; include both enable_interactive_shell and interactive_shell in Pi's --tools allowlist. Keeping interactive_shell active.",
+				);
+				pi.setActiveTools([...new Set([...activeTools, TOOL_NAME])]);
+			}
+		}
 		coordinator.replaceBackgroundWidgetCleanup(setupBackgroundWidget(ctx, sessionManager, coordinator));
 		terminalInputCleanup?.();
 		terminalInputCleanup = ctx.ui.onTerminalInput((data) => {
@@ -1103,8 +1128,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		name: TOOL_NAME,
 		label: TOOL_LABEL,
 		description: TOOL_DESCRIPTION,
-		promptSnippet:
-			"Use this only to delegate tasks to interactive CLI coding agents (pi/claude/cursor/gemini/codex/aider). Prefer mode='dispatch' for fire-and-forget delegations. When sending slash commands or prompts to an existing session, use submit=true so the text is actually submitted.",
+		...(deferToolLoading
+			? {}
+			: {
+				promptSnippet:
+					"Use this for interactive CLIs that need user input or approval, including coding agents (pi/claude/cursor/gemini/codex/aider) and auth flows such as npm login. Prefer mode='dispatch' for fire-and-forget delegations. Use bash for non-interactive shell commands. When sending slash commands or prompts to an existing session, use submit=true so the text is actually submitted.",
+			}),
 		parameters: toolParameters,
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
@@ -1113,6 +1142,36 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			return { content: result.content, details: result.details ?? {}, isError: result.isError };
 		},
 	});
+
+	if (deferToolLoading) {
+		pi.registerTool({
+			name: ENABLE_TOOL_NAME,
+			label: ENABLE_TOOL_LABEL,
+			description: ENABLE_TOOL_DESCRIPTION,
+			promptSnippet: "Enable interactive_shell when an interactive coding-agent CLI, supervised overlay, background dispatch, or event monitor is needed",
+			parameters: enableToolParameters,
+
+			async execute() {
+				const activeTools = pi.getActiveTools();
+				if (activeTools.includes(TOOL_NAME)) {
+					return {
+						content: [{ type: "text" as const, text: "interactive_shell is already available." }],
+						details: { added: [] },
+					};
+				}
+				pi.setActiveTools([...new Set([...activeTools, TOOL_NAME])]);
+				if (!pi.getActiveTools().includes(TOOL_NAME)) {
+					throw new Error(
+						"interactive_shell could not be activated. If Pi was started with --tools, include both enable_interactive_shell and interactive_shell.",
+					);
+				}
+				return {
+					content: [{ type: "text" as const, text: "interactive_shell is now available on the next turn." }],
+					details: { added: [TOOL_NAME] },
+				};
+			},
+		});
+	}
 
 	async function runTool(
 		params: ToolParams,
@@ -1922,17 +1981,17 @@ function setupDispatchCompletion(
 					customType: "interactive-shell-transfer",
 					content,
 					display: true,
-					details: { sessionId: id, exitCode: result.exitCode, signal: result.signal, timedOut: result.timedOut, cancelled: result.cancelled, autoClosedOnQuiet: result.autoClosedOnQuiet, completionOutput: result.completionOutput },
+					details: { sessionId: id, exitCode: result.exitCode, signal: result.signal, completionReason: result.completionReason, timedOut: result.timedOut, cancelled: result.cancelled, completionOutput: result.completionOutput },
 				}, { triggerTurn: true });
 			}
 			pi.events.emit("interactive-shell:transfer", {
 				sessionId: id,
+				completionReason: result.completionReason,
 				completionOutput: result.completionOutput,
 				exitCode: result.exitCode,
 				signal: result.signal,
 				timedOut: result.timedOut,
 				cancelled: result.cancelled,
-				autoClosedOnQuiet: result.autoClosedOnQuiet,
 			});
 			sessionManager.scheduleActiveCleanup(id, 5 * 60 * 1000);
 			coordinator.disposeMonitor(id);

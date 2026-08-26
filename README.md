@@ -153,7 +153,28 @@ Attach to review full output: interactive_shell({ attach: "calm-reef" })
 
 The notification includes a brief tail (last 5 lines) and a reattach instruction. The PTY is preserved for 5 minutes so the agent can attach to review full scrollback.
 
-Dispatch waits for process exit by default, so a quiet coding agent can continue reasoning or using tools without being killed. Enable `handsFree: { autoExitOnQuiet: true }` only when silence is an explicit completion condition; the completion notification identifies that as a quiet auto-close rather than a user kill.
+Dispatch waits for process exit by default, so a quiet coding agent can continue reasoning or using tools without being killed. Enable `handsFree: { autoExitOnQuiet: true }` only when silence is an explicit completion condition. The completion notification and details set `completionReason: "auto-close-quiet"`; this is not a terminal command verdict. Tune the grace period with `handsFree: { gracePeriod: 60000 }`.
+
+For an external gate, use this provider-agnostic watch-until-terminal pattern. The watcher must print one of the terminal lines and exit only after it has a verdict:
+
+```typescript
+interactive_shell({
+  command: "your-watch-command",
+  mode: "monitor",
+  handsFree: { autoExitOnQuiet: false },
+  timeout: 20 * 60_000,
+  monitor: {
+    strategy: "stream",
+    triggers: [
+      { id: "ready", literal: "ready" },
+      { id: "blocked", literal: "blocked" },
+      { id: "stale-head", literal: "stale-head" }
+    ]
+  }
+})
+```
+
+This works with CI, deploy, health, and custom CLI watchers. If you explicitly enable quiet auto-close for raw dispatch, treat `completionReason: "auto-close-quiet"` as non-terminal.
 
 The overlay still shows for the user, who can Ctrl+T to transfer output, Ctrl+B to background, take over by typing, or Ctrl+Q for more options. `Ctrl+G` only becomes meaningful after the user has taken over a monitored hands-free or dispatch session.
 
@@ -394,16 +415,33 @@ Quoted prompt text plus `--hands-free` or `--dispatch` turns `/spawn` into a mon
 | Alt+Shift+P (default) | Launch the configured default spawn agent (`spawn.shortcut`) |
 | Any key (hands-free) | Take over control |
 
+## Deferred tool loading
+
+`interactive_shell` is active by default. Set `"defer": true` to keep its large tool definition out of the initial model request:
+
+```json
+{
+  "defer": true
+}
+```
+
+Pi then exposes the small `enable_interactive_shell` loader. When a task needs the shell, the agent calls the loader and `interactive_shell` becomes available on the next model turn. `/spawn`, `/attach`, `/dismiss`, and the keyboard shortcuts continue to work directly.
+
+Each reloaded, new, resumed, or forked session starts with `interactive_shell` inactive again. Pi versions without the active-tool API print a warning and keep the tool active. A CLI `--tools` allowlist must include both `enable_interactive_shell` and `interactive_shell`; deferred activation cannot override an allowlist that excludes the target tool.
+
+Deferred mode omits `interactive_shell`'s `promptSnippet`; the same operating guidance remains in the tool description. This keeps the system-prompt prefix stable when Pi uses native deferred loading.
+
 ## Config
 
 Configuration files (project overrides global):
 - **Global:** `~/.pi/agent/interactive-shell.json`
 - **Project:** `.pi/interactive-shell.json`
 
-Shortcut settings are pinned at startup. If you change `focusShortcut` or `spawn.shortcut`, reload or restart Pi to apply them.
+Deferred loading and shortcut settings are pinned at startup. If you change `defer`, `focusShortcut`, or `spawn.shortcut`, reload or restart Pi to apply them.
 
 ```json
 {
+  "defer": false,
   "overlayWidthPercent": 95,
   "overlayHeightPercent": 60,
   "overlayAnchor": "center",
@@ -451,6 +489,7 @@ Shortcut settings are pinned at startup. If you change `focusShortcut` or `spawn
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `defer` | `false` | Start each session with only `enable_interactive_shell`; the full tool loads on demand |
 | `overlayWidthPercent` | 95 | Overlay width (10-100%) |
 | `overlayHeightPercent` | 60 | Overlay height (20-90%) |
 | `overlayAnchor` | "center" | Overlay position: `center`, `top-left`, `top-center`, `top-right`, `left-center`, `right-center`, `bottom-left`, `bottom-center`, `bottom-right` |

@@ -222,7 +222,7 @@ describe("dispatch quiet auto-exit", () => {
 			exitCode: null,
 			backgrounded: false,
 			cancelled: true,
-			autoClosedOnQuiet: true,
+			completionReason: "auto-close-quiet",
 			completionOutput: { lines: ["final output"], totalLines: 1, truncated: false },
 		}));
 
@@ -241,7 +241,7 @@ describe("dispatch quiet auto-exit", () => {
 			getOutput: vi.fn(() => ({ output: "final output", truncated: false, totalBytes: 12 })),
 			getStatus: vi.fn(() => "auto-closed-on-quiet"),
 			getRuntime: vi.fn(() => 100),
-			getResult: vi.fn(() => ({ cancelled: true, autoClosedOnQuiet: true })),
+			getResult: vi.fn(() => ({ cancelled: true, completionReason: "auto-close-quiet" })),
 			retainAfterCompletion: true,
 		});
 		const query = await harness.toolDef.execute("query", { sessionId }, undefined, undefined, harness.context);

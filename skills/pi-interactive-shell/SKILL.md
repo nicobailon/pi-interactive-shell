@@ -1,11 +1,17 @@
 ---
 name: pi-interactive-shell
-description: Cheat sheet + workflow for launching interactive coding-agent CLIs (Claude Code, Gemini CLI, Codex CLI, Cursor CLI, and pi itself) via the interactive_shell overlay, headless dispatch, or monitor mode. Use for TUI agents and long-running processes that need supervision, fire-and-forget delegation, or event-driven background monitoring. Regular bash commands should use the bash tool instead.
+description: Cheat sheet + workflow for launching interactive coding-agent CLIs (Claude Code, Gemini CLI, Codex CLI, Cursor CLI, and pi itself) via the interactive_shell overlay, headless dispatch, or monitor mode. Use for TUI agents and long-running processes that need supervision, fire-and-forget delegation, or event-driven background monitoring. If interactive_shell is unavailable, enable it with enable_interactive_shell first. Regular bash commands should use the bash tool instead.
 ---
 
 # Interactive Shell (Skill)
 
-Last verified: 2026-04-11
+Last verified: 2026-08-12
+
+## Deferred activation
+
+When `interactive_shell` is unavailable, call `enable_interactive_shell` first. The tool becomes callable on the next turn and stays active until Pi reloads or the session changes; reloaded, new, resumed, and forked sessions reset it to inactive. Do not call the loader when `interactive_shell` is already available.
+
+Users opt in with `"defer": true` in `interactive-shell.json`. Older Pi versions without active-tool APIs warn and keep eager loading. A CLI `--tools` allowlist must include both `enable_interactive_shell` and `interactive_shell`.
 
 ## Foreground vs Background Subagents
 
@@ -113,7 +119,9 @@ interactive_shell({
 // → Do other work. When session completes, you receive notification with output.
 ```
 
-Dispatch waits for process exit by default. Enable `handsFree.autoExitOnQuiet` only when silence is an explicit completion condition; quiet coding agents may still be reasoning or using tools. Quiet auto-close reports that completion reason separately from a user kill.
+Dispatch waits for process exit by default. Enable `handsFree.autoExitOnQuiet` only when silence is an explicit completion condition; quiet coding agents may still be reasoning or using tools. An explicit quiet auto-close reports `completionReason: "auto-close-quiet"` separately from a user kill. This is not a terminal command verdict. The agent can still query the sessionId if needed, but doesn't have to.
+
+For a provider-agnostic external gate watcher, use `mode: "monitor"`, set `handsFree: { autoExitOnQuiet: false }`, set a hard `timeout`, and match explicit terminal lines such as `ready`, `blocked`, and `stale-head`. The watcher command must exit only after it emits a terminal line. If you explicitly enable quiet auto-close for raw dispatch, treat `completionReason: "auto-close-quiet"` as non-terminal.
 
 For fire-and-forget delegated runs (including QA-style delegated checks), prefer dispatch as the default mode.
 

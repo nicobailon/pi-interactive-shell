@@ -2,10 +2,14 @@ import { Type, type Static } from "typebox";
 
 export const TOOL_NAME = "interactive_shell";
 export const TOOL_LABEL = "Interactive Shell";
+export const ENABLE_TOOL_NAME = "enable_interactive_shell";
+export const ENABLE_TOOL_LABEL = "Enable Interactive Shell";
+export const ENABLE_TOOL_DESCRIPTION = "Enable the interactive_shell tool for interactive CLI coding agents, overlay supervision, background dispatch, and event-driven monitoring. Call this when interactive_shell is not available; it becomes callable on the next turn.";
+export const enableToolParameters = Type.Object({});
 
-export const TOOL_DESCRIPTION = `Run an interactive CLI coding agent in an overlay.
+export const TOOL_DESCRIPTION = `Run an interactive CLI in an overlay.
 
-Use this ONLY for delegating tasks to other AI coding agents (Claude Code, Cursor CLI, Gemini CLI, Codex, etc.) that have their own TUI and benefit from user interaction.
+Use this for delegating tasks to other AI coding agents (Claude Code, Cursor CLI, Gemini CLI, Codex, etc.) that have their own TUI and benefit from user interaction, or for any user-facing CLI that needs the user to type or approve mid-run (e.g. \`npm login\`, credential prompts, interactive wizards).
 
 DO NOT use this for regular bash commands - use the standard bash tool instead.
 
@@ -97,8 +101,11 @@ Workflow:
 2. Do other work - no polling needed
 3. When complete, you receive a notification with the session output
 
-Dispatch waits for process exit by default. Enable handsFree.autoExitOnQuiet only when silence is an explicit completion condition; otherwise a quiet coding agent may still be working.
+Dispatch waits for process exit by default. Enable handsFree.autoExitOnQuiet only when silence is an explicit completion condition; otherwise a quiet coding agent may still be working. An explicit quiet auto-close reports completionReason: "auto-close-quiet" separately from a user kill; this is not a terminal command verdict.
 You can still query with sessionId if needed, but it's not required.
+
+WATCH-UNTIL-TERMINAL RECIPE:
+For external gates, use mode="monitor" with explicit ready/blocked/stale trigger lines, handsFree: { autoExitOnQuiet: false }, and a timeout. Have the command exit only after it emits a terminal line. This is provider-agnostic: it works with CI, deploy, health, and custom CLI watchers. If raw dispatch explicitly enables quiet auto-close, treat completionReason: "auto-close-quiet" as non-terminal.
 
 BACKGROUND DISPATCH (HEADLESS):
 Start a session without any overlay. Process runs headlessly, agent notified on completion:

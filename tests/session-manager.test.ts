@@ -53,7 +53,7 @@ describe("ShellSessionManager", () => {
 			getOutput: vi.fn() as any,
 			getStatus: vi.fn(() => "auto-closed-on-quiet") as any,
 			getRuntime: vi.fn(() => 0),
-			getResult: vi.fn(() => ({ exitCode: null, cancelled: true, autoClosedOnQuiet: true })),
+			getResult: vi.fn(() => ({ exitCode: null, cancelled: true, completionReason: "auto-close-quiet" as const })),
 			dispose,
 			onComplete: vi.fn(),
 		});

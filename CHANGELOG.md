@@ -6,6 +6,20 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ### Fixed
 - Keep dispatch sessions alive through quiet output by default; quiet auto-exit now requires explicit opt-in so coding-agent workers are not killed while still running.
+- Expose explicit dispatch quiet auto-close as `completionReason: "auto-close-quiet"` and mark it as non-terminal in notifications.
+
+### Changed
+- Document a provider-agnostic watch-until-terminal monitor recipe for external gates.
+
+## [0.15.0] - 2026-08-13
+
+### Added
+- Add optional deferred loading for `interactive_shell` with the `enable_interactive_shell` loader (#30, by @AndriiSemenkov).
+
+### Changed
+- Broadened the `interactive_shell` tool guidance to cover user-facing CLIs that need typed input or approval (#32, by @Rianico).
+- Keep `interactive_shell` active when deferred loading cannot expose `enable_interactive_shell` through Pi's tool allowlist (#30, by @AndriiSemenkov).
+- Omit absent optional spawn fields from parsed and resolved spawn results.
 
 ## [0.14.1] - 2026-08-09
 

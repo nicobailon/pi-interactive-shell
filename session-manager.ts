@@ -18,7 +18,7 @@ export interface ActiveSessionResult {
 	backgroundId?: string;
 	cancelled?: boolean;
 	timedOut?: boolean;
-	autoClosedOnQuiet?: boolean;
+	completionReason?: import("./types.ts").DispatchCompletionReason;
 }
 
 export interface OutputResult {

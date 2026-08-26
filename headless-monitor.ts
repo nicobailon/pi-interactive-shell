@@ -1,7 +1,7 @@
 import { stripVTControlCharacters } from "node:util";
 import type { PtyTerminalSession } from "./pty-session.ts";
 import type { InteractiveShellConfig } from "./config.ts";
-import type { MonitorEventPayload, MonitorStrategy } from "./types.ts";
+import type { DispatchCompletionReason, MonitorEventPayload, MonitorStrategy } from "./types.ts";
 
 export interface MonitorMatchInfo {
 	strategy: MonitorStrategy;
@@ -42,10 +42,10 @@ export interface HeadlessMonitorOptions {
 export interface HeadlessCompletionInfo {
 	exitCode: number | null;
 	signal?: number;
+	/** `auto-close-quiet` means the extension stopped a non-terminal quiet command. */
+	completionReason: DispatchCompletionReason;
 	timedOut?: boolean;
 	cancelled?: boolean;
-	/** The monitor ended an otherwise idle session after the configured quiet threshold. */
-	autoClosedOnQuiet?: boolean;
 	completionOutput?: {
 		lines: string[];
 		totalLines: number;
@@ -267,7 +267,6 @@ export class HeadlessDispatchMonitor {
 					this.resetQuietTimer();
 					return;
 				}
-				this.session.kill();
 				this.handleCompletion(null, undefined, false, true, true);
 			}
 		}, this.options.quietThreshold);
@@ -309,22 +308,33 @@ export class HeadlessDispatchMonitor {
 		if (this.timeoutTimer) { clearTimeout(this.timeoutTimer); this.timeoutTimer = null; }
 		this.unsubscribe();
 
-		if (timedOut) {
+		if (timedOut || cancelled) {
 			this.session.kill();
 		}
 
 		const completionOutput = this.captureOutput();
+		const completionReason: DispatchCompletionReason = autoClosedOnQuiet
+			? "auto-close-quiet"
+			: timedOut
+				? "timed-out"
+				: cancelled
+					? "killed"
+					: "exited";
 		const info: HeadlessCompletionInfo = {
 			exitCode,
 			signal,
+			completionReason,
 			timedOut,
 			cancelled,
-			...(autoClosedOnQuiet ? { autoClosedOnQuiet: true } : {}),
 			completionOutput,
 		};
 		this.result = info;
 		this.triggerCompleteCallbacks();
 		this.onComplete(info);
+	}
+
+	kill(): void {
+		this.handleCompletion(null, undefined, false, true);
 	}
 
 	handleExternalCompletion(exitCode: number | null, signal?: number, completionOutput?: HeadlessCompletionInfo["completionOutput"]): void {
@@ -339,7 +349,7 @@ export class HeadlessDispatchMonitor {
 		this.unsubscribe();
 
 		const output = completionOutput ?? this.captureOutput();
-		const info: HeadlessCompletionInfo = { exitCode, signal, completionOutput: output };
+		const info: HeadlessCompletionInfo = { exitCode, signal, completionReason: "exited", completionOutput: output };
 		this.result = info;
 		this.triggerCompleteCallbacks();
 		this.onComplete(info);

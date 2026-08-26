@@ -84,12 +84,13 @@ describe("config + docs parity", () => {
 		mkdirSync(agentDir, { recursive: true });
 		mkdirSync(join(project, ".pi"), { recursive: true });
 		writeFileSync(globalPath, "[]", { encoding: "utf-8" });
-		writeFileSync(projectPath, '{ "overlayWidthPercent": 1e999, "scrollbackLines": -1e999 }', { encoding: "utf-8" });
+		writeFileSync(projectPath, '{ "defer": true, "overlayWidthPercent": 1e999, "scrollbackLines": -1e999 }', { encoding: "utf-8" });
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		try {
 			const { loadConfig } = await loadConfigModule(agentDir);
 			const config = loadConfig(project);
 
+			expect(config.defer).toBe(true);
 			expect(config.overlayWidthPercent).toBe(95);
 			expect(config.scrollbackLines).toBe(5000);
 			expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(`Ignoring ${globalPath}: config root must be an object`));
@@ -107,9 +108,12 @@ describe("config + docs parity", () => {
 		const skill = readFileSync("skills/pi-interactive-shell/SKILL.md", "utf-8");
 		const toolSchema = readFileSync("tool-schema.ts", "utf-8");
 
+		expect(defaults.defer).toBe(false);
 		expect(defaults.handsFreeQuietThreshold).toBe(8000);
 		expect(defaults.autoExitGracePeriod).toBe(15000);
 		expect(defaults.overlayAnchor).toBe("center");
+		expect(readme).toContain(`"defer": ${defaults.defer}`);
+		expect(readme).toContain("enable_interactive_shell");
 		expect(readme).toContain(`"overlayAnchor": "${defaults.overlayAnchor}"`);
 		expect(defaults.focusShortcut).toBe("alt+shift+f");
 		expect(defaults.spawn.defaultAgent).toBe("pi");
@@ -134,9 +138,15 @@ describe("config + docs parity", () => {
 		expect(readme).toContain(`"handsFreeQuietThreshold": ${defaults.handsFreeQuietThreshold}`);
 		expect(readme).toContain(`"autoExitGracePeriod": ${defaults.autoExitGracePeriod}`);
 		expect(readme).toContain("Dispatch waits for process exit by default");
-		expect(readme).toContain("the completion notification identifies that as a quiet auto-close rather than a user kill");
-		expect(skill).toContain("reports that completion reason separately from a user kill");
-		expect(toolSchema).toContain("Dispatch waits for process exit by default");
+		expect(readme).toContain('completionReason: "auto-close-quiet"');
+		expect(readme).toContain("this is not a terminal command verdict.");
+		expect(readme).toContain("provider-agnostic watch-until-terminal pattern");
+		expect(skill).toContain("enable_interactive_shell");
+		expect(skill).toContain("reloaded, new, resumed, and forked sessions reset it to inactive");
+		expect(skill).toContain('completionReason: "auto-close-quiet"');
+		expect(skill).toContain("provider-agnostic external gate watcher");
+		expect(toolSchema).toContain('completionReason: "auto-close-quiet"');
+		expect(toolSchema).toContain("WATCH-UNTIL-TERMINAL RECIPE:");
 		expect(readme).toContain('submit: true');
 		expect(readme).toContain('raw `input` only types text. It does not submit the prompt.');
 		expect(skill).toContain("~8s of quiet");

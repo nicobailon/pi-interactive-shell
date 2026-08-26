@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { InteractiveShellConfig } from "../config.ts";
-import type { SpawnRequest } from "../spawn.ts";
 
 const config: InteractiveShellConfig = {
+	defer: false,
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 60,
@@ -49,28 +49,27 @@ describe("spawn helpers", () => {
 		expect(parseSpawnArgs('claude "review the diffs" --dispatch', AGENTS)).toEqual({
 			ok: true,
 			parsed: {
-				request: { agent: "claude", mode: undefined, worktree: undefined, prompt: "review the diffs" },
+				request: { agent: "claude", prompt: "review the diffs" },
 				monitorMode: "dispatch",
 			},
 		});
 		expect(parseSpawnArgs("codex fork --worktree", AGENTS)).toEqual({
 			ok: true,
 			parsed: {
-				request: { agent: "codex", mode: "fork", worktree: true, prompt: undefined },
-				monitorMode: undefined,
+				request: { agent: "codex", mode: "fork", worktree: true },
 			},
 		});
 		expect(parseSpawnArgs('cursor "review the diffs" --dispatch', AGENTS)).toEqual({
 			ok: true,
 			parsed: {
-				request: { agent: "cursor", mode: undefined, worktree: undefined, prompt: "review the diffs" },
+				request: { agent: "cursor", prompt: "review the diffs" },
 				monitorMode: "dispatch",
 			},
 		});
 		expect(parseSpawnArgs('"fix the failing tests" --hands-free', AGENTS)).toEqual({
 			ok: true,
 			parsed: {
-				request: { agent: undefined, mode: undefined, worktree: undefined, prompt: "fix the failing tests" },
+				request: { prompt: "fix the failing tests" },
 				monitorMode: "hands-free",
 			},
 		});
@@ -105,8 +104,7 @@ describe("spawn helpers", () => {
 		expect(parseSpawnArgs("aider --worktree", [...AGENTS, "aider"])).toEqual({
 			ok: true,
 			parsed: {
-				request: { agent: "aider", mode: undefined, worktree: true, prompt: undefined },
-				monitorMode: undefined,
+				request: { agent: "aider", worktree: true },
 			},
 		});
 		expect(resolveSpawn({
@@ -124,7 +122,6 @@ describe("spawn helpers", () => {
 				command: "aider --yes-always 'fix the build'",
 				cwd: "/tmp/project",
 				reason: "spawn aider (fresh session)",
-				worktreePath: undefined,
 			},
 		});
 	});
@@ -156,7 +153,6 @@ describe("spawn helpers", () => {
 				command: "codex -c 'model_reasoning_effort=\"high\"'",
 				cwd: "/tmp/project",
 				reason: "spawn codex (fresh session)",
-				worktreePath: undefined,
 			},
 		});
 	});
@@ -171,7 +167,6 @@ describe("spawn helpers", () => {
 				command: "claude 'review the diffs'",
 				cwd: "/tmp/project",
 				reason: "spawn claude (fresh session)",
-				worktreePath: undefined,
 			},
 		});
 		expect(resolveSpawn(config, "/tmp/project", { agent: "cursor", prompt: "review the diffs" }, () => "/tmp/project/session.jsonl")).toEqual({
@@ -182,7 +177,6 @@ describe("spawn helpers", () => {
 				command: "agent --model composer-2-fast 'review the diffs'",
 				cwd: "/tmp/project",
 				reason: "spawn cursor (fresh session)",
-				worktreePath: undefined,
 			},
 		});
 		expect(resolveSpawn(config, "/tmp/project", { agent: "pi", mode: "fork", prompt: "continue from here" }, () => "/tmp/project/session.jsonl")).toEqual({
@@ -193,7 +187,6 @@ describe("spawn helpers", () => {
 				command: "pi --fork /tmp/project/session.jsonl 'continue from here'",
 				cwd: "/tmp/project",
 				reason: "spawn pi (fork current session)",
-				worktreePath: undefined,
 			},
 		});
 	});
