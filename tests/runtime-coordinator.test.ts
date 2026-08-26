@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InteractiveShellCoordinator } from "../runtime-coordinator.ts";
 
 describe("InteractiveShellCoordinator monitor state", () => {
@@ -54,5 +54,40 @@ describe("InteractiveShellCoordinator monitor state", () => {
 		coordinator.clearMonitorEvents("calm-reef");
 		expect(coordinator.getMonitorSessionState("calm-reef")).toBeUndefined();
 		expect(coordinator.getMonitorEvents("calm-reef").events).toHaveLength(0);
+	});
+});
+
+describe("InteractiveShellCoordinator background widget cleanup", () => {
+	it("stores the replacement cleanup before running the previous cleanup", () => {
+		const coordinator = new InteractiveShellCoordinator();
+		const calls: string[] = [];
+
+		coordinator.replaceBackgroundWidgetCleanup(() => {
+			calls.push("stale");
+			throw new Error("stale ctx");
+		});
+
+		expect(() => coordinator.replaceBackgroundWidgetCleanup(() => calls.push("fresh"))).toThrow("stale ctx");
+		expect(calls).toEqual(["stale"]);
+
+		expect(() => coordinator.replaceBackgroundWidgetCleanup(null)).not.toThrow();
+		expect(calls).toEqual(["stale", "fresh"]);
+	});
+
+	it("clears the stored cleanup before running the previous cleanup", () => {
+		const coordinator = new InteractiveShellCoordinator();
+		const stale = vi.fn(() => {
+			throw new Error("stale ctx");
+		});
+		const fresh = vi.fn();
+
+		coordinator.replaceBackgroundWidgetCleanup(stale);
+		expect(() => coordinator.clearBackgroundWidget()).toThrow("stale ctx");
+		expect(stale).toHaveBeenCalledTimes(1);
+
+		coordinator.replaceBackgroundWidgetCleanup(fresh);
+		coordinator.clearBackgroundWidget();
+		expect(stale).toHaveBeenCalledTimes(1);
+		expect(fresh).toHaveBeenCalledTimes(1);
 	});
 });
