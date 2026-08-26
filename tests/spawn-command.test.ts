@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-type OverlayOptionsCapture = { command: string; reason?: string; cwd?: string; mode?: string; sessionId?: string } | null;
+type OverlayOptionsCapture = { command: string; reason?: string; cwd?: string; mode?: string; sessionId?: string; autoExitOnQuiet?: boolean } | null;
 
 type SpawnConfigOverrides = {
 	focusShortcut?: string;
@@ -78,8 +78,8 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 	});
 	vi.doMock("../overlay-component.ts", () => ({
 		InteractiveShellOverlay: class MockInteractiveShellOverlay {
-			constructor(_tui: unknown, _theme: unknown, options: { command: string; reason?: string; cwd?: string; mode?: string; sessionId?: string }) {
-				lastOverlayOptions = { command: options.command, reason: options.reason, cwd: options.cwd, mode: options.mode, sessionId: options.sessionId };
+			constructor(_tui: unknown, _theme: unknown, options: { command: string; reason?: string; cwd?: string; mode?: string; sessionId?: string; autoExitOnQuiet?: boolean }) {
+				lastOverlayOptions = { command: options.command, reason: options.reason, cwd: options.cwd, mode: options.mode, sessionId: options.sessionId, autoExitOnQuiet: options.autoExitOnQuiet };
 			}
 		},
 	}));
@@ -343,6 +343,28 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(result.details.mode).toBe("interactive");
 		expect(result.details.sessionId).toBe(harness.getLastOverlayOptions()?.sessionId);
 		expect(harness.getLastOverlayOptions()).toMatchObject({ command: "pi", mode: "interactive" });
+	});
+
+	it("keeps dispatch quiet auto-close on by default and hands-free off", async () => {
+		const dispatchHarness = await setupExtensionHarness();
+		const dispatchTool = dispatchHarness.getTool();
+		expect(dispatchTool).toBeTruthy();
+
+		await dispatchTool!.execute("call-1", {
+			command: "pi",
+			mode: "dispatch",
+		}, undefined, undefined, dispatchHarness.ctx as any);
+		expect(dispatchHarness.getLastOverlayOptions()).toMatchObject({ mode: "dispatch", autoExitOnQuiet: true });
+
+		const handsFreeHarness = await setupExtensionHarness();
+		const handsFreeTool = handsFreeHarness.getTool();
+		expect(handsFreeTool).toBeTruthy();
+
+		await handsFreeTool!.execute("call-2", {
+			command: "pi",
+			mode: "hands-free",
+		}, undefined, undefined, handsFreeHarness.ctx as any);
+		expect(handsFreeHarness.getLastOverlayOptions()).toMatchObject({ mode: "hands-free", autoExitOnQuiet: false });
 	});
 
 	it("interactive_shell structured spawn supports native startup prompts", async () => {

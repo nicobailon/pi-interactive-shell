@@ -52,6 +52,8 @@ export interface ActiveSession {
 	getStatus: () => ActiveSessionStatus;
 	getRuntime: () => number;
 	getResult: () => ActiveSessionResult | undefined;
+	dispose?: () => void;
+	retainAfterCompletion?: boolean;
 	setUpdateInterval?: (intervalMs: number) => void;
 	setQuietThreshold?: (thresholdMs: number) => void;
 	onComplete: (callback: () => void) => void;
@@ -155,10 +157,20 @@ export class ShellSessionManager {
 	}
 
 	registerActive(session: ActiveSession): void {
+		const cleanupTimer = this.cleanupTimers.get(session.id);
+		if (cleanupTimer) {
+			clearTimeout(cleanupTimer);
+			this.cleanupTimers.delete(session.id);
+		}
 		this.activeSessions.set(session.id, session);
 	}
 
 	unregisterActive(id: string, releaseId = false): void {
+		const cleanupTimer = this.cleanupTimers.get(id);
+		if (cleanupTimer) {
+			clearTimeout(cleanupTimer);
+			this.cleanupTimers.delete(id);
+		}
 		this.activeSessions.delete(id);
 		// Only release the ID if explicitly requested (when session fully terminates)
 		// This prevents ID reuse while session is still running after takeover
@@ -294,6 +306,12 @@ export class ShellSessionManager {
 		if (this.cleanupTimers.has(id)) return;
 		const timer = setTimeout(() => {
 			this.cleanupTimers.delete(id);
+			const activeSession = this.activeSessions.get(id);
+			if (activeSession) {
+				activeSession.dispose?.();
+				this.unregisterActive(id, true);
+				return;
+			}
 			this.remove(id);
 		}, delayMs);
 		this.cleanupTimers.set(id, timer);
