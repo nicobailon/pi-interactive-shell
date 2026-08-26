@@ -15,7 +15,7 @@ import type {
 	MonitorThresholdOperator,
 	MonitorTriggerConfig,
 } from "./types.ts";
-import { sessionManager, generateSessionId } from "./session-manager.ts";
+import { sessionManager, generateSessionId, type ActiveSession } from "./session-manager.ts";
 import { loadConfig } from "./config.ts";
 import type { InteractiveShellConfig } from "./config.ts";
 import { isEmptySpawnPlaceholder, normalizeSpawnRequest, parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.ts";
@@ -146,6 +146,61 @@ type DetectorDecision = {
 	matchedText?: string;
 	lineOrDiff?: string;
 };
+
+function parseDetectorDecision(raw: string): DetectorDecision {
+	const parsed = JSON.parse(raw) as unknown;
+	if (typeof parsed === "boolean") {
+		return { emit: parsed };
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || Object.getPrototypeOf(parsed) !== Object.prototype) {
+		throw new Error("detectorCommand returned invalid decision: expected boolean or object");
+	}
+	const decision = parsed as Record<string, unknown>;
+	if (decision.emit !== undefined && typeof decision.emit !== "boolean") {
+		throw new Error("detectorCommand returned invalid decision: emit must be boolean");
+	}
+	for (const key of ["triggerId", "eventType", "matchedText", "lineOrDiff"] as const) {
+		if (decision[key] !== undefined && typeof decision[key] !== "string") {
+			throw new Error(`detectorCommand returned invalid decision: ${key} must be string`);
+		}
+	}
+	const result: DetectorDecision = { emit: decision.emit !== false };
+	if (typeof decision.triggerId === "string") result.triggerId = decision.triggerId;
+	if (typeof decision.eventType === "string") result.eventType = decision.eventType;
+	if (typeof decision.matchedText === "string") result.matchedText = decision.matchedText;
+	if (typeof decision.lineOrDiff === "string") result.lineOrDiff = decision.lineOrDiff;
+	return result;
+}
+
+function completedSessionDetails(
+	sessionId: string,
+	status: string,
+	runtime: number,
+	output: string,
+	outputTruncated: boolean,
+	outputTotalBytes: number,
+	outputTotalLines: number | undefined,
+	hasMore: boolean | undefined,
+	result: ReturnType<ActiveSession["getResult"]>,
+) {
+	return {
+		sessionId,
+		status,
+		runtime,
+		output,
+		outputTruncated,
+		outputTotalBytes,
+		outputTotalLines,
+		hasMore,
+		exitCode: result?.exitCode,
+		signal: result?.signal,
+		backgroundId: result?.backgroundId,
+		completionReason: result?.completionReason,
+		timedOut: result?.timedOut,
+		cancelled: result?.cancelled,
+		completionOutput: result?.completionOutput,
+	};
+}
 
 function buildPollDiffLoopCommand(command: string, intervalMs: number): string {
 	if (process.platform === "win32") {
@@ -473,20 +528,13 @@ async function runDetectorCommand(
 				return;
 			}
 			try {
-				const parsed = JSON.parse(raw) as DetectorDecision | boolean;
-				if (typeof parsed === "boolean") {
-					resolve({ emit: parsed });
+				resolve(parseDetectorDecision(raw));
+			} catch (error) {
+				if (error instanceof SyntaxError) {
+					reject(new Error(`detectorCommand returned invalid JSON: ${error.message}`));
 					return;
 				}
-				resolve({
-					emit: parsed.emit !== false,
-					triggerId: parsed.triggerId,
-					eventType: parsed.eventType,
-					matchedText: parsed.matchedText,
-					lineOrDiff: parsed.lineOrDiff,
-				});
-			} catch (error) {
-				reject(new Error(`detectorCommand returned invalid JSON: ${(error as Error).message}`));
+				reject(error);
 			}
 		});
 
@@ -1296,13 +1344,21 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					};
 				}
 
+				const state = coordinator.getMonitorSessionState(targetMonitorSessionId);
+				if (state === undefined) {
+					return {
+						content: [{ type: "text", text: `Monitor session not found: ${targetMonitorSessionId}` }],
+						isError: true,
+						details: { sessionId: targetMonitorSessionId, state: null, events: [], total: 0 },
+					};
+				}
+
 				const history = coordinator.getMonitorEvents(targetMonitorSessionId, {
 					limit: monitorEventLimit,
 					offset: monitorEventOffset,
 					sinceEventId: monitorSinceEventId,
 					triggerId: monitorTriggerId,
 				});
-				const state = coordinator.getMonitorSessionState(targetMonitorSessionId);
 				if (history.total === 0) {
 					return {
 						content: [{ type: "text", text: `No monitor events for session ${targetMonitorSessionId}.` }],
@@ -1447,7 +1503,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 						}
 						return {
 							content: [{ type: "text", text: `Session ${sessionId} ${status} after ${formatDurationMs(runtime)}${hasOutput ? `\n\nOutput${truncatedNote}${hasMoreNote}:\n${output}` : ""}` }],
-							details: { sessionId, status, runtime, output, outputTruncated: truncated, outputTotalBytes: totalBytes, outputTotalLines: totalLines, hasMore, exitCode: result.exitCode, signal: result.signal, backgroundId: result.backgroundId },
+							details: completedSessionDetails(sessionId, status, runtime, output, truncated, totalBytes, totalLines, hasMore, result),
 						};
 					}
 
@@ -1478,7 +1534,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 								}
 								return {
 									content: [{ type: "text", text: `Session ${sessionId} ${earlyStatus} after ${formatDurationMs(earlyRuntime)}${hasOutput ? `\n\nOutput${truncatedNote}${hasMoreNote}:\n${output}` : ""}` }],
-									details: { sessionId, status: earlyStatus, runtime: earlyRuntime, output, outputTruncated: truncated, outputTotalBytes: totalBytes, outputTotalLines: totalLines, hasMore, exitCode: earlyResult.exitCode, signal: earlyResult.signal, backgroundId: earlyResult.backgroundId },
+									details: completedSessionDetails(sessionId, earlyStatus, earlyRuntime, output, truncated, totalBytes, totalLines, hasMore, earlyResult),
 								};
 							}
 							return {
@@ -1500,7 +1556,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 							}
 							return {
 								content: [{ type: "text", text: `Session ${sessionId} ${freshStatus} after ${formatDurationMs(freshRuntime)}${hasOutput ? `\n\nOutput${truncatedNote}${hasMoreNote}:\n${freshOutput.output}` : ""}` }],
-								details: { sessionId, status: freshStatus, runtime: freshRuntime, output: freshOutput.output, outputTruncated: freshOutput.truncated, outputTotalBytes: freshOutput.totalBytes, outputTotalLines: freshOutput.totalLines, hasMore: freshOutput.hasMore, exitCode: freshResult.exitCode, signal: freshResult.signal, backgroundId: freshResult.backgroundId },
+								details: completedSessionDetails(sessionId, freshStatus, freshRuntime, freshOutput.output, freshOutput.truncated, freshOutput.totalBytes, freshOutput.totalLines, freshOutput.hasMore, freshResult),
 							};
 						}
 						return {

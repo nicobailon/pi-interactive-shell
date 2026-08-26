@@ -5,8 +5,6 @@ description: Cheat sheet + workflow for launching interactive coding-agent CLIs 
 
 # Interactive Shell (Skill)
 
-Last verified: 2026-08-12
-
 ## Deferred activation
 
 When `interactive_shell` is unavailable, call `enable_interactive_shell` first. The tool becomes callable on the next turn and stays active until Pi reloads or the session changes; reloaded, new, resumed, and forked sessions reset it to inactive. Do not call the loader when `interactive_shell` is already available.

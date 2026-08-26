@@ -2,7 +2,7 @@
 description: Launch Codex CLI in overlay to review an implementation plan against the codebase
 ---
 Determine which prompting skill to load based on model:
-- Default: Load `gpt-5-4-prompting` skill (for `gpt-5.4`)
+- Default: Load `gpt-5-4-prompting` skill (for Codex CLI `gpt-5.5`)
 - If user explicitly requests Codex 5.3: Load `codex-5-3-prompting` skill (for `gpt-5.3-codex`)
 
 Also load the `codex-cli` skill. Then read the plan at `$1`.
@@ -19,7 +19,7 @@ Based on the prompting skill's best practices and the plan's content, generate a
 The meta prompt should follow the prompting skill's patterns (clear system context, explicit constraints, step-by-step instructions, expected output format). Instruct Codex not to ask clarifying questions — read the codebase to resolve ambiguities instead of asking. Keep progress updates brief and concrete. Emphasize scope discipline and verification requirements per the prompting skill.
 
 Determine the model flag:
-- Default: `-m gpt-5.4`
+- Default: `-m gpt-5.5`
 - If user explicitly requests Codex 5.3: `-m gpt-5.3-codex`
 
 Then launch Codex CLI in the interactive shell overlay with that meta prompt using the chosen model flag plus `-a never`.

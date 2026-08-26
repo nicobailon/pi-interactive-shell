@@ -49,7 +49,7 @@ The `interactive-shell` skill is automatically symlinked to `~/.pi/agent/skills/
 
 **Dispatch** — Returns immediately. No polling. The agent gets woken up via `triggerTurn` only when the session completes (natural exit, timeout, quiet detection, or user kill). The notification includes a tail of the output. This is the default for delegating work to subagents. Add `background: true` to skip the overlay entirely.
 
-**Monitor** — Returns immediately. No polling, no completion notification. The agent gets woken up when a configured monitor trigger emits an event. Supports stream triggers, poll-diff checks, first-class file watching, optional cooldowns, persistence controls, detector commands, and event history queries. Runs headless; attach to inspect if needed.
+**Monitor** — Returns immediately. The agent gets woken up when a configured monitor trigger emits an event, and when the monitor lifecycle stops. Supports stream triggers, poll-diff checks, first-class file watching, optional cooldowns, persistence controls, detector commands, and event history queries. Runs headless; attach to inspect if needed.
 
 ## Quick Start
 
@@ -533,7 +533,7 @@ Full PTY. The subprocess thinks it's in a real terminal.
 
 ## Example Workflow: Plan, Implement, Review
 
-The `examples/prompts/` directory includes three opt-in prompt templates that chain together into a complete development workflow using Codex CLI. Each template loads the example `gpt-5-4-prompting` skill by default, falls back to `codex-5-3-prompting` when the user explicitly asks for Codex 5.3, and launches Codex in an interactive overlay.
+The `examples/prompts/` directory includes three opt-in prompt templates that chain together into a complete development workflow using Codex CLI. Each template loads the example `gpt-5-4-prompting` skill by default, falls back to `codex-5-3-prompting` when the user explicitly asks for Codex 5.3, and launches Codex in an interactive overlay with Codex CLI's preferred `gpt-5.5` model.
 
 ### The Pipeline
 
@@ -603,7 +603,7 @@ These templates demonstrate a "meta-prompt generation" pattern:
 
 1. **Pi gathers context** — reads the plan, runs git diff, and loads the copied local `gpt-5-4-prompting` or `codex-5-3-prompting` skill
 2. **Pi generates a calibrated prompt** — tailored to the specific plan/diff, following the selected skill's best practices
-3. **Pi launches Codex in the overlay** — defaulting to `-m gpt-5.4 -a never` and switching to `-m gpt-5.3-codex -a never` only when the user explicitly asks for Codex 5.3
+3. **Pi launches Codex in the overlay** — defaulting to `-m gpt-5.5 -a never` and switching to `-m gpt-5.3-codex -a never` only when the user explicitly asks for Codex 5.3
 
 The user watches Codex work in the overlay and can take over anytime (type to intervene, Ctrl+T to transfer output back to pi, Ctrl+Q for options).
 

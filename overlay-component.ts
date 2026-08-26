@@ -154,23 +154,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		}
 		if (options.sessionId || this.state === "hands-free") {
 			this.sessionId = options.sessionId ?? generateSessionId(options.name);
-			sessionManager.registerActive({
-				id: this.sessionId,
-				command: options.command,
-				reason: options.reason,
-				write: (data) => this.session.write(data),
-				kill: () => this.killSession(),
-				background: () => this.backgroundSession(),
-				getOutput: (options) => this.getOutputSinceLastCheck(options),
-				getStatus: () => this.getSessionStatus(),
-				getRuntime: () => this.getRuntime(),
-				getResult: () => this.getCompletionResult(),
-				dispose: () => this.disposeTerminalSession(),
-				retainAfterCompletion: this.options.mode === "dispatch",
-				setUpdateInterval: (intervalMs) => this.setUpdateInterval(intervalMs),
-				setQuietThreshold: (thresholdMs) => this.setQuietThreshold(thresholdMs),
-				onComplete: (callback) => this.registerCompleteCallback(callback),
-			});
+			this.registerActiveSession();
 		}
 		if (this.state === "hands-free") {
 			this.startHandsFreeUpdates();
@@ -452,6 +436,28 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		}
 	}
 
+	private registerActiveSession(): void {
+		if (!this.sessionId) return;
+		sessionManager.registerActive({
+			id: this.sessionId,
+			command: this.options.command,
+			reason: this.options.reason,
+			write: (data) => this.session.write(data),
+			kill: () => this.killSession(),
+			background: () => this.backgroundSession(),
+			getOutput: (options) => this.getOutputSinceLastCheck(options),
+			getStatus: () => this.getSessionStatus(),
+			getRuntime: () => this.getRuntime(),
+			getResult: () => this.getCompletionResult(),
+			dispose: () => this.disposeTerminalSession(),
+			retainAfterCompletion: this.options.mode === "dispatch",
+			setUpdateInterval: (intervalMs) => this.setUpdateInterval(intervalMs),
+			setQuietThreshold: (thresholdMs) => this.setQuietThreshold(thresholdMs),
+			onComplete: (callback) => this.registerCompleteCallback(callback),
+		});
+		this.sessionUnregistered = false;
+	}
+
 	private disposeTerminalSession(): void {
 		if (this.sessionDisposed) return;
 		this.session.dispose();
@@ -556,24 +562,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		// Re-register if streaming mode previously released the session
 		if (this.sessionUnregistered) {
-			sessionManager.registerActive({
-				id: this.sessionId,
-				command: this.options.command,
-				reason: this.options.reason,
-				write: (data) => this.session.write(data),
-				kill: () => this.killSession(),
-				background: () => this.backgroundSession(),
-				getOutput: (options) => this.getOutputSinceLastCheck(options),
-				getStatus: () => this.getSessionStatus(),
-				getRuntime: () => this.getRuntime(),
-				getResult: () => this.getCompletionResult(),
-				dispose: () => this.disposeTerminalSession(),
-				retainAfterCompletion: this.options.mode === "dispatch",
-				setUpdateInterval: (intervalMs) => this.setUpdateInterval(intervalMs),
-				setQuietThreshold: (thresholdMs) => this.setQuietThreshold(thresholdMs),
-				onComplete: (callback) => this.registerCompleteCallback(callback),
-			});
-			this.sessionUnregistered = false;
+			this.registerActiveSession();
 		}
 
 		if (this.options.onHandsFreeUpdate) {

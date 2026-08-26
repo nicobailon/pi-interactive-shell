@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
 
 type MonitorOptionsCapture = {
 	monitor?: {
@@ -11,16 +12,36 @@ type MonitorOptionsCapture = {
 	onMonitorEvent?: (event: unknown) => void | Promise<void>;
 } | null;
 
-async function setupHarness() {
+async function setupHarness(options: { detectorStdout?: string } = {}) {
 	let toolDef: any;
 	let monitorOptions: MonitorOptionsCapture = null;
 	let launchedCommand: string | undefined;
 	let monitorCompleteCallback: ((info: unknown) => void) | undefined;
+	let activeSession: unknown;
 	const sendMessage = vi.fn();
 
 	vi.resetModules();
 	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => "/tmp/pi-agent",
+	}));
+	vi.doMock("node:child_process", () => ({
+		spawn: vi.fn(() => {
+			const child = new EventEmitter() as EventEmitter & {
+				stdout: EventEmitter & { setEncoding: (encoding: string) => void };
+				stderr: EventEmitter & { setEncoding: (encoding: string) => void };
+				stdin: { write: (data: string) => void; end: () => void };
+				kill: () => void;
+			};
+			child.stdout = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
+			child.stderr = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
+			child.stdin = { write: vi.fn(), end: vi.fn() };
+			child.kill = vi.fn();
+			process.nextTick(() => {
+				child.stdout.emit("data", options.detectorStdout ?? "");
+				child.emit("exit", 0);
+			});
+			return child;
+		}),
 	}));
 	vi.doMock("@earendil-works/pi-tui", () => ({
 		isKeyRelease: () => false,
@@ -111,7 +132,7 @@ async function setupHarness() {
 	}));
 	vi.doMock("../session-manager.ts", () => ({
 		sessionManager: {
-			getActive: vi.fn(() => undefined),
+			getActive: vi.fn(() => activeSession),
 			unregisterActive: vi.fn(),
 			registerActive: vi.fn(),
 			list: vi.fn(() => []),
@@ -148,6 +169,7 @@ async function setupHarness() {
 		getMonitorOptions: () => monitorOptions,
 		getLaunchedCommand: () => launchedCommand,
 		getMonitorCompleteCallback: () => monitorCompleteCallback,
+		setActiveSession: (session: unknown) => { activeSession = session; },
 		sendMessage,
 	};
 }
@@ -155,6 +177,7 @@ async function setupHarness() {
 describe("monitor mode", () => {
 	afterEach(() => {
 		vi.doUnmock("@earendil-works/pi-coding-agent");
+		vi.doUnmock("node:child_process");
 		vi.doUnmock("@earendil-works/pi-tui");
 		vi.doUnmock("../config.ts");
 		vi.doUnmock("../overlay-component.ts");
@@ -234,6 +257,28 @@ describe("monitor mode", () => {
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toContain("monitorEvents requires monitorSessionId");
+	});
+
+	it("returns an error for unknown monitorEvents session ids", async () => {
+		const { toolDef } = await setupHarness();
+		const result = await toolDef.execute("call-1", {
+			monitorEvents: true,
+			monitorSessionId: "missing-monitor",
+		}, undefined, undefined, {
+			hasUI: false,
+			cwd: "/tmp/project",
+			ui: {},
+			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+		} as any);
+
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("Monitor session not found: missing-monitor");
+		expect(result.details).toEqual({
+			sessionId: "missing-monitor",
+			state: null,
+			events: [],
+			total: 0,
+		});
 	});
 
 	it("wraps poll-diff monitor command into a recurring loop", async () => {
@@ -435,6 +480,84 @@ describe("monitor mode", () => {
 		expect(filtered.details.events[0]?.triggerId).toBe("warn");
 		expect(filtered.details.sinceEventId).toBe(1);
 		expect(filtered.details.triggerId).toBe("warn");
+	});
+
+	it("rejects detectorCommand decisions with invalid shapes", async () => {
+		const harness = await setupHarness({ detectorStdout: "[]" });
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await harness.toolDef.execute("call-1", {
+				command: "npm test --watch",
+				mode: "monitor",
+				monitor: {
+					strategy: "stream",
+					triggers: [{ id: "fail", literal: "FAIL" }],
+					detector: { detectorCommand: "printf '[]'" },
+				},
+			}, undefined, undefined, {
+				hasUI: false,
+				cwd: "/tmp/project",
+				ui: {},
+				sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+			} as any);
+
+			harness.getMonitorOptions()?.onMonitorEvent?.({
+				strategy: "stream",
+				triggerId: "fail",
+				eventType: "fail",
+				matchedText: "FAIL",
+				lineOrDiff: "FAIL first",
+				stream: "pty",
+			});
+			await new Promise((resolve) => setTimeout(resolve, 20));
+
+			expect(harness.sendMessage).not.toHaveBeenCalledWith(
+				expect.objectContaining({ customType: "interactive-shell-monitor-event" }),
+				expect.any(Object),
+			);
+			expect(consoleError).toHaveBeenCalledWith(
+				"interactive-shell: detectorCommand failed for monitor-1:",
+				expect.objectContaining({ message: "detectorCommand returned invalid decision: expected boolean or object" }),
+			);
+		} finally {
+			consoleError.mockRestore();
+		}
+	});
+
+	it("includes dispatch completion fields in completed active-session query details", async () => {
+		const harness = await setupHarness();
+		harness.setActiveSession({
+			retainAfterCompletion: true,
+			getResult: vi.fn(() => ({
+				exitCode: null,
+				completionReason: "auto-close-quiet",
+				timedOut: false,
+				cancelled: true,
+				completionOutput: { lines: ["done"], totalLines: 1, truncated: false },
+			})),
+			getOutput: vi.fn(() => ({ output: "done", truncated: false, totalBytes: 4, totalLines: 1, hasMore: false })),
+			getStatus: vi.fn(() => "exited"),
+			getRuntime: vi.fn(() => 1200),
+			onComplete: vi.fn(),
+		});
+
+		const result = await harness.toolDef.execute("call-1", {
+			sessionId: "dispatch-1",
+		}, undefined, undefined, {
+			hasUI: false,
+			cwd: "/tmp/project",
+			ui: {},
+			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+		} as any);
+
+		expect(result.isError).not.toBe(true);
+		expect(result.details).toMatchObject({
+			sessionId: "dispatch-1",
+			completionReason: "auto-close-quiet",
+			timedOut: false,
+			cancelled: true,
+			completionOutput: { lines: ["done"], totalLines: 1, truncated: false },
+		});
 	});
 
 	it("emits monitor lifecycle notification when monitor session completes", async () => {

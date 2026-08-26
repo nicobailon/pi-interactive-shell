@@ -263,4 +263,29 @@ describe("spawn helpers", () => {
 		expect(result.spawn.reason).toContain("worktree:");
 		expect(execFileSync).toHaveBeenCalledTimes(2);
 	});
+
+	it("returns resolver error shape when worktree base directory creation fails", async () => {
+		const execFileSync = vi.fn((command: string, args: string[]) => {
+			expect(command).toBe("git");
+			if (args.includes("rev-parse")) {
+				return "/tmp/repo\n";
+			}
+			throw new Error("unexpected git invocation");
+		});
+		vi.doMock("node:child_process", () => ({ execFileSync }));
+		vi.doMock("node:fs", async () => {
+			const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+			return {
+				...actual,
+				existsSync: vi.fn(() => true),
+				mkdirSync: vi.fn(() => { throw new Error("EACCES: permission denied, mkdir '/tmp/worktrees'"); }),
+			};
+		});
+		const { resolveSpawn } = await import("../spawn.ts");
+		expect(resolveSpawn(config, "/tmp/repo/packages/app", { agent: "codex", worktree: true }, () => "/tmp/repo/session.jsonl")).toEqual({
+			ok: false,
+			error: "Failed to create worktree base directory: EACCES: permission denied, mkdir '/tmp/worktrees'",
+		});
+		expect(execFileSync).toHaveBeenCalledTimes(1);
+	});
 });

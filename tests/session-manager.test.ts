@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellSessionManager } from "../session-manager.ts";
+import type { ActiveSession } from "../session-manager.ts";
 
 function createSession() {
 	return {
@@ -7,6 +8,22 @@ function createSession() {
 		setEventHandlers: vi.fn(),
 		dispose: vi.fn(),
 		kill: vi.fn(),
+	};
+}
+
+function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
+	return {
+		id: "active-1",
+		command: "pi \"active\"",
+		write: vi.fn(),
+		kill: vi.fn(),
+		background: vi.fn(),
+		getOutput: vi.fn(() => ({ output: "", truncated: false, totalBytes: 0 })),
+		getStatus: vi.fn((): ActiveSession["getStatus"] extends () => infer Status ? Status : never => "running"),
+		getRuntime: vi.fn(() => 0),
+		getResult: vi.fn(() => undefined),
+		onComplete: vi.fn(),
+		...overrides,
 	};
 }
 
@@ -45,19 +62,7 @@ describe("ShellSessionManager", () => {
 		const manager = new ShellSessionManager();
 		const dispose = vi.fn();
 
-		manager.registerActive({
-			id: "active-1",
-			command: "pi \"active\"",
-			write: vi.fn(),
-			kill: vi.fn(),
-			background: vi.fn(),
-			getOutput: vi.fn() as any,
-			getStatus: vi.fn() as any,
-			getRuntime: vi.fn() as any,
-			getResult: vi.fn() as any,
-			dispose,
-			onComplete: vi.fn(),
-		});
+		manager.registerActive(createActiveSession({ dispose }));
 		manager.scheduleCleanup("active-1", 5 * 60 * 1000);
 
 		vi.advanceTimersByTime(5 * 60 * 1000);
@@ -71,51 +76,15 @@ describe("ShellSessionManager", () => {
 		const staleDispose = vi.fn();
 		const nextDispose = vi.fn();
 
-		manager.registerActive({
-			id: "active-1",
-			command: "pi \"active\"",
-			write: vi.fn(),
-			kill: vi.fn(),
-			background: vi.fn(),
-			getOutput: vi.fn() as any,
-			getStatus: vi.fn() as any,
-			getRuntime: vi.fn() as any,
-			getResult: vi.fn() as any,
-			dispose: staleDispose,
-			onComplete: vi.fn(),
-		});
+		manager.registerActive(createActiveSession({ dispose: staleDispose }));
 		manager.scheduleCleanup("active-1", 1000);
 		manager.unregisterActive("active-1");
 		vi.advanceTimersByTime(1000);
 		expect(staleDispose).not.toHaveBeenCalled();
 
-		manager.registerActive({
-			id: "active-1",
-			command: "pi \"active\"",
-			write: vi.fn(),
-			kill: vi.fn(),
-			background: vi.fn(),
-			getOutput: vi.fn() as any,
-			getStatus: vi.fn() as any,
-			getRuntime: vi.fn() as any,
-			getResult: vi.fn() as any,
-			dispose: staleDispose,
-			onComplete: vi.fn(),
-		});
+		manager.registerActive(createActiveSession({ dispose: staleDispose }));
 		manager.scheduleCleanup("active-1", 1000);
-		manager.registerActive({
-			id: "active-1",
-			command: "pi \"next\"",
-			write: vi.fn(),
-			kill: vi.fn(),
-			background: vi.fn(),
-			getOutput: vi.fn() as any,
-			getStatus: vi.fn() as any,
-			getRuntime: vi.fn() as any,
-			getResult: vi.fn() as any,
-			dispose: nextDispose,
-			onComplete: vi.fn(),
-		});
+		manager.registerActive(createActiveSession({ command: "pi \"next\"", dispose: nextDispose }));
 		vi.advanceTimersByTime(1000);
 		expect(staleDispose).not.toHaveBeenCalled();
 		expect(nextDispose).not.toHaveBeenCalled();
@@ -128,18 +97,7 @@ describe("ShellSessionManager", () => {
 		manager.add("pi \"bg\"", backgroundSession, undefined, undefined, { id: "bg-1" });
 
 		const activeKill = vi.fn();
-		manager.registerActive({
-			id: "active-1",
-			command: "pi \"active\"",
-			write: vi.fn(),
-			kill: activeKill,
-			background: vi.fn(),
-			getOutput: vi.fn() as any,
-			getStatus: vi.fn() as any,
-			getRuntime: vi.fn() as any,
-			getResult: vi.fn() as any,
-			onComplete: vi.fn(),
-		});
+		manager.registerActive(createActiveSession({ kill: activeKill }));
 
 		manager.killAll();
 		expect(backgroundSession.dispose).toHaveBeenCalledTimes(1);

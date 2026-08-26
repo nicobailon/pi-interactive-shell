@@ -235,7 +235,11 @@ function createSpawnWorktree(
 	const baseDir = config.spawn.worktreeBaseDir
 		? resolve(repoRoot.stdout, config.spawn.worktreeBaseDir)
 		: join(dirname(repoRoot.stdout), `${basename(repoRoot.stdout)}-worktrees`);
-	mkdirSync(baseDir, { recursive: true });
+	try {
+		mkdirSync(baseDir, { recursive: true });
+	} catch (error) {
+		return { ok: false, error: `Failed to create worktree base directory: ${(error as Error).message}` };
+	}
 
 	const timestamp = new Date().toISOString().replace(/[-:.]/g, "").replace("T", "-").replace("Z", "");
 	const suffix = Math.random().toString(36).slice(2, 7);
