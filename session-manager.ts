@@ -1,4 +1,5 @@
 import { PtyTerminalSession } from "./pty-session.ts";
+import type { DispatchCompletionReason } from "./types.ts";
 
 export interface BackgroundSession {
 	id: string;
@@ -14,10 +15,16 @@ export type ActiveSessionStatus = "running" | "monitoring" | "user-takeover" | "
 export interface ActiveSessionResult {
 	exitCode: number | null;
 	signal?: number;
+	completionReason?: DispatchCompletionReason;
 	backgrounded?: boolean;
 	backgroundId?: string;
 	cancelled?: boolean;
 	timedOut?: boolean;
+	completionOutput?: {
+		lines: string[];
+		totalLines: number;
+		truncated: boolean;
+	};
 }
 
 export interface OutputResult {

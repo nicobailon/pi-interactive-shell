@@ -25,10 +25,15 @@ describe("setupBackgroundWidget cleanup", () => {
 				events.push("unsubscribe");
 				unsubscribe();
 			}),
-			list: vi.fn(() => [{ session: { exited: false } }]),
-		};
+			list: vi.fn(() => [{
+				id: "bg-1",
+				command: "pi \"work\"",
+				startedAt: new Date("2026-08-26T00:00:00.000Z"),
+				session: { exited: false },
+			}]),
+		} satisfies Parameters<typeof setupBackgroundWidget>[1];
 
-		const cleanup = setupBackgroundWidget(ctx, sessionManager as any);
+		const cleanup = setupBackgroundWidget(ctx, sessionManager);
 		expect(cleanup).toBeTypeOf("function");
 		expect(vi.getTimerCount()).toBe(1);
 

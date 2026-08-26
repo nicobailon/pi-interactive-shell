@@ -5,6 +5,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 ## [Unreleased]
 
 ### Fixed
+- Clean up Codex workflow docs, monitor query diagnostics, detector-command validation, spawn worktree setup errors, and completed-session details.
 - Keep completed foreground or reattached dispatch output queryable for the documented five-minute cleanup window. Thanks to [@gwelinder](https://github.com/gwelinder) for #43.
 - Prevent stale background-widget cleanup from reusing an expired session context after `/clear` or session replacement (#42, reported by [@luluxiang06](https://github.com/luluxiang06)).
 - Expose dispatch quiet auto-close as `completionReason: "auto-close-quiet"` and mark it as non-terminal in notifications.

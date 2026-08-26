@@ -1,12 +1,29 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatDuration } from "./types.ts";
-import type { ShellSessionManager } from "./session-manager.ts";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { TUI } from "@earendil-works/pi-tui";
 import type { InteractiveShellCoordinator } from "./runtime-coordinator.ts";
 
+type BackgroundWidgetContext = Pick<ExtensionContext, "hasUI"> & {
+	ui: Pick<ExtensionContext["ui"], "setWidget">;
+};
+type BackgroundWidgetSession = {
+	id: string;
+	command: string;
+	reason?: string;
+	startedAt: Date;
+	session: { exited: boolean };
+};
+type BackgroundWidgetSessionManager = {
+	onChange: (listener: () => void) => () => void;
+	list: () => BackgroundWidgetSession[];
+};
+type BackgroundWidgetCoordinator = Pick<InteractiveShellCoordinator, "getMonitorSessionState">;
+
 export function setupBackgroundWidget(
-	ctx: { ui: { setWidget: Function }; hasUI?: boolean },
-	sessionManager: ShellSessionManager,
-	coordinator?: InteractiveShellCoordinator,
+	ctx: BackgroundWidgetContext,
+	sessionManager: BackgroundWidgetSessionManager,
+	coordinator?: BackgroundWidgetCoordinator,
 ): (() => void) | null {
 	if (!ctx.hasUI) return null;
 
@@ -32,7 +49,7 @@ export function setupBackgroundWidget(
 
 	ctx.ui.setWidget(
 		"bg-sessions",
-		(tui: any, theme: any) => {
+		(tui: TUI, theme: Theme) => {
 			tuiRef = tui;
 			return {
 				render: (width: number) => {
