@@ -90,6 +90,7 @@ describe("interactive_shell submit input helper", () => {
 
 		const result = await harness.tool!.execute("call-1", {
 			sessionId: "sess-1",
+			spawn: { agent: "", mode: "fresh", worktree: false, prompt: "" },
 			input: "/run manual-slash-check summarize src/alpha.ts in 2 short bullets",
 			submit: true,
 		}, undefined, undefined, harness.ctx as any);

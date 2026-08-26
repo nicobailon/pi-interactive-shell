@@ -6,6 +6,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ### Fixed
 - Expose dispatch quiet auto-close as `completionReason: "auto-close-quiet"` and mark it as non-terminal in notifications.
+- Fix existing-session calls that include schema-generated empty spawn placeholders, and force PTY cleanup to SIGKILL when SIGTERM does not exit (#44, by [@ZacharyQin](https://github.com/ZacharyQin)).
 
 ### Changed
 - Document a provider-agnostic watch-until-terminal monitor recipe for external gates.

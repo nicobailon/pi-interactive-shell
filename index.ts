@@ -1223,7 +1223,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				? { text: input, keys: inputKeys, hex: inputHex, paste: inputPaste }
 				: input;
 			const normalizedSpawn = normalizeSpawnRequest(spawn);
-			const spawnForAction = command && isEmptySpawnPlaceholder(spawn)
+			const hasExistingSessionAction = Boolean(sessionId || attach || listBackground || dismissBackground || monitorEvents || monitorStatus);
+			const spawnForAction = (command || hasExistingSessionAction) && isEmptySpawnPlaceholder(spawn)
 				? undefined
 				: normalizedSpawn;
 
