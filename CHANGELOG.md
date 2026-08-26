@@ -4,16 +4,28 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
-### Fixed
-- Clean up Codex workflow docs, monitor query diagnostics, detector-command validation, spawn worktree setup errors, and completed-session details.
-- Keep completed foreground or reattached dispatch output queryable for the documented five-minute cleanup window. Thanks to [@gwelinder](https://github.com/gwelinder) for #43.
-- Prevent stale background-widget cleanup from reusing an expired session context after `/clear` or session replacement (#42, reported by [@luluxiang06](https://github.com/luluxiang06)).
-- Expose dispatch quiet auto-close as `completionReason: "auto-close-quiet"` and mark it as non-terminal in notifications.
-- Fix existing-session calls that include schema-generated empty spawn placeholders, and force PTY cleanup to SIGKILL when SIGTERM does not exit (#44, by [@ZacharyQin](https://github.com/ZacharyQin)).
+## [0.15.1] - 2026-08-26
+
+### Highlights
+- Dispatch sessions are easier to inspect after they finish, with retained output and clearer quiet auto-close status.
+- Monitor mode is easier to use for long-running gates, with clearer lifecycle notifications and not-found diagnostics.
+- Spawned sessions are less fragile when schemas include empty spawn data or worktree setup hits filesystem errors.
+- Prompt metadata is smaller, and Codex examples now default to `gpt-5.5`.
 
 ### Changed
 - Document a provider-agnostic watch-until-terminal monitor recipe for external gates.
 - Shrink `interactive_shell` prompt metadata and move detailed usage guidance to active-only guidelines and existing docs. Thanks to [@Rianico](https://github.com/Rianico) for #41.
+- Update Codex workflow examples to default to `gpt-5.5` while keeping Codex 5.3 as an explicit fallback.
+
+### Fixed
+- Keep completed dispatch output queryable for the documented five-minute cleanup window. Thanks to [@gwelinder](https://github.com/gwelinder) for #43.
+- Prevent stale background-widget cleanup from reusing an expired session context after `/clear` or session replacement (#42, reported by [@luluxiang06](https://github.com/luluxiang06)).
+- Expose dispatch quiet auto-close as `completionReason: "auto-close-quiet"` and mark it as non-terminal in notifications.
+- Fix existing-session calls that include schema-generated empty spawn placeholders, and force PTY cleanup to SIGKILL when SIGTERM does not exit (#44, by [@ZacharyQin](https://github.com/ZacharyQin)).
+- Return clearer monitor query diagnostics for unknown monitor sessions.
+- Validate detector-command decisions before emitting monitor events.
+- Return structured errors when spawn worktree base directories cannot be created.
+- Include completion details when querying completed sessions.
 
 ## [0.15.0] - 2026-08-13
 
