@@ -159,6 +159,7 @@ export class PtyTerminalSession {
 	private exitHandler: ((exitCode: number, signal?: number) => void) | undefined;
 	private additionalDataListeners: Array<(data: string) => void> = [];
 	private additionalExitListeners: Array<(exitCode: number, signal?: number) => void> = [];
+	private forceKillTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// Trim raw output buffer if it exceeds max size
 	private trimRawOutputIfNeeded(): void {
@@ -256,6 +257,7 @@ export class PtyTerminalSession {
 		});
 
 		this.ptyProcess.onExit(({ exitCode, signal }) => {
+			this.clearForceKillTimer();
 			this._exited = true;
 			this._exitCode = exitCode;
 			this._signal = signal;
@@ -311,6 +313,13 @@ export class PtyTerminalSession {
 		// Copy array to avoid issues if a listener unsubscribes during iteration
 		for (const listener of [...this.additionalExitListeners]) {
 			listener(exitCode, signal);
+		}
+	}
+
+	private clearForceKillTimer(): void {
+		if (this.forceKillTimer) {
+			clearTimeout(this.forceKillTimer);
+			this.forceKillTimer = null;
 		}
 	}
 
@@ -590,30 +599,38 @@ export class PtyTerminalSession {
 
 	kill(signal: string = "SIGTERM"): void {
 		if (this._exited) return;
+		if (signal === "SIGKILL") this.clearForceKillTimer();
 
 		const pid = this.ptyProcess.pid;
 
-		// Try to kill the entire process tree (prevents orphan child processes)
+		// Kill the process group first so descendants receive the signal too.
 		if (process.platform !== "win32" && pid) {
 			try {
-				// Kill process group (negative PID)
 				process.kill(-pid, signal as NodeJS.Signals);
-				return;
 			} catch {
-				// Fall through to direct kill
+				// Fall through to the PTY's direct kill.
 			}
 		}
 
-		// Direct kill as fallback
+		// Always ask the PTY to kill its leader as well. A successful process-group
+		// signal does not guarantee that the PTY leader has exited.
 		try {
 			this.ptyProcess.kill(signal);
 		} catch {
 			// Process may already be dead
 		}
+
+		if (signal !== "SIGKILL" && !this.forceKillTimer) {
+			this.forceKillTimer = setTimeout(() => {
+				this.forceKillTimer = null;
+				if (!this._exited) this.kill("SIGKILL");
+			}, 250);
+			this.forceKillTimer.unref?.();
+		}
 	}
 
 	dispose(): void {
-		this.kill();
+		this.kill("SIGKILL");
 		try {
 			this.ptyProcess.close();
 		} catch {
