@@ -41,6 +41,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private startTime: number;
 	private sessionId: string | null = null;
 	private sessionUnregistered = false;
+	private sessionDisposed = false;
 	// Timeout
 	private timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 	// Prevent double done() calls
@@ -164,6 +165,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 				getStatus: () => this.getSessionStatus(),
 				getRuntime: () => this.getRuntime(),
 				getResult: () => this.getCompletionResult(),
+				dispose: () => this.disposeTerminalSession(),
+				retainAfterCompletion: this.options.mode === "dispatch",
 				setUpdateInterval: (intervalMs) => this.setUpdateInterval(intervalMs),
 				setQuietThreshold: (thresholdMs) => this.setQuietThreshold(thresholdMs),
 				onComplete: (callback) => this.registerCompleteCallback(callback),
@@ -449,6 +452,16 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		}
 	}
 
+	private disposeTerminalSession(): void {
+		if (this.sessionDisposed) return;
+		this.session.dispose();
+		this.sessionDisposed = true;
+	}
+
+	private shouldRetainTerminalAfterCompletion(): boolean {
+		return this.options.mode === "dispatch" && this.options.streamingMode !== true;
+	}
+
 	private emitHandsFreeUpdate(): void {
 		if (!this.options.onHandsFreeUpdate || !this.sessionId) return;
 
@@ -554,6 +567,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 				getStatus: () => this.getSessionStatus(),
 				getRuntime: () => this.getRuntime(),
 				getResult: () => this.getCompletionResult(),
+				dispose: () => this.disposeTerminalSession(),
+				retainAfterCompletion: this.options.mode === "dispatch",
 				setUpdateInterval: (intervalMs) => this.setUpdateInterval(intervalMs),
 				setQuietThreshold: (thresholdMs) => this.setQuietThreshold(thresholdMs),
 				onComplete: (callback) => this.registerCompleteCallback(callback),
@@ -622,7 +637,6 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const handoffPreview = this.maybeBuildHandoffPreview("exit");
 		const handoff = this.maybeWriteHandoffSnapshot("exit");
 		const completionOutput = this.captureCompletionOutput();
-		this.session.dispose();
 		const result: InteractiveShellResult = {
 			exitCode: this.session.exitCode,
 			signal: this.session.signal,
@@ -636,6 +650,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		};
 		this.completionResult = result;
 		this.triggerCompleteCallbacks();
+		if (!this.shouldRetainTerminalAfterCompletion()) {
+			this.disposeTerminalSession();
+		}
 
 		// In streaming mode (blocking tool call), unregister now since the agent
 		// gets the result via tool return. Otherwise keep registered for queries.
@@ -696,7 +713,6 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const handoff = this.maybeWriteHandoffSnapshot("kill");
 		const completionOutput = this.captureCompletionOutput();
 		this.session.kill();
-		this.session.dispose();
 		const result: InteractiveShellResult = {
 			exitCode: null,
 			completionReason,
@@ -710,6 +726,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		};
 		this.completionResult = result;
 		this.triggerCompleteCallbacks();
+		if (!this.shouldRetainTerminalAfterCompletion()) {
+			this.disposeTerminalSession();
+		}
 
 		// In streaming mode (blocking tool call), unregister now since the agent
 		// gets the result via tool return. Otherwise keep registered for queries.
@@ -734,7 +753,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const handoff = this.maybeWriteHandoffSnapshot("transfer");
 
 		this.session.kill();
-		this.session.dispose();
+		this.disposeTerminalSession();
 		const result: InteractiveShellResult = {
 			exitCode: this.session.exitCode,
 			signal: this.session.signal,
@@ -789,7 +808,6 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const handoff = this.maybeWriteHandoffSnapshot("timeout");
 		const completionOutput = this.captureCompletionOutput();
 		this.session.kill();
-		this.session.dispose();
 		const result: InteractiveShellResult = {
 			exitCode: null,
 			backgrounded: false,
@@ -803,6 +821,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		};
 		this.completionResult = result;
 		this.triggerCompleteCallbacks();
+		if (!this.shouldRetainTerminalAfterCompletion()) {
+			this.disposeTerminalSession();
+		}
 
 		// In streaming mode (blocking tool call), unregister now since the agent
 		// gets the result via tool return. Otherwise keep registered for queries.
@@ -1087,10 +1108,11 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		// If session hasn't completed yet, kill it to prevent orphaned processes
 		if (!this.completionResult) {
 			this.session.kill();
-			this.session.dispose();
+			this.disposeTerminalSession();
 			this.unregisterActiveSession(true);
 		} else if (this.options.streamingMode) {
 			// Streaming mode already delivered result via tool return, safe to clean up
+			this.disposeTerminalSession();
 			this.unregisterActiveSession(true);
 		}
 		// Non-blocking mode with completion: keep registered so agent can query

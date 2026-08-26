@@ -63,6 +63,9 @@ function createExistingSession() {
 		kill: vi.fn(),
 		dispose: vi.fn(),
 		getTailLines: vi.fn(() => ({ lines: [], totalLinesInBuffer: 0, truncatedByChars: false })),
+		emitExit() {
+			handlers.onExit?.();
+		},
 	};
 }
 
@@ -86,20 +89,26 @@ async function loadOverlay() {
 		generateSessionId: vi.fn(() => "session-1"),
 	}));
 	vi.doMock("../handoff-utils.ts", () => ({
-		captureCompletionOutput: vi.fn(() => undefined),
+		captureCompletionOutput: vi.fn(() => ({ lines: ["final output"], totalLines: 1, truncated: false })),
 		captureTransferOutput: vi.fn(() => undefined),
 		maybeBuildHandoffPreview: vi.fn(() => undefined),
 		maybeWriteHandoffSnapshot: vi.fn(() => undefined),
 	}));
 	vi.doMock("../session-query.ts", () => ({
 		createSessionQueryState: vi.fn(() => ({})),
-		getSessionOutput: vi.fn(() => ({ output: "", truncated: false, totalBytes: 0 })),
+		getSessionOutput: vi.fn((_session, _config, _state, _options, completionOutput) => ({
+			output: completionOutput?.lines.join("\n") ?? "",
+			truncated: completionOutput?.truncated ?? false,
+			totalBytes: completionOutput?.lines.join("\n").length ?? 0,
+			totalLines: completionOutput?.totalLines,
+		})),
 	}));
 	return { ...(await import("../overlay-component.ts")), sessionManager };
 }
 
 describe("InteractiveShellOverlay render focus cues", () => {
 	afterEach(() => {
+		vi.useRealTimers();
 		vi.doUnmock("@earendil-works/pi-tui");
 		vi.doUnmock("../pty-session.ts");
 		vi.doUnmock("../session-manager.ts");
@@ -142,6 +151,80 @@ describe("InteractiveShellOverlay render focus cues", () => {
 			expect.objectContaining({ id: "control-1" }),
 		);
 		expect(result).toMatchObject({ backgrounded: true, backgroundId: "bg-1", sessionId: "control-1" });
+	});
+
+	it("keeps completed dispatch output queryable until cleanup", async () => {
+		const { InteractiveShellOverlay, sessionManager } = await loadOverlay();
+		const session = createExistingSession();
+		let result: any;
+		new InteractiveShellOverlay(
+			{ terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() } as any,
+			{
+				fg: (_color: string, text: string) => text,
+				bg: (_color: string, text: string) => text,
+				bold: (text: string) => text,
+			} as any,
+			{
+				command: "pi",
+				existingSession: session as any,
+				mode: "dispatch",
+				sessionId: "dispatch-1",
+			},
+			config,
+			(value) => { result = value; },
+		);
+
+		session.emitExit();
+
+		const activeSession = sessionManager.registerActive.mock.calls[0][0];
+		expect(result).toMatchObject({ backgrounded: false, sessionId: "dispatch-1" });
+		expect(activeSession.getResult()).toMatchObject({ sessionId: "dispatch-1" });
+		expect(activeSession.getOutput({ skipRateLimit: true })).toMatchObject({ output: "final output", totalLines: 1 });
+		expect(sessionManager.unregisterActive).not.toHaveBeenCalled();
+		expect(session.dispose).not.toHaveBeenCalled();
+	});
+
+	it("disposes non-dispatch active completions immediately", async () => {
+		vi.useFakeTimers();
+		const { InteractiveShellOverlay } = await loadOverlay();
+		const tui = { terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() } as any;
+		const theme = {
+			fg: (_color: string, text: string) => text,
+			bg: (_color: string, text: string) => text,
+			bold: (text: string) => text,
+		} as any;
+
+		const exitSession = createExistingSession();
+		new InteractiveShellOverlay(tui, theme, {
+			command: "pi",
+			existingSession: exitSession as any,
+			mode: "interactive",
+			sessionId: "exit-1",
+		}, config, () => {});
+		exitSession.emitExit();
+		vi.advanceTimersByTime(config.exitAutoCloseDelay * 1000);
+		expect(exitSession.dispose).toHaveBeenCalledTimes(1);
+
+		const killSession = createExistingSession();
+		const killOverlay = new InteractiveShellOverlay(tui, theme, {
+			command: "pi",
+			existingSession: killSession as any,
+			mode: "hands-free",
+			sessionId: "kill-1",
+		}, config, () => {});
+		killOverlay.killSession();
+		expect(killSession.dispose).toHaveBeenCalledTimes(1);
+
+		const timeoutSession = createExistingSession();
+		new InteractiveShellOverlay(tui, theme, {
+			command: "pi",
+			existingSession: timeoutSession as any,
+			mode: "hands-free",
+			sessionId: "timeout-1",
+			timeout: 100,
+		}, config, () => {});
+		vi.advanceTimersByTime(100);
+		expect(timeoutSession.dispose).toHaveBeenCalledTimes(1);
 	});
 
 	it("shows distinct badges and border styles for focused and unfocused states", async () => {
