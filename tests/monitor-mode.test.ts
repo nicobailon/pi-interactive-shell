@@ -26,7 +26,11 @@ async function setupHarness(options: { detectorStdout?: string } = {}) {
 	let launchedCommand: string | undefined;
 	let monitorCompleteCallback: ((info: unknown) => void) | undefined;
 	let activeSession: unknown;
-	const sendMessage = vi.fn();
+	let resolveMonitorNotification!: () => void;
+	const monitorNotification = new Promise<void>((resolve) => { resolveMonitorNotification = resolve; });
+	const sendMessage = vi.fn((message: { customType?: string }) => {
+		if (message.customType === "interactive-shell-monitor-event") resolveMonitorNotification();
+	});
 
 	vi.resetModules();
 	vi.doMock("@earendil-works/pi-coding-agent", () => ({
@@ -189,6 +193,7 @@ async function setupHarness(options: { detectorStdout?: string } = {}) {
 		getDetectorLaunch: () => detectorLaunch,
 		getLaunchedCommand: () => launchedCommand,
 		getMonitorCompleteCallback: () => monitorCompleteCallback,
+		waitForMonitorNotification: () => monitorNotification,
 		setActiveSession: (session: unknown) => { activeSession = session; },
 		sendMessage,
 	};
@@ -551,7 +556,7 @@ describe("monitor mode", () => {
 			lineOrDiff: "FAIL first",
 			stream: "pty",
 		});
-		await new Promise((resolve) => setTimeout(resolve, 20));
+		await harness.waitForMonitorNotification();
 
 		const launch = harness.getDetectorLaunch();
 		expect(launch).toMatchObject({

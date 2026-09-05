@@ -1,6 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PtyTerminalSession } from "../pty-session.ts";
 import { resolvePiShell } from "../shell-resolution.ts";
+
+vi.mock("@earendil-works/pi-coding-agent", async () => ({
+	...(await vi.importActual<typeof import("@earendil-works/pi-coding-agent")>("@earendil-works/pi-coding-agent")),
+	getAgentDir: () => "/tmp/pi-agent",
+	SettingsManager: { create: () => ({ getShellPath: () => undefined }) },
+}));
 
 const sessions: PtyTerminalSession[] = [];
 
@@ -29,20 +35,29 @@ afterEach(() => {
 
 describe("PtyTerminalSession cleanup", () => {
 	it("executes commands through the resolved Pi shell argv", async () => {
+		if (process.platform === "win32") return;
+		const previousShell = process.env.SHELL;
+		process.env.SHELL = "/bin/sh";
 		const output: string[] = [];
-		const session = new PtyTerminalSession(
-			{ command: "printf 'pi-shell-argv-ok\\n'", shellConfig: resolvePiShell(process.cwd(), true) },
-			{ onData: (data) => output.push(data) },
-		);
-		sessions.push(session);
+		try {
+			let resolveExit!: () => void;
+			const exited = new Promise<void>((resolve) => { resolveExit = resolve; });
+			const session = new PtyTerminalSession(
+				{
+					command: `if [[ "$BASH" == *bash ]]; then printf 'pi-bash-selection-ok\\n'; fi`,
+					shellConfig: resolvePiShell(process.cwd(), true),
+				},
+				{ onData: (data) => output.push(data), onExit: () => resolveExit() },
+			);
+			sessions.push(session);
 
-		const deadline = Date.now() + 1000;
-		while (!session.exited && Date.now() < deadline) {
-			await new Promise((resolve) => setTimeout(resolve, 20));
+			await exited;
+			expect(session.exited).toBe(true);
+			expect(output.join("")).toContain("pi-bash-selection-ok");
+		} finally {
+			if (previousShell === undefined) delete process.env.SHELL;
+			else process.env.SHELL = previousShell;
 		}
-
-		expect(session.exited).toBe(true);
-		expect(output.join("")).toContain("pi-shell-argv-ok");
 	});
 
 	it("kill forcefully terminates an interactive shell", async () => {
