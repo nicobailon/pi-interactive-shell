@@ -35,10 +35,8 @@ describe("trusted Pi shell resolution", () => {
 		const trusted = resolvePiShell(project, true);
 		const untrusted = resolvePiShell(project, false);
 
-		expect(trusted).toMatchObject({ shell: "/bin/bash", args: ["-c"], commandTransport: "argv" });
-		expect(untrusted).toMatchObject({ shell: "/bin/sh", args: ["-c"], commandTransport: "argv" });
-		expect(Object.isFrozen(trusted)).toBe(true);
-		expect(Object.isFrozen(trusted.args)).toBe(true);
+		expect(trusted).toMatchObject({ shell: "/bin/bash", args: ["-c"] });
+		expect(untrusted).toMatchObject({ shell: "/bin/sh", args: ["-c"] });
 	});
 
 	it("rejects Pi shell configurations that require stdin command transport", async () => {

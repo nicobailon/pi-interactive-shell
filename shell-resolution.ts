@@ -13,7 +13,6 @@ import {
 export interface ResolvedShellConfig {
 	readonly shell: string;
 	readonly args: readonly string[];
-	readonly commandTransport: "argv";
 }
 
 /**
@@ -40,6 +39,5 @@ export function resolvePiShell(projectCwd: string, projectTrusted: boolean): Res
 	return Object.freeze({
 		shell: shellConfig.shell,
 		args: Object.freeze([...shellConfig.args]),
-		commandTransport: "argv" as const,
 	});
 }

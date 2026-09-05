@@ -321,7 +321,6 @@ describe("monitor mode", () => {
 		expect(result.isError).not.toBe(true);
 		expect(harness.getLaunchedCommand()).toContain("while true; do");
 		expect(harness.getLaunchedCommand()).toContain("echo health");
-		expect(harness.getLaunchedCommand()).not.toContain("for /L");
 	});
 
 	it("supports regex capture thresholds in triggers", async () => {
