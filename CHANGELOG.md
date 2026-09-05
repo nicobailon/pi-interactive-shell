@@ -4,9 +4,21 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-09-04
+
+### Highlights
+- Use the same Bash command syntax in Pi's shell tool and interactive sessions, including on Windows.
+- Choose your Bash executable with Pi's `shellPath` setting.
+- Pass prompts and watched paths containing quotes or shell symbols without changing their contents.
+
 ### Changed
-- Run new interactive PTYs, generated monitor commands, and detector commands through Pi's Bash selection on every platform, preserving generated argument contents and detector JSON stdin. Thanks to [@lazyst](https://github.com/lazyst) for [#51](https://github.com/nicobailon/pi-interactive-shell/issues/51).
-- Document Unix Bash defaults, Windows Git Bash discovery, `shellPath`, and the unsupported legacy WSL stdin transport for interactive PTYs.
+- New sessions and monitor detectors follow Pi's Bash selection and `shellPath`. Trusted project settings can override the global setting.
+- On macOS and Linux, new sessions default to Pi's Bash selection instead of `$SHELL`. Invoke zsh or fish explicitly when you need their syntax.
+- Legacy WSL stdin-only Bash launchers now report a clear error with guidance to select Git Bash.
+
+### Fixed
+- Windows sessions discover Git Bash instead of defaulting to `cmd.exe`, so Bash commands work consistently across Pi's tools. Thanks to [@lazyst](https://github.com/lazyst) for [#51](https://github.com/nicobailon/pi-interactive-shell/issues/51).
+- Generated spawn and monitor commands preserve literal quotes and shell symbols. Monitor detectors use the selected Bash executable while still receiving event data as JSON on standard input.
 
 ## [0.15.1] - 2026-08-26
 
