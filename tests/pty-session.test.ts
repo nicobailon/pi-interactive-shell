@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { PtyTerminalSession } from "../pty-session.ts";
+import { resolvePiShell } from "../shell-resolution.ts";
 
 const sessions: PtyTerminalSession[] = [];
 
@@ -27,8 +28,25 @@ afterEach(() => {
 });
 
 describe("PtyTerminalSession cleanup", () => {
+	it("executes commands through the resolved Pi shell argv", async () => {
+		const output: string[] = [];
+		const session = new PtyTerminalSession(
+			{ command: "printf 'pi-shell-argv-ok\\n'", shellConfig: resolvePiShell(process.cwd(), true) },
+			{ onData: (data) => output.push(data) },
+		);
+		sessions.push(session);
+
+		const deadline = Date.now() + 1000;
+		while (!session.exited && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+
+		expect(session.exited).toBe(true);
+		expect(output.join("")).toContain("pi-shell-argv-ok");
+	});
+
 	it("kill forcefully terminates an interactive shell", async () => {
-		const session = new PtyTerminalSession({ command: "bash -i" });
+		const session = new PtyTerminalSession({ command: "bash -i", shellConfig: resolvePiShell(process.cwd(), true) });
 		sessions.push(session);
 		const pid = session.pid;
 		await new Promise((resolve) => setTimeout(resolve, 100));

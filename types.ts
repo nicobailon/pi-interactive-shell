@@ -2,6 +2,8 @@
  * Shared types and interfaces for the interactive shell extension.
  */
 
+import type { ResolvedShellConfig } from "./shell-resolution.ts";
+
 export type DispatchCompletionReason = "exited" | "timed-out" | "killed" | "auto-close-quiet";
 
 export interface InteractiveShellResult {
@@ -131,6 +133,8 @@ export interface MonitorSessionState {
 export interface InteractiveShellOptions {
 	command: string;
 	cwd?: string;
+	/** Resolved once for a new launch; omitted when attaching to an existing PTY. */
+	shellConfig?: ResolvedShellConfig;
 	name?: string;
 	reason?: string;
 	/** Original session start time in ms since epoch, preserved across background/reattach transitions. */

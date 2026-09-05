@@ -191,6 +191,23 @@ describe("spawn helpers", () => {
 		});
 	});
 
+	it("preserves Bash-sensitive prompt contents as a literal argument", async () => {
+		const { resolveSpawn } = await import("../spawn.ts");
+		const prompt = "literal $HOME `pwd` and it's";
+		const result = resolveSpawn(config, "/tmp/project", { agent: "claude", prompt }, () => "/tmp/project/session.jsonl");
+
+		expect(result).toEqual({
+			ok: true,
+			spawn: {
+				agent: "claude",
+				mode: "fresh",
+				command: "claude 'literal $HOME `pwd` and it'\\''s'",
+				cwd: "/tmp/project",
+				reason: "spawn claude (fresh session)",
+			},
+		});
+	});
+
 	it("normalizes serialized spawn fields without erasing standalone requests", async () => {
 		const { isEmptySpawnPlaceholder, normalizeSpawnRequest } = await import("../spawn.ts");
 		expect(normalizeSpawnRequest(undefined)).toBeUndefined();

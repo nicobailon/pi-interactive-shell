@@ -9,6 +9,7 @@
     "key-encoding.ts",
     "overlay-component.ts",
     "pty-session.ts",
+    "shell-resolution.ts",
     "reattach-overlay.ts",
     "session-manager.ts",
     "tool-schema.ts",

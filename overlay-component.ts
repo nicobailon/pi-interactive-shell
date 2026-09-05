@@ -131,9 +131,13 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			this.session.setEventHandlers(ptyEvents);
 			this.session.resize(cols, rows);
 		} else {
+			if (!options.shellConfig) {
+				throw new Error("A resolved Pi shell configuration is required before starting a PTY session.");
+			}
 			this.session = new PtyTerminalSession(
 				{
 					command: options.command,
+					shellConfig: options.shellConfig,
 					cwd: options.cwd,
 					cols,
 					rows,
