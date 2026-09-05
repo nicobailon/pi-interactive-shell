@@ -292,9 +292,9 @@ function shellQuoteIfNeeded(value: string): string {
 }
 
 function shellQuote(value: string): string {
-	if (process.platform === "win32") {
-		return `"${value.replace(/"/g, '""')}"`;
-	}
+	// All generated commands run through Pi's Bash selection, including on
+	// Windows. Single-quoted Bash arguments preserve literal `$`, backticks,
+	// backslashes, and whitespace; close/reopen around embedded single quotes.
 	return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 

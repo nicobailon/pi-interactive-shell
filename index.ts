@@ -43,6 +43,7 @@ import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildMonitorEve
 import { createSessionQueryState, getSessionOutput } from "./session-query.ts";
 import { InteractiveShellCoordinator } from "./runtime-coordinator.ts";
 import { spawn as spawnChildProcess } from "node:child_process";
+import { resolvePiShell, type ResolvedShellConfig } from "./shell-resolution.ts";
 
 const coordinator = new InteractiveShellCoordinator();
 const SIDE_CHAT_SHORTCUT = "alt+/";
@@ -62,6 +63,11 @@ function scheduleMonitorHistoryCleanup(sessionId: string, delayMs = 5 * 60 * 100
 		coordinator.clearMonitorEvents(sessionId);
 	};
 	setTimeout(attempt, delayMs);
+}
+
+function describeShellResolutionError(error: unknown): string {
+	const message = error instanceof Error ? error.message : String(error);
+	return `Unable to start interactive shell: ${message}`;
 }
 
 function makeMonitorCompletionCallback(
@@ -203,20 +209,16 @@ function completedSessionDetails(
 }
 
 function buildPollDiffLoopCommand(command: string, intervalMs: number): string {
-	if (process.platform === "win32") {
-		const seconds = Math.max(1, Math.ceil(intervalMs / 1000));
-		return `for /L %i in (0,0,1) do (${command} & timeout /t ${seconds} /nobreak >nul)`;
-	}
 	const seconds = Math.max(0.25, intervalMs / 1000);
 	const roundedSeconds = Number(seconds.toFixed(3));
 	return `while true; do ${command}; sleep ${roundedSeconds}; done`;
 }
 
 function shellQuote(value: string): string {
-	if (process.platform === "win32") {
-		return `"${value.replace(/"/g, '""')}"`;
-	}
-	return `'${value.replace(/'/g, `'"'"'`)}'`;
+	// Generated monitor commands run through Pi's Bash selection on every platform.
+	// Bash single quoting keeps `$`, backticks, and backslashes literal; embedded
+	// single quotes close and reopen around the quoted argument.
+	return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function buildFileWatchCommand(fileWatch: Required<MonitorFileWatchConfig>): string {
@@ -483,17 +485,11 @@ function compileMonitorConfig(raw: MonitorConfig | undefined):
 async function runDetectorCommand(
 	detector: NonNullable<CompiledMonitorConfig["detector"]>,
 	candidate: MonitorEventPayload,
+	shellConfig: ResolvedShellConfig,
 	cwd?: string,
 ): Promise<DetectorDecision> {
 	return new Promise<DetectorDecision>((resolve, reject) => {
-		const shell = process.platform === "win32"
-			? (process.env.COMSPEC || "cmd.exe")
-			: (process.env.SHELL || "/bin/sh");
-		const args = process.platform === "win32"
-			? ["/d", "/s", "/c", detector.detectorCommand]
-			: ["-c", detector.detectorCommand];
-
-		const child = spawnChildProcess(shell, args, {
+		const child = spawnChildProcess(shellConfig.shell, [...shellConfig.args, detector.detectorCommand], {
 			cwd,
 			stdio: ["pipe", "pipe", "pipe"],
 			env: process.env,
@@ -547,6 +543,7 @@ function makeMonitorEventCallback(
 	pi: ExtensionAPI,
 	sessionId: string,
 	config: CompiledMonitorConfig,
+	shellConfig: ResolvedShellConfig,
 	cwd?: string,
 ): (event: MonitorMatchInfo) => void {
 	let queue = Promise.resolve();
@@ -578,7 +575,7 @@ function makeMonitorEventCallback(
 						eventId: 0,
 						timestamp: new Date().toISOString(),
 					};
-					const decision = await runDetectorCommand(config.detector, detectorPreview, cwd);
+					const decision = await runDetectorCommand(config.detector, detectorPreview, shellConfig, cwd);
 					if (!decision.emit) return;
 					if (decision.triggerId) candidate = { ...candidate, triggerId: decision.triggerId };
 					if (decision.eventType) candidate = { ...candidate, eventType: decision.eventType };
@@ -769,6 +766,13 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		}
 
 		const config = loadRuntimeConfig(ctx.cwd);
+		let shellConfig: ResolvedShellConfig;
+		try {
+			shellConfig = resolvePiShell(ctx.cwd, ctx.isProjectTrusted?.() ?? false);
+		} catch (error) {
+			ctx.ui.notify(describeShellResolutionError(error), "error");
+			return;
+		}
 		const spawn = resolveSpawn(config, ctx.cwd, request, () => ctx.sessionManager.getSessionFile());
 		if (!spawn.ok) {
 			ctx.ui.notify(spawn.error, "error");
@@ -785,6 +789,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					new InteractiveShellOverlay(tui, theme, {
 						command: spawn.spawn.command,
 						cwd: spawn.spawn.cwd,
+						shellConfig,
 						reason: spawn.spawn.reason,
 						onUnfocus: () => coordinator.unfocusOverlay(),
 					}, config, done),
@@ -799,7 +804,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		}
 	};
 	const startNewSession = async (params: {
-		ctx: Pick<ExtensionContext, "ui" | "cwd" | "sessionManager"> & { hasUI?: boolean };
+		ctx: Pick<ExtensionContext, "ui" | "cwd" | "sessionManager" | "isProjectTrusted"> & { hasUI?: boolean };
 		command?: string;
 		spawn?: SpawnRequest;
 		cwd?: string;
@@ -850,6 +855,17 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					details: { error: "overlay_already_open" },
 				};
 			}
+		}
+
+		let shellConfig: ResolvedShellConfig;
+		try {
+			// Resolve against Pi's trusted project context, never the command cwd.
+			shellConfig = resolvePiShell(ctx.cwd, ctx.isProjectTrusted?.() ?? false);
+		} catch (error) {
+			return {
+				content: [{ type: "text", text: describeShellResolutionError(error) }],
+				isError: true,
+			};
 		}
 
 		let effectiveCommand = command;
@@ -903,7 +919,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 			const id = generateSessionId(name);
 			const session = new PtyTerminalSession(
-				{ command: monitorCommand, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
+				{ command: monitorCommand, shellConfig, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
 			);
 			const startTime = Date.now();
 			sessionManager.add(sessionCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
@@ -916,7 +932,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				timeout,
 				startedAt: startTime,
 				monitor: compiled.runtime,
-				onMonitorEvent: makeMonitorEventCallback(pi, id, compiled, effectiveCwd),
+				onMonitorEvent: makeMonitorEventCallback(pi, id, compiled, shellConfig, effectiveCwd),
 			}, makeStructuredMonitorCompletionCallback(pi, id));
 			registerHeadlessActive(id, sessionCommand, effectiveReason, session, monitorRunner, startTime, config, "monitoring");
 
@@ -937,7 +953,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		if (effectiveMode === "dispatch" && background) {
 			const id = generateSessionId(name);
 			const session = new PtyTerminalSession(
-				{ command: launchCommand, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
+				{ command: launchCommand, shellConfig, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
 			);
 
 			const startTime = Date.now();
@@ -976,6 +992,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 						new InteractiveShellOverlay(tui, theme, {
 							command: launchCommand,
 							cwd: effectiveCwd,
+							shellConfig,
 							name,
 							reason: effectiveReason,
 							mode: effectiveMode,
@@ -1050,6 +1067,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					new InteractiveShellOverlay(tui, theme, {
 						command: launchCommand,
 						cwd: effectiveCwd,
+						shellConfig,
 						name,
 						reason: effectiveReason,
 						mode,

@@ -9,6 +9,7 @@ import {
 	buildPrimaryDeviceAttributesResponse,
 	splitAroundDeviceQueries,
 } from "./pty-protocol.ts";
+import type { ResolvedShellConfig } from "./shell-resolution.ts";
 
 const Terminal = xterm.Terminal;
 
@@ -109,7 +110,7 @@ function normalizePaletteColor(mode: "default" | "palette" | "rgb", value: numbe
 
 export interface PtySessionOptions {
 	command: string;
-	shell?: string;
+	shellConfig: ResolvedShellConfig;
 	cwd?: string;
 	env?: Record<string, string | undefined>;
 	cols?: number;
@@ -169,8 +170,13 @@ export class PtyTerminalSession {
 	}
 
 	constructor(options: PtySessionOptions, events: PtySessionEvents = {}) {
+		if (!options.shellConfig) {
+			throw new Error("A resolved Pi shell configuration is required before starting a PTY session.");
+		}
+
 		const {
 			command,
+			shellConfig,
 			cwd = process.cwd(),
 			env,
 			cols = 80,
@@ -188,12 +194,7 @@ export class PtyTerminalSession {
 			this.xterm.loadAddon(this.serializer);
 		}
 
-		const shell =
-			options.shell ??
-			(process.platform === "win32"
-				? process.env.COMSPEC || "cmd.exe"
-				: process.env.SHELL || "/bin/sh");
-		const shellArgs = process.platform === "win32" ? ["/c", command] : ["-c", command];
+		const shellArgs = [...shellConfig.args, command];
 
 		const mergedEnvRaw = env ? { ...process.env, ...env } : { ...process.env };
 		if (!mergedEnvRaw.TERM) mergedEnvRaw.TERM = "xterm-256color";
@@ -202,7 +203,7 @@ export class PtyTerminalSession {
 			if (value !== undefined) mergedEnv[key] = value;
 		}
 
-		this.ptyProcess = spawn(shell, shellArgs, {
+		this.ptyProcess = spawn(shellConfig.shell, shellArgs, {
 			name: "xterm-256color",
 			cols,
 			rows,

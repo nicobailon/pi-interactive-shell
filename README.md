@@ -437,6 +437,30 @@ Configuration files (project overrides global):
 - **Global:** `~/.pi/agent/interactive-shell.json`
 - **Project:** `.pi/interactive-shell.json`
 
+### Shell selection
+
+New sessions use the same Bash resolver as Pi rather than the ambient `$SHELL`
+or `COMSPEC`. On Unix, this changes the default from `$SHELL`/`/bin/sh` to
+Pi's Bash selection (`/bin/bash`, then `bash` on `PATH`, with Pi's documented
+fallback). On Windows, Pi discovers Git Bash in its standard install
+locations, then `bash.exe` on `PATH`.
+
+To choose a specific Bash executable, set Pi's `shellPath` in
+`~/.pi/agent/settings.json` (or trusted project `.pi/settings.json`):
+
+```json
+{
+  "shellPath": "C:/Program Files/Git/bin/bash.exe"
+}
+```
+
+Project settings follow Pi's trust rules: a trusted project's `shellPath`
+overrides the global setting, while an untrusted project's setting is ignored.
+`shellPath` must select a Bash-compatible executable; PowerShell and `cmd.exe`
+are not interactive-shell transports. Pi's legacy WSL `bash.exe` uses
+stdin-only command transport and is rejected for interactive PTYs; select Git
+Bash instead.
+
 Deferred loading and shortcut settings are pinned at startup. If you change `defer`, `focusShortcut`, or `spawn.shortcut`, reload or restart Pi to apply them.
 
 ```json

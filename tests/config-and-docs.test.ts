@@ -138,6 +138,14 @@ describe("config + docs parity", () => {
 		expect(readme).toContain(`"handsFreeQuietThreshold": ${defaults.handsFreeQuietThreshold}`);
 		expect(readme).toContain(`"autoExitGracePeriod": ${defaults.autoExitGracePeriod}`);
 		expect(readme).toContain(`Dispatch defaults \`autoExitOnQuiet: true\` — the session gets a 15s startup grace period`);
+		expect(readme).toContain("same Bash resolver as Pi");
+		expect(readme).toContain("Pi discovers Git Bash in its standard install");
+		expect(readme).toContain("locations, then `bash.exe` on `PATH`");
+		expect(readme).toContain('"shellPath": "C:/Program Files/Git/bin/bash.exe"');
+		expect(readme).toContain("trusted project's `shellPath`");
+		expect(readme).toContain("overrides the global setting");
+		expect(readme).toContain("legacy WSL `bash.exe` uses");
+		expect(readme).toContain("stdin-only command transport");
 		expect(readme).toContain('completionReason: "auto-close-quiet"');
 		expect(readme).toContain("this is not a terminal command verdict.");
 		expect(readme).toContain("provider-agnostic watch-until-terminal pattern");

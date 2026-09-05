@@ -12,20 +12,35 @@ type MonitorOptionsCapture = {
 	onMonitorEvent?: (event: unknown) => void | Promise<void>;
 } | null;
 
+type DetectorLaunchCapture = {
+	shell: string;
+	args: string[];
+	cwd?: string;
+	stdin: string;
+} | null;
+
 async function setupHarness(options: { detectorStdout?: string } = {}) {
 	let toolDef: any;
 	let monitorOptions: MonitorOptionsCapture = null;
+	let detectorLaunch: DetectorLaunchCapture = null;
 	let launchedCommand: string | undefined;
 	let monitorCompleteCallback: ((info: unknown) => void) | undefined;
 	let activeSession: unknown;
-	const sendMessage = vi.fn();
+	let resolveMonitorNotification!: () => void;
+	const monitorNotification = new Promise<void>((resolve) => { resolveMonitorNotification = resolve; });
+	const sendMessage = vi.fn((message: { customType?: string }) => {
+		if (message.customType === "interactive-shell-monitor-event") resolveMonitorNotification();
+	});
 
 	vi.resetModules();
 	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => "/tmp/pi-agent",
+		getShellConfig: () => ({ shell: "/bin/bash", args: ["-c"] }),
+		SettingsManager: { create: () => ({ getShellPath: () => undefined }) },
 	}));
 	vi.doMock("node:child_process", () => ({
-		spawn: vi.fn(() => {
+		spawn: vi.fn((shell: string, args: string[], spawnOptions: { cwd?: string }) => {
+			let stdin = "";
 			const child = new EventEmitter() as EventEmitter & {
 				stdout: EventEmitter & { setEncoding: (encoding: string) => void };
 				stderr: EventEmitter & { setEncoding: (encoding: string) => void };
@@ -34,7 +49,15 @@ async function setupHarness(options: { detectorStdout?: string } = {}) {
 			};
 			child.stdout = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
 			child.stderr = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
-			child.stdin = { write: vi.fn(), end: vi.fn() };
+			const writeStdin = vi.fn((data: string) => {
+				stdin += data;
+				if (detectorLaunch) detectorLaunch.stdin = stdin;
+			});
+			child.stdin = {
+				write: writeStdin,
+				end: vi.fn(),
+			};
+			detectorLaunch = { shell, args: [...args], cwd: spawnOptions.cwd, stdin };
 			child.kill = vi.fn();
 			process.nextTick(() => {
 				child.stdout.emit("data", options.detectorStdout ?? "");
@@ -167,8 +190,10 @@ async function setupHarness(options: { detectorStdout?: string } = {}) {
 	return {
 		toolDef,
 		getMonitorOptions: () => monitorOptions,
+		getDetectorLaunch: () => detectorLaunch,
 		getLaunchedCommand: () => launchedCommand,
 		getMonitorCompleteCallback: () => monitorCompleteCallback,
+		waitForMonitorNotification: () => monitorNotification,
 		setActiveSession: (session: unknown) => { activeSession = session; },
 		sendMessage,
 	};
@@ -394,6 +419,30 @@ describe("monitor mode", () => {
 		expect(harness.getLaunchedCommand()).toContain("uploads");
 	});
 
+	it("quotes Bash-sensitive file-watch paths literally", async () => {
+		const harness = await setupHarness();
+		const watchPath = "$HOME/it's `pwd`";
+		const result = await harness.toolDef.execute("call-1", {
+			mode: "monitor",
+			monitor: {
+				strategy: "file-watch",
+				fileWatch: { path: watchPath, events: ["change"] },
+				triggers: [{ id: "changed", literal: "CHANGE" }],
+			},
+		}, undefined, undefined, {
+			hasUI: false,
+			cwd: "/tmp/project",
+			ui: {},
+			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+		} as any);
+
+		expect(result.isError).not.toBe(true);
+		const launchedCommand = harness.getLaunchedCommand() ?? "";
+		expect(launchedCommand).toContain("$HOME/it");
+		expect(launchedCommand).toContain("`pwd`");
+		expect(launchedCommand).toContain("'\\''");
+	});
+
 	it("returns monitor status summaries", async () => {
 		const harness = await setupHarness();
 		const started = await harness.toolDef.execute("call-1", {
@@ -480,6 +529,47 @@ describe("monitor mode", () => {
 		expect(filtered.details.events[0]?.triggerId).toBe("warn");
 		expect(filtered.details.sinceEventId).toBe(1);
 		expect(filtered.details.triggerId).toBe("warn");
+	});
+
+	it("runs detector commands through the launch-resolved Bash and keeps JSON on stdin", async () => {
+		const harness = await setupHarness();
+		await harness.toolDef.execute("call-1", {
+			command: "npm test --watch",
+			mode: "monitor",
+			monitor: {
+				strategy: "stream",
+				triggers: [{ id: "fail", literal: "FAIL" }],
+				detector: { detectorCommand: "cat >/dev/null" },
+			},
+		}, undefined, undefined, {
+			hasUI: false,
+			cwd: "/tmp/project",
+			ui: {},
+			sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+		} as any);
+
+		harness.getMonitorOptions()?.onMonitorEvent?.({
+			strategy: "stream",
+			triggerId: "fail",
+			eventType: "fail",
+			matchedText: "FAIL",
+			lineOrDiff: "FAIL first",
+			stream: "pty",
+		});
+		await harness.waitForMonitorNotification();
+
+		const launch = harness.getDetectorLaunch();
+		expect(launch).toMatchObject({
+			shell: "/bin/bash",
+			args: ["-c", "cat >/dev/null"],
+			cwd: "/tmp/project",
+		});
+		expect(JSON.parse(launch?.stdin ?? "")).toMatchObject({
+			sessionId: "monitor-1",
+			triggerId: "fail",
+			matchedText: "FAIL",
+			lineOrDiff: "FAIL first",
+		});
 	});
 
 	it("rejects detectorCommand decisions with invalid shapes", async () => {

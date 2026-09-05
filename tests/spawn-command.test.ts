@@ -21,6 +21,8 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 	vi.resetModules();
 	vi.doMock("@earendil-works/pi-coding-agent", () => ({
 		getAgentDir: () => "/tmp/pi-agent",
+		getShellConfig: () => ({ shell: "/bin/bash", args: ["-c"] }),
+		SettingsManager: { create: () => ({ getShellPath: () => undefined }) },
 	}));
 	vi.doMock("@earendil-works/pi-tui", () => ({
 		matchesKey: () => false,
@@ -131,6 +133,7 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 		ui: { notify, custom },
 		cwd: "/tmp/project",
 		hasUI: true,
+		isProjectTrusted: () => true,
 		sessionManager: {
 			getSessionFile: () => "/tmp/project/session.jsonl",
 		},
@@ -217,9 +220,7 @@ describe("/spawn command, shortcut, and tool spawn", () => {
 		expect(spawn).toBeDefined();
 
 		await spawn!.handler("pi fork", harness.ctx as any);
-		const expectedForkArg = process.platform === "win32"
-			? '"/tmp/project/it\'s session.jsonl"'
-			: "'/tmp/project/it'\\''s session.jsonl'";
+		const expectedForkArg = "'/tmp/project/it'\\''s session.jsonl'";
 		expect(harness.getLastOverlayOptions()).toMatchObject({
 			command: `pi --fork ${expectedForkArg}`,
 			reason: "spawn pi (fork current session)",
