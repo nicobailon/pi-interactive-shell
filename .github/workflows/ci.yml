@@ -12,7 +12,7 @@ permissions:
 jobs:
   ci:
     name: Typecheck and test
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - name: Check out exact revision
         uses: actions/checkout@v4
