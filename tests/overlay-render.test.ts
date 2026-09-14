@@ -77,7 +77,7 @@ async function loadOverlay() {
 		add: vi.fn(() => "bg-1"),
 	};
 	vi.doMock("@earendil-works/pi-tui", () => ({
-		matchesKey: () => false,
+		matchesKey: (data: string, key: string) => data === "\x02" && key === "ctrl+b",
 		truncateToWidth: (value: string, width: number) => value.length > width ? value.slice(0, width) : value,
 		visibleWidth: (value: string) => stripAnsi(value).length,
 	}));
@@ -151,6 +151,44 @@ describe("InteractiveShellOverlay render focus cues", () => {
 			expect.objectContaining({ id: "control-1" }),
 		);
 		expect(result).toMatchObject({ backgrounded: true, backgroundId: "bg-1", sessionId: "control-1" });
+	});
+
+	it("backgrounds a hands-free session with Ctrl+B without reporting user takeover", async () => {
+		const { InteractiveShellOverlay, sessionManager } = await loadOverlay();
+		const session = createExistingSession();
+		const onHandsFreeUpdate = vi.fn();
+		let result: any;
+		const overlay = new InteractiveShellOverlay(
+			{ terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() } as any,
+			{
+				fg: (_color: string, text: string) => text,
+				bg: (_color: string, text: string) => text,
+				bold: (text: string) => text,
+			} as any,
+			{
+				command: "pi",
+				existingSession: session as any,
+				mode: "hands-free",
+				sessionId: "hands-free-1",
+				onHandsFreeUpdate,
+			},
+			config,
+			(value) => { result = value; },
+		);
+
+		const activeSession = sessionManager.registerActive.mock.calls[0][0];
+		overlay.handleInput("\x02");
+
+		expect(onHandsFreeUpdate).not.toHaveBeenCalled();
+		expect(session.write).not.toHaveBeenCalled();
+		expect(session.kill).not.toHaveBeenCalled();
+		expect(result).toMatchObject({
+			backgrounded: true,
+			backgroundId: "bg-1",
+			sessionId: "hands-free-1",
+			userTookOver: false,
+		});
+		expect(activeSession.getResult()).toEqual(result);
 	});
 
 	it("keeps completed dispatch output queryable until cleanup", async () => {

@@ -856,9 +856,6 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		// Ctrl+B: Quick background - dismiss overlay, keep process running
 		if (matchesKey(data, "ctrl+b") && !this.session.exited) {
-			if (this.state === "hands-free") {
-				this.triggerUserTakeover();
-			}
 			this.finishWithBackground();
 			return;
 		}

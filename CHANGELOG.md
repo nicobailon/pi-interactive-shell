@@ -4,6 +4,9 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+- Keep hands-free sessions under agent control when Ctrl+B moves them to the background (#54).
+
 ## [0.15.2] - 2026-09-04
 
 ### Highlights
