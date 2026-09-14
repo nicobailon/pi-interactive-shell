@@ -6,6 +6,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ### Fixed
 - Keep hands-free sessions under agent control when Ctrl+B moves them to the background (#54).
+- Prevent Linux PTY sessions from dropping final output before exit with zigpty 0.2.1 (#58).
 
 ## [0.15.2] - 2026-09-04
 
