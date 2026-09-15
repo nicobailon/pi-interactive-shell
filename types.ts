@@ -158,7 +158,7 @@ export interface InteractiveShellOptions {
 	// Auto-exit when output stops (for agents that don't exit on their own)
 	autoExitOnQuiet?: boolean;
 	autoExitGracePeriod?: number;
-	// Auto-kill timeout
+	// Local-cancellation timeout with best-effort termination
 	timeout?: number;
 	// When true, unregister active session on completion (blocking tool call path).
 	// When false/undefined, keep registered so agent can query result later.

@@ -265,6 +265,79 @@ describe("InteractiveShellOverlay render focus cues", () => {
 		expect(timeoutSession.dispose).toHaveBeenCalledTimes(1);
 	});
 
+	it("commits quiet cancellation before the final hands-free update", async () => {
+		vi.useFakeTimers();
+		const { InteractiveShellOverlay, sessionManager } = await loadOverlay();
+		const session = createExistingSession();
+		let statusAtUpdate: string | undefined;
+		let resultAtUpdate: any;
+		let activeSession: any;
+		new InteractiveShellOverlay(
+			{ terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() } as any,
+			{ fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text } as any,
+			{
+				command: "pi",
+				existingSession: session as any,
+				mode: "hands-free",
+				sessionId: "quiet-1",
+				autoExitOnQuiet: true,
+				autoExitGracePeriod: 0,
+				handsFreeQuietThreshold: 100,
+				onHandsFreeUpdate: (update) => {
+					if (update.status === "killed") {
+						statusAtUpdate = activeSession.getStatus();
+						resultAtUpdate = activeSession.getResult();
+					}
+				},
+			},
+			config,
+			() => {},
+		);
+		activeSession = sessionManager.registerActive.mock.calls[0][0];
+
+		vi.advanceTimersByTime(100);
+		expect(statusAtUpdate).toBe("killed");
+		expect(resultAtUpdate).toMatchObject({ completionReason: "auto-close-quiet", cancelled: true });
+		expect(session.kill.mock.invocationCallOrder[0]).toBeLessThan(session.dispose.mock.invocationCallOrder[0]);
+	});
+
+	it("reports forced foreground timeout as committed local cancellation", async () => {
+		vi.useFakeTimers();
+		const { InteractiveShellOverlay, sessionManager } = await loadOverlay();
+		const session = createExistingSession();
+		const updates: string[] = [];
+		let statusAtUpdate: string | undefined;
+		let resultAtUpdate: any;
+		let activeSession: any;
+		new InteractiveShellOverlay(
+			{ terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() } as any,
+			{ fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text } as any,
+			{
+				command: "pi",
+				existingSession: session as any,
+				mode: "hands-free",
+				sessionId: "timeout-1",
+				timeout: 100,
+				onHandsFreeUpdate: (update) => {
+					updates.push(update.status);
+					if (update.status === "killed") {
+						statusAtUpdate = activeSession.getStatus();
+						resultAtUpdate = activeSession.getResult();
+					}
+				},
+			},
+			config,
+			() => {},
+		);
+		activeSession = sessionManager.registerActive.mock.calls[0][0];
+
+		vi.advanceTimersByTime(100);
+		expect(updates).toEqual(["killed"]);
+		expect(statusAtUpdate).toBe("killed");
+		expect(resultAtUpdate).toMatchObject({ completionReason: "timed-out", timedOut: true, cancelled: true });
+		expect(session.kill.mock.invocationCallOrder[0]).toBeLessThan(session.dispose.mock.invocationCallOrder[0]);
+	});
+
 	it("shows distinct badges and border styles for focused and unfocused states", async () => {
 		const { InteractiveShellOverlay } = await loadOverlay();
 		const session = createExistingSession();

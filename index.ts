@@ -850,7 +850,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			}
 			if (coordinator.isOverlayOpen()) {
 				return {
-					content: [{ type: "text", text: "An interactive shell overlay is already open. Wait for it to close or kill the active session before starting a new one." }],
+					content: [{ type: "text", text: "An interactive shell overlay is already open. Wait for it to close or cancel the active session before starting a new one." }],
 					isError: true,
 					details: { error: "overlay_already_open" },
 				};
@@ -978,7 +978,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		if (returnsImmediately && generatedSessionId) {
 			if (!coordinator.beginOverlay()) {
 				return {
-					content: [{ type: "text", text: appendWorktreeNotice("An interactive shell overlay is already open. Wait for it to close or kill the active session before starting a new one.", spawnWorktreePath) }],
+					content: [{ type: "text", text: appendWorktreeNotice("An interactive shell overlay is already open. Wait for it to close or cancel the active session before starting a new one.", spawnWorktreePath) }],
 					isError: true,
 					details: { error: "overlay_already_open", spawnAgent, spawnMode, spawnWorktreePath },
 				};
@@ -1043,14 +1043,14 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				};
 			}
 			return {
-				content: [{ type: "text", text: appendWorktreeNotice(`Interactive session started: ${generatedSessionId}\nCommand: ${launchCommand}\n\nUse interactive_shell({ sessionId: "${generatedSessionId}", input: "...", submit: true }) to send input.\nUse interactive_shell({ sessionId: "${generatedSessionId}" }) to check status/output.\nUse interactive_shell({ sessionId: "${generatedSessionId}", kill: true }) to end when done.`, spawnWorktreePath) }],
+				content: [{ type: "text", text: appendWorktreeNotice(`Interactive session started: ${generatedSessionId}\nCommand: ${launchCommand}\n\nUse interactive_shell({ sessionId: "${generatedSessionId}", input: "...", submit: true }) to send input.\nUse interactive_shell({ sessionId: "${generatedSessionId}" }) to check status/output.\nUse interactive_shell({ sessionId: "${generatedSessionId}", kill: true }) to cancel local supervision when done.`, spawnWorktreePath) }],
 				details: { sessionId: generatedSessionId, status: "running", command: launchCommand, reason: effectiveReason, mode: effectiveMode, spawnAgent, spawnMode, spawnWorktreePath },
 			};
 		}
 
 		if (!coordinator.beginOverlay()) {
 			return {
-				content: [{ type: "text", text: appendWorktreeNotice("An interactive shell overlay is already open. Wait for it to close or kill the active session before starting a new one.", spawnWorktreePath) }],
+			content: [{ type: "text", text: appendWorktreeNotice("An interactive shell overlay is already open. Wait for it to close or cancel the active session before starting a new one.", spawnWorktreePath) }],
 				isError: true,
 				details: { error: "overlay_already_open", spawnAgent, spawnMode, spawnWorktreePath },
 			};
@@ -1095,7 +1095,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 										statusText = `Session ${update.sessionId} exited`;
 										break;
 									case "killed":
-										statusText = `Session ${update.sessionId} killed`;
+										statusText = `Session ${update.sessionId} cancelled; termination was attempted and subprocess exit is not confirmed`;
 										break;
 									default: {
 										const budgetInfo = update.budgetExhausted ? " [budget exhausted]" : "";
@@ -1428,9 +1428,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				// Kill
 				if (kill) {
 					const alreadyCompleted = Boolean(session.getResult());
-					if (!alreadyCompleted) {
-						coordinator.markAgentHandledCompletion(sessionId);
-					}
+					if (!alreadyCompleted) coordinator.markAgentHandledCompletion(sessionId);
 					const { output, truncated, totalBytes, totalLines, hasMore } = session.getOutput({ skipRateLimit: true, lines: outputLines, maxChars: outputMaxChars, offset: outputOffset, drain, incremental });
 					const status = session.getStatus();
 					const runtime = session.getRuntime();
@@ -1441,7 +1439,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					const truncatedNote = truncated ? ` (${totalBytes} bytes total, truncated)` : "";
 					const hasMoreNote = hasMore === true ? " (more available)" : "";
 					return {
-						content: [{ type: "text", text: `Session ${sessionId} killed after ${formatDurationMs(runtime)}${output ? `\n\nFinal output${truncatedNote}${hasMoreNote}:\n${output}` : ""}` }],
+						content: [{ type: "text", text: `Session ${sessionId} cancelled. Termination was attempted; subprocess exit is not confirmed.${output ? `\n\nOutput captured at cancellation${truncatedNote}${hasMoreNote}:\n${output}` : ""}` }],
 						details: { sessionId, status: "killed", runtime, output, outputTruncated: truncated, outputTotalBytes: totalBytes, outputTotalLines: totalLines, hasMore, previousStatus: status },
 					};
 				}

@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 type SetupOptions = {
 	sessionResult?: { exitCode: number | null };
+	activeSession?: Record<string, unknown>;
 };
 
 async function setupKillHarness(options: SetupOptions = {}) {
 	const kill = vi.fn();
+	const dispose = vi.fn();
 	const unregisterActive = vi.fn();
 	const activeSession = {
 		getResult: vi.fn(() => options.sessionResult),
@@ -19,6 +21,8 @@ async function setupKillHarness(options: SetupOptions = {}) {
 		getStatus: vi.fn(() => "running"),
 		getRuntime: vi.fn(() => 1000),
 		kill,
+		dispose,
+		...options.activeSession,
 	};
 
 	const sessionManager = {
@@ -107,7 +111,7 @@ async function setupKillHarness(options: SetupOptions = {}) {
 		ui: {},
 	} as any);
 
-	return { result, kill, unregisterActive, coordinatorInstance };
+	return { result, kill, dispose, unregisterActive, coordinatorInstance };
 }
 
 describe("session kill completion suppression", () => {
@@ -139,4 +143,39 @@ describe("session kill completion suppression", () => {
 		expect(result.isError).not.toBe(true);
 		expect(coordinatorInstance.markAgentHandledCompletion).not.toHaveBeenCalled();
 	});
+
+	it.runIf(process.platform !== "win32")("reports local cancellation truthfully when process-group signaling fails", async () => {
+		const { PtyTerminalSession } = await import("../pty-session.ts");
+		const session = new PtyTerminalSession({
+			command: "trap '' TERM; while :; do sleep 1; done",
+			shellConfig: { shell: "/bin/bash", args: ["-c"] },
+		});
+		const originalKill = process.kill.bind(process);
+		const failure = Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+		const groupKill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+			if (pid < 0) throw failure;
+			return originalKill(pid, signal);
+		});
+		const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		try {
+			const { result, unregisterActive } = await setupKillHarness({
+				activeSession: {
+					kill: () => session.kill(),
+					dispose: () => session.dispose(),
+				},
+			});
+
+			expect(result.isError).not.toBe(true);
+			expect(result.content[0].text).toBe("Session mock-session-id cancelled. Termination was attempted; subprocess exit is not confirmed.");
+			expect(result.details.status).toBe("killed");
+			expect(unregisterActive).toHaveBeenCalledWith("mock-session-id", true);
+			expect(errorLog).toHaveBeenCalledWith("interactive-shell: failed to signal PTY with SIGTERM:", failure);
+		} finally {
+			groupKill.mockRestore();
+			errorLog.mockRestore();
+			session.dispose();
+		}
+	});
+
 });

@@ -1,5 +1,4 @@
 import { stripVTControlCharacters } from "node:util";
-import { spawn, type IPty } from "zigpty";
 import type { IBufferCell, Terminal as XtermTerminal } from "@xterm/headless";
 import xterm from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -10,6 +9,7 @@ import {
 	splitAroundDeviceQueries,
 } from "./pty-protocol.ts";
 import type { ResolvedShellConfig } from "./shell-resolution.ts";
+import { createPtyProcess, type PtyProcess } from "./pty-process.ts";
 
 const Terminal = xterm.Terminal;
 
@@ -140,12 +140,14 @@ class WriteQueue {
 }
 
 export class PtyTerminalSession {
-	private ptyProcess: IPty;
+	private ptyProcess: PtyProcess;
 	private xterm: XtermTerminal;
 	private serializer: SerializeAddon | null = null;
 	private _exited = false;
 	private _exitCode: number | null = null;
 	private _signal: number | undefined;
+	private _completing = false;
+	private _disposed = false;
 	private scrollOffset = 0;
 	private followBottom = true; // Auto-scroll to bottom when new data arrives
 
@@ -203,7 +205,7 @@ export class PtyTerminalSession {
 			if (value !== undefined) mergedEnv[key] = value;
 		}
 
-		this.ptyProcess = spawn(shellConfig.shell, shellArgs, {
+		this.ptyProcess = createPtyProcess(shellConfig.shell, shellArgs, {
 			name: "xterm-256color",
 			cols,
 			rows,
@@ -212,30 +214,34 @@ export class PtyTerminalSession {
 		});
 
 		this.ptyProcess.onData((data) => {
+			if (this._disposed) return;
 			const chunk = typeof data === "string" ? data : data.toString("utf8");
 			// Handle terminal queries in order: write preceding text to xterm, then respond.
 			const { segments, trailingText, hasQuery } = splitAroundDeviceQueries(chunk);
 
 			if (!hasQuery) {
 				this.writeQueue.enqueue(async () => {
+					if (this._disposed) return;
 					this.rawOutput += chunk;
 					this.trimRawOutputIfNeeded();
 					await new Promise<void>((resolve) => {
 						this.xterm.write(chunk, () => resolve());
 					});
-					this.notifyDataListeners(chunk);
+					if (!this._disposed) this.notifyDataListeners(chunk);
 				});
 			} else {
 				for (const segment of segments) {
 					this.writeQueue.enqueue(async () => {
+						if (this._disposed) return;
 						if (segment.text) {
 							this.rawOutput += segment.text;
 							this.trimRawOutputIfNeeded();
 							await new Promise<void>((resolve) => {
 								this.xterm.write(segment.text, () => resolve());
 							});
-							this.notifyDataListeners(segment.text);
+							if (!this._disposed) this.notifyDataListeners(segment.text);
 						}
+						if (this._disposed) return;
 						if (segment.queryAfter === "cursor-position") {
 							const buffer = this.xterm.buffer.active;
 							this.ptyProcess.write(buildCursorPositionResponse(buffer.cursorY + 1, buffer.cursorX + 1));
@@ -246,46 +252,52 @@ export class PtyTerminalSession {
 				}
 				if (trailingText) {
 					this.writeQueue.enqueue(async () => {
+						if (this._disposed) return;
 						this.rawOutput += trailingText;
 						this.trimRawOutputIfNeeded();
 						await new Promise<void>((resolve) => {
 							this.xterm.write(trailingText, () => resolve());
 						});
-						this.notifyDataListeners(trailingText);
+						if (!this._disposed) this.notifyDataListeners(trailingText);
 					});
 				}
 			}
 		});
 
 		this.ptyProcess.onExit(({ exitCode, signal }) => {
+			if (this._disposed || this._completing) return;
+			this._completing = true;
 			this.clearForceKillTimer();
-			this._exited = true;
-			this._exitCode = exitCode;
-			this._signal = signal;
 
-			// Append exit message to terminal buffer, then notify handler after queue drains
+			// Append the exit message only after the backend has delivered all PTY output.
 			const exitMsg = `\n[Process exited with code ${exitCode}${signal ? ` (signal: ${signal})` : ""}]\n`;
 			this.writeQueue.enqueue(async () => {
+				if (this._disposed) return;
 				this.rawOutput += exitMsg;
 				await new Promise<void>((resolve) => {
 					this.xterm.write(exitMsg, () => resolve());
 				});
 			});
 
-			// Wait for writeQueue to drain before calling exit listeners
-			// This ensures exit message is in rawOutput and xterm buffer
+			// Public completion follows both PTY output completion and xterm rendering.
 			this.writeQueue.drain().then(() => {
+				if (this._disposed) return;
+				this._exited = true;
+				this._exitCode = exitCode;
+				this._signal = signal;
 				this.notifyExitListeners(exitCode, signal);
 			});
 		});
 	}
 
 	setEventHandlers(events: PtySessionEvents): void {
+		if (this._disposed) return;
 		this.dataHandler = events.onData;
 		this.exitHandler = events.onExit;
 	}
 
 	addDataListener(cb: (data: string) => void): () => void {
+		if (this._disposed) return () => {};
 		this.additionalDataListeners.push(cb);
 		return () => {
 			const idx = this.additionalDataListeners.indexOf(cb);
@@ -294,6 +306,7 @@ export class PtyTerminalSession {
 	}
 
 	addExitListener(cb: (exitCode: number, signal?: number) => void): () => void {
+		if (this._disposed) return () => {};
 		this.additionalExitListeners.push(cb);
 		return () => {
 			const idx = this.additionalExitListeners.indexOf(cb);
@@ -344,7 +357,7 @@ export class PtyTerminalSession {
 	}
 
 	write(data: string): void {
-		if (!this._exited) {
+		if (!this._disposed && !this._completing) {
 			this.ptyProcess.write(data);
 		}
 	}
@@ -353,7 +366,7 @@ export class PtyTerminalSession {
 		if (cols === this.xterm.cols && rows === this.xterm.rows) return;
 		if (cols < 1 || rows < 1) return;
 		this.xterm.resize(cols, rows);
-		if (!this._exited) {
+		if (!this._disposed && !this._completing) {
 			this.ptyProcess.resize(cols, rows);
 		}
 	}
@@ -598,45 +611,50 @@ export class PtyTerminalSession {
 		return this.scrollOffset > 0;
 	}
 
-	kill(signal: string = "SIGTERM"): void {
-		if (this._exited) return;
-		if (signal === "SIGKILL") this.clearForceKillTimer();
+	kill(signal: NodeJS.Signals = "SIGTERM"): void {
+		if (this._disposed || this._completing || this._exited) return;
+		const escalationPending = this.forceKillTimer !== null;
+		const signaled = this.signalBackend(signal);
 
-		const pid = this.ptyProcess.pid;
-
-		// Kill the process group first so descendants receive the signal too.
-		if (process.platform !== "win32" && pid) {
-			try {
-				process.kill(-pid, signal as NodeJS.Signals);
-			} catch {
-				// Fall through to the PTY's direct kill.
-			}
-		}
-
-		// Always ask the PTY to kill its leader as well. A successful process-group
-		// signal does not guarantee that the PTY leader has exited.
-		try {
-			this.ptyProcess.kill(signal);
-		} catch {
-			// Process may already be dead
-		}
-
-		if (signal !== "SIGKILL" && !this.forceKillTimer) {
-			this.forceKillTimer = setTimeout(() => {
-				this.forceKillTimer = null;
-				if (!this._exited) this.kill("SIGKILL");
-			}, 250);
-			this.forceKillTimer.unref?.();
+		if (signal !== "SIGKILL") {
+			if (!this.forceKillTimer) this.scheduleForceKill();
+		} else if (signaled && escalationPending) {
+			this.clearForceKillTimer();
 		}
 	}
 
+	private signalBackend(signal: NodeJS.Signals): boolean {
+		try {
+			this.ptyProcess.kill(signal);
+			return true;
+		} catch (error) {
+			console.error(`interactive-shell: failed to signal PTY with ${signal}:`, error);
+			return false;
+		}
+	}
+
+	private scheduleForceKill(): void {
+		this.forceKillTimer = setTimeout(() => {
+			this.forceKillTimer = null;
+			if (!this._disposed && !this._completing && !this._exited) this.signalBackend("SIGKILL");
+		}, 250);
+		this.forceKillTimer.unref?.();
+	}
+
 	dispose(): void {
-		this.kill("SIGKILL");
+		if (this._disposed) return;
+		this._disposed = true;
+		this.clearForceKillTimer();
+		this.signalBackend("SIGKILL");
 		try {
 			this.ptyProcess.close();
-		} catch {
-			// Ignore close errors during teardown.
+		} catch (error) {
+			console.error("interactive-shell: failed to close PTY during disposal:", error);
 		}
+		this.dataHandler = undefined;
+		this.exitHandler = undefined;
+		this.additionalDataListeners.length = 0;
+		this.additionalExitListeners.length = 0;
 		this.xterm.dispose();
 	}
 }

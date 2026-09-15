@@ -90,7 +90,7 @@ export class HeadlessDispatchMonitor {
 
 		if (options.timeout && options.timeout > 0) {
 			this.timeoutTimer = setTimeout(() => {
-				this.handleCompletion(null, undefined, true);
+				this.handleCompletion(null, undefined, true, true);
 			}, options.timeout);
 		}
 
@@ -301,18 +301,15 @@ export class HeadlessDispatchMonitor {
 
 	private handleCompletion(exitCode: number | null, signal?: number, timedOut?: boolean, cancelled?: boolean, autoClosedOnQuiet?: boolean): void {
 		if (this._disposed) return;
+		this._disposed = true;
 		if (this.options.monitor?.strategy !== "poll-diff" && this.options.onMonitorEvent) {
 			this.processMonitorData("", true);
 		}
-		this._disposed = true;
 		this.stopQuietTimer();
 		this.stopPollTimer();
 		if (this.timeoutTimer) { clearTimeout(this.timeoutTimer); this.timeoutTimer = null; }
 		this.unsubscribe();
-
-		if (timedOut || cancelled) {
-			this.session.kill();
-		}
+		if (timedOut || cancelled) this.session.kill();
 
 		const completionOutput = this.captureOutput();
 		const completionReason: DispatchCompletionReason = autoClosedOnQuiet

@@ -45,9 +45,9 @@ The `interactive-shell` skill is automatically symlinked to `~/.pi/agent/skills/
 
 **Interactive** — The overlay opens and returns a stable `sessionId` immediately. The user can type directly, and the agent can send `input` with `submit: true`, check status, or background the same id. Use for editors (`vim`), database shells (`psql`), SSH, or manual CLI flows where the next step is still interactive.
 
-**Hands-free** — The overlay opens and returns a stable `sessionId` immediately. The agent polls periodically with `sessionId` and also receives quiet/output updates. Good for long-running builds or dev servers where you want to react mid-flight (send input, check logs, kill when ready).
+**Hands-free** — The overlay opens and returns a stable `sessionId` immediately. The agent polls periodically with `sessionId` and also receives quiet/output updates. Good for long-running builds or dev servers where you want to react mid-flight (send input, check logs, or locally cancel supervision when ready).
 
-**Dispatch** — Returns immediately. No polling. The agent gets woken up via `triggerTurn` only when the session completes (natural exit, timeout, quiet detection, or user kill). The notification includes a tail of the output. This is the default for delegating work to subagents. Add `background: true` to skip the overlay entirely.
+**Dispatch** — Returns immediately. No polling. The agent gets woken up via `triggerTurn` only when the session completes or local supervision ends (natural exit, timeout, quiet detection, or user cancellation). The notification includes a captured tail of the output. This is the default for delegating work to subagents. Add `background: true` to skip the overlay entirely.
 
 **Monitor** — Returns immediately. The agent gets woken up when a configured monitor trigger emits an event, and when the monitor lifecycle stops. Supports stream triggers, poll-diff checks, first-class file watching, optional cooldowns, persistence controls, detector commands, and event history queries. Runs headless; attach to inspect if needed.
 
@@ -119,9 +119,9 @@ interactive_shell({ sessionId: "calm-reef" })
 interactive_shell({ sessionId: "calm-reef", input: "/run review", submit: true })
 interactive_shell({ sessionId: "calm-reef", inputKeys: ["ctrl+c"] })
 
-// Kill when done
+// Cancel local supervision when done (termination is best-effort)
 interactive_shell({ sessionId: "calm-reef", kill: true })
-// → { status: "killed", output: "..." }
+// → { status: "killed", output: "..." } // locally cancelled; subprocess exit is not confirmed
 ```
 
 The overlay opens for the user to watch. The agent checks in periodically. User can type anything to take over control. After taking over a monitored hands-free or dispatch session, press `Ctrl+G` to return control to the agent.
@@ -274,7 +274,7 @@ Capture output from TUI apps that don't exit cleanly:
 interactive_shell({
   command: "htop",
   mode: "hands-free",
-  timeout: 3000  // Kill after 3s, return captured output
+  timeout: 3000  // Cancel after 3s, attempt termination, return captured output
 })
 ```
 
@@ -282,7 +282,7 @@ interactive_shell({
 
 ### Auto-Exit on Quiet
 
-For fire-and-forget single-task delegations, enable auto-exit to kill the session after 8s of output silence:
+For fire-and-forget single-task delegations, enable auto-exit to cancel local supervision after 8s of output silence and attempt termination:
 
 ```typescript
 interactive_shell({
@@ -292,7 +292,7 @@ interactive_shell({
 })
 ```
 
-A 15s startup grace period prevents the session from being killed before the subprocess has time to produce output. Customize it per-call with `gracePeriod`:
+A 15s startup grace period prevents local cancellation before the subprocess has time to produce output. Customize it per-call with `gracePeriod`:
 
 ```typescript
 interactive_shell({
@@ -304,7 +304,7 @@ interactive_shell({
 
 The default grace period is also configurable globally via `autoExitGracePeriod` in the config file.
 
-For multi-turn sessions where you need back-and-forth interaction, leave it disabled (default) and use `kill: true` when done.
+For multi-turn sessions where you need back-and-forth interaction, leave it disabled (default) and use `kill: true` to cancel local supervision when done.
 
 ### Send Input
 
@@ -533,7 +533,7 @@ Deferred loading and shortcut settings are pinned at startup. If you change `def
 | `completionNotifyMaxChars` | 5000 | Max chars in completion notification (1KB-50KB) |
 | `handsFreeUpdateMode` | "on-quiet" | "on-quiet" or "interval" |
 | `handsFreeQuietThreshold` | 8000 | Silence duration before update (ms) |
-| `autoExitGracePeriod` | 15000 | Startup grace before `autoExitOnQuiet` kill (ms) |
+| `autoExitGracePeriod` | 15000 | Startup grace before `autoExitOnQuiet` cancellation (ms) |
 | `handsFreeUpdateInterval` | 60000 | Max interval between updates (ms) |
 | `handsFreeUpdateMaxChars` | 1500 | Max chars per update |
 | `handsFreeMaxTotalChars` | 100000 | Total char budget for updates |

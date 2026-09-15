@@ -11,7 +11,7 @@ export const TOOL_DESCRIPTION = `Run an interactive CLI in an overlay or managed
 
 Use interactive_shell for CLIs that need typed input, user approval, or live supervision, including coding-agent TUIs and auth flows. Use bash for non-interactive shell commands.
 
-The tool returns a stable sessionId immediately for interactive, hands-free, dispatch, and monitor sessions. Query output defaults to 20 rendered lines and 5KB, with parameters for larger, paged, incremental, or drain reads. Dispatch completion notifications include a bounded tail and set completionReason: "auto-close-quiet" when quiet auto-close ends the session.
+The tool returns a stable sessionId immediately for interactive, hands-free, dispatch, and monitor sessions. Query output defaults to 20 rendered lines and 5KB, with parameters for larger, paged, incremental, or drain reads. Dispatch completion notifications set completionReason: "auto-close-quiet" when quiet auto-close cancels local supervision and attempts termination; this is not a command-completion verdict and subprocess exit is not confirmed.
 
 Detailed mode, query, input, spawn, attach, and monitor recipes live in the bundled interactive-shell skill and README.`;
 
@@ -49,7 +49,7 @@ export const toolParameters = Type.Object({
 	),
 	kill: Type.Optional(
 		Type.Boolean({
-			description: "Kill the session (requires sessionId). Use when task appears complete.",
+			description: "Cancel the session locally and attempt termination (requires sessionId); subprocess exit is not confirmed. Use when task appears complete.",
 		}),
 	),
 	outputLines: Type.Optional(
@@ -205,7 +205,7 @@ export const toolParameters = Type.Object({
 	),
 	dismissBackground: Type.Optional(
 		Type.Union([Type.Boolean(), Type.String()], {
-			description: "Dismiss background sessions. true = all, string = specific session ID. Kills running sessions, removes exited ones.",
+			description: "Dismiss background sessions. true = all, string = specific session ID. Running sessions are cancelled locally and termination is attempted; subprocess exit is not confirmed. Exited sessions are removed.",
 		}),
 	),
 	monitorStatus: Type.Optional(
@@ -260,7 +260,7 @@ export const toolParameters = Type.Object({
 				Type.Number({ description: "Silence duration before emitting update in on-quiet mode (default: 8000ms)" }),
 			),
 			gracePeriod: Type.Optional(
-				Type.Number({ description: "Startup grace period before autoExitOnQuiet can kill the session (default: 15000ms)" }),
+				Type.Number({ description: "Startup grace period before autoExitOnQuiet cancels local supervision and attempts termination; subprocess exit is not confirmed (default: 15000ms)" }),
 			),
 			updateMaxChars: Type.Optional(
 				Type.Number({ description: "Max chars per update (default: 1500)" }),
@@ -270,7 +270,7 @@ export const toolParameters = Type.Object({
 			),
 			autoExitOnQuiet: Type.Optional(
 				Type.Boolean({
-					description: "Auto-kill session when output stops (after quietThreshold). Defaults to true in dispatch mode and false in hands-free mode.",
+					description: "Auto-cancel local session supervision and attempt termination when output stops (after quietThreshold); subprocess exit is not confirmed. Defaults to true in dispatch mode and false in hands-free mode.",
 				}),
 			),
 		}),
@@ -293,7 +293,7 @@ export const toolParameters = Type.Object({
 	),
 	timeout: Type.Optional(
 		Type.Number({
-			description: "Auto-kill process after N milliseconds. Useful for TUI commands that don't exit cleanly (e.g., 'pi --help')",
+			description: "Cancel local supervision after N milliseconds and attempt termination; subprocess exit is not confirmed. Useful for TUI commands that don't exit cleanly (e.g., 'pi --help')",
 		}),
 	),
 });

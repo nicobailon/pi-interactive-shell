@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellSessionManager } from "../session-manager.ts";
 import type { ActiveSession } from "../session-manager.ts";
+import { PtyTerminalSession } from "../pty-session.ts";
+import { resolvePiShell } from "../shell-resolution.ts";
 
 function createSession() {
 	return {
@@ -102,5 +104,38 @@ describe("ShellSessionManager", () => {
 		manager.killAll();
 		expect(backgroundSession.dispose).toHaveBeenCalledTimes(1);
 		expect(activeKill).toHaveBeenCalledTimes(1);
+	});
+
+	it.runIf(process.platform !== "win32")("shuts down a shared background and active PTY only once", async () => {
+		vi.useRealTimers();
+		let resolveReady!: () => void;
+		const ready = new Promise<void>((resolve) => { resolveReady = resolve; });
+		const session = new PtyTerminalSession(
+			{ command: "trap '' TERM; printf 'ready\\n'; while :; do sleep 1; done", shellConfig: resolvePiShell(process.cwd(), true) },
+			{ onData: (data) => { if (data.includes("ready")) resolveReady(); } },
+		);
+		await ready;
+		const manager = new ShellSessionManager();
+		manager.add("shared", session, undefined, undefined, { id: "shared-shutdown" });
+		const staleExit = vi.fn();
+		session.addExitListener(staleExit);
+		manager.registerActive(createActiveSession({ id: "shared-shutdown", kill: () => session.kill() }));
+		const groupSignals: Array<string | number | undefined> = [];
+		const groupKill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+			if (pid < 0) {
+				groupSignals.push(signal);
+				return true;
+			}
+			return true;
+		});
+
+		manager.killAll();
+		manager.killAll();
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(groupSignals).toEqual(["SIGTERM", "SIGKILL"]);
+		expect(manager.list()).toEqual([]);
+		expect(manager.getActive("shared-shutdown")).toBeUndefined();
+		expect(staleExit).not.toHaveBeenCalled();
+		groupKill.mockRestore();
 	});
 });

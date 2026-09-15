@@ -11,8 +11,14 @@ permissions:
 
 jobs:
   ci:
-    name: Typecheck and test
-    runs-on: macos-latest
+    name: Typecheck and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-latest
     steps:
       - name: Check out exact revision
         uses: actions/checkout@v4
