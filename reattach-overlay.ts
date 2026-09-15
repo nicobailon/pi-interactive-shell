@@ -172,6 +172,7 @@ export class ReattachOverlay implements Component, Focusable {
 	private finishWithKill(): void {
 		if (this.finished) return;
 		this.finished = true;
+		this.session.kill();
 		this.stopCountdown();
 		const handoffPreview = this.maybeBuildHandoffPreview("kill");
 		const handoff = this.maybeWriteHandoffSnapshot("kill");
@@ -189,6 +190,7 @@ export class ReattachOverlay implements Component, Focusable {
 
 	private finishWithTransfer(): void {
 		if (this.finished) return;
+		this.session.kill();
 		this.finished = true;
 		this.stopCountdown();
 
@@ -206,7 +208,7 @@ export class ReattachOverlay implements Component, Focusable {
 			transferred,
 			completionOutput,
 			handoffPreview,
-			handoff,
+		handoff,
 		});
 	}
 
@@ -395,7 +397,7 @@ export class ReattachOverlay implements Component, Focusable {
 			const opts: Array<{ key: DialogChoice; label: string }> = [
 				{ key: "transfer", label: "Transfer output to agent" },
 				{ key: "background", label: "Run in background" },
-				{ key: "kill", label: "Kill process" },
+				{ key: "kill", label: "Cancel session" },
 				{ key: "cancel", label: "Cancel (return to session)" },
 			];
 			for (const opt of opts) {

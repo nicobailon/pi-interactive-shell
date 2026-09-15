@@ -117,7 +117,7 @@ interactive_shell({
 // → Do other work. When session completes, you receive notification with output.
 ```
 
-Dispatch defaults `autoExitOnQuiet: true`. A quiet TUI auto-closes after the threshold and reports `completionReason: "auto-close-quiet"` separately from a user kill. This is not a terminal command verdict. The agent can still query the sessionId if needed, but doesn't have to.
+Dispatch defaults `autoExitOnQuiet: true`. A quiet TUI stops local supervision after the threshold, attempts termination, and reports `completionReason: "auto-close-quiet"` separately from user cancellation. Subprocess exit is not confirmed, and this is not a terminal command verdict. The agent can still query the sessionId if needed, but doesn't have to.
 
 For a provider-agnostic external gate watcher, use `mode: "monitor"`, set `handsFree: { autoExitOnQuiet: false }`, set a hard `timeout`, and match explicit terminal lines such as `ready`, `blocked`, and `stale-head`. The watcher command must exit only after it emits a terminal line. If raw dispatch is required, disable quiet auto-close and treat `completionReason: "auto-close-quiet"` as non-terminal.
 
@@ -166,7 +166,7 @@ interactive_shell({
 Use monitor mode for log watchers and long-running checks where polling would be noisy or expensive.
 
 ### Hands-Free (Foreground Subagent) - NON-BLOCKING
-Agent works autonomously, **returns immediately** with sessionId. You query for status/output and kill when done.
+Agent works autonomously, **returns immediately** with sessionId. You query for status/output and cancel local supervision when done.
 
 ```typescript
 // 1. Start session - returns immediately
@@ -181,9 +181,9 @@ interactive_shell({
 interactive_shell({ sessionId: "calm-reef" })
 // Returns: { status: "running", output: "...", runtime: 30000 }
 
-// 3. When you see task is complete, kill session
+// 3. When you see task is complete, cancel local supervision
 interactive_shell({ sessionId: "calm-reef", kill: true })
-// Returns: { status: "killed", output: "final output..." }
+// Returns: { status: "killed", output: "captured output..." } // local cancellation; subprocess exit is not confirmed
 ```
 
 This is the primary pattern for **foreground subagents** - you delegate to pi (or another agent), query for progress, and decide when the task is done.
@@ -208,7 +208,7 @@ interactive_shell({ sessionId: "calm-reef" })
 ```
 
 Returns:
-- `status`: "running" | "monitoring" | "user-takeover" | "exited" | "killed" | "backgrounded"
+- `status`: "running" | "monitoring" | "user-takeover" | "exited" | "killed" | "backgrounded" (`killed` is local cancellation after best-effort termination signaling, not confirmed subprocess exit)
 - `output`: Last 20 lines of rendered terminal (clean, no TUI animation noise)
 - `runtime`: Time elapsed in ms
 
@@ -219,11 +219,11 @@ Returns:
 interactive_shell({ sessionId: "calm-reef", kill: true })
 ```
 
-Kill when you see the task is complete in the output. Returns final status and output.
+Use `kill: true` when the task looks complete to cancel local supervision and attempt termination. Returned output is captured at cancellation and may be incomplete.
 
 ### Fire-and-Forget Tasks
 
-For single-task delegations where you don't need multi-turn interaction, enable auto-exit so the session kills itself when the agent goes quiet:
+For single-task delegations where you don't need multi-turn interaction, enable auto-exit so local supervision stops and termination is attempted when the agent goes quiet:
 
 ```typescript
 interactive_shell({
@@ -232,7 +232,7 @@ interactive_shell({
   reason: "Security review",
   handsFree: { autoExitOnQuiet: true }
 })
-// Session auto-kills after ~8s of quiet (after the startup grace period)
+// Session auto-cancels after ~8s of quiet (after the startup grace period)
 // Read results from file:
 // read("/tmp/security-review.md")
 ```
@@ -241,7 +241,7 @@ interactive_shell({
 
 ### Multi-Turn Sessions (default)
 
-For back-and-forth interaction, leave auto-exit disabled (the default). Query status and kill manually when done:
+For back-and-forth interaction, leave auto-exit disabled (the default). Query status and cancel manually when done:
 
 ```typescript
 interactive_shell({
@@ -253,7 +253,7 @@ interactive_shell({
 // Send follow-up prompts
 interactive_shell({ sessionId: "calm-reef", input: "Now fix the tests", submit: true })
 
-// Kill when done
+// Cancel local supervision when done
 interactive_shell({ sessionId: "calm-reef", kill: true })
 ```
 
@@ -491,11 +491,11 @@ Write your findings to .pi/delegation/claude-handoff.md including:
 interactive_shell({
   command: "pi --help",
   mode: "hands-free",
-  timeout: 5000  // Auto-kill after 5 seconds
+  timeout: 5000  // Auto-cancel after 5 seconds and attempt termination
 })
 ```
 
-The process is killed after timeout and captured output is returned in the handoff preview. This is useful for:
+The session is locally cancelled after timeout, termination is attempted, and captured output is returned in the handoff preview. Subprocess exit is not confirmed. This is useful for:
 - Getting CLI help from TUI applications
 - Capturing output from commands that don't exit cleanly
 - Any TUI command where you need quick output without user interaction
@@ -516,7 +516,7 @@ interactive_shell({ attach: "calm-reef" })                    // interactive (bl
 interactive_shell({ attach: "calm-reef", mode: "hands-free" })  // hands-free (poll)
 interactive_shell({ attach: "calm-reef", mode: "dispatch" })    // dispatch (notified)
 
-// Dismiss background sessions (kill running, remove exited)
+// Dismiss background sessions (cancel running, remove exited)
 interactive_shell({ dismissBackground: true })               // all
 interactive_shell({ dismissBackground: "calm-reef" })        // specific
 
@@ -552,10 +552,10 @@ interactive_shell({ dismissBackground: "keen-cove" })
 interactive_shell({ dismissBackground: true })
 ```
 
-To kill all backgrounded interactive shell sessions and their processes in one sweep, use `interactive_shell({ dismissBackground: true })`.
+To locally cancel and dismiss all backgrounded interactive shell sessions in one sweep, use `interactive_shell({ dismissBackground: true })`. Termination is attempted but subprocess exit is not confirmed.
 
 Decision rule:
-- **One-off test / repro / validation run** → kill or dismiss it when done.
+- **One-off test / repro / validation run** → cancel or dismiss it when done.
 - **Dev server / watch mode / ongoing manual check** → background only if the user wants it preserved.
 
 If the user backgrounds a session manually with `Ctrl+B`, the agent should still clean it up later unless the user clearly wants it kept.

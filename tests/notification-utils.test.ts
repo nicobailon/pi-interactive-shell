@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildIdlePromptWarning, buildMonitorEventNotification, buildMonitorLifecycleNotification, buildResultNotification } from "../notification-utils.ts";
+import { buildDispatchNotification, buildHandsFreeUpdateMessage, buildIdlePromptWarning, buildMonitorEventNotification, buildMonitorLifecycleNotification, buildResultNotification, summarizeInteractiveResult } from "../notification-utils.ts";
 
 describe("notification utilities", () => {
 	it("formats compact dispatch notifications with a trimmed tail", () => {
@@ -24,18 +24,20 @@ describe("notification utilities", () => {
 			cancelled: true,
 			autoClosedOnQuiet: true,
 		}, "30s");
-		expect(text).toContain("Session calm-reef auto-closed after quiet (30s). This is not a terminal command verdict.");
+		expect(text).toContain("Session calm-reef auto-closed after quiet (30s). Local supervision stopped; termination was attempted and subprocess exit is not confirmed. This is not a terminal command verdict.");
 		expect(text).not.toContain("was killed");
 		expect(text).not.toContain("completed successfully");
 	});
 
-	it("formats explicitly cancelled dispatch notifications as killed", () => {
+	it("describes explicit cancellation as best-effort local supervision", () => {
 		const text = buildDispatchNotification("calm-reef", {
 			exitCode: null,
 			completionReason: "killed",
 			cancelled: true,
+			completionOutput: { lines: ["captured"], totalLines: 1, truncated: false },
 		}, "30s");
-		expect(text).toContain("Session calm-reef was killed (30s).");
+		expect(text).toContain("Session calm-reef cancelled (30s). Termination was attempted; subprocess exit is not confirmed.");
+		expect(text).toContain("Output captured at cancellation:");
 	});
 
 	it("marks an overlay quiet auto-close as non-terminal", () => {
@@ -46,6 +48,45 @@ describe("notification utilities", () => {
 			cancelled: true,
 		});
 		expect(text).toContain("This is not a terminal command verdict.");
+		expect(text).toContain("Local supervision stopped; termination was attempted and subprocess exit is not confirmed.");
+	});
+
+	it("describes timeout as local cancellation rather than natural exit", () => {
+		const text = buildResultNotification("calm-reef", {
+			exitCode: null,
+			completionReason: "timed-out",
+			backgrounded: false,
+			cancelled: true,
+			timedOut: true,
+		});
+		expect(text).toContain("Session calm-reef cancelled after timeout. Local supervision stopped; termination was attempted and subprocess exit is not confirmed.");
+		expect(text).not.toContain("exited");
+	});
+
+	it("summarizes cancellation as attempted but unconfirmed termination", () => {
+		const timeout = summarizeInteractiveResult("sleep 10", {
+			exitCode: null,
+			completionReason: "timed-out",
+			backgrounded: false,
+			cancelled: true,
+			timedOut: true,
+		}, 1000);
+		const quiet = summarizeInteractiveResult("sleep 10", {
+			exitCode: null,
+			completionReason: "auto-close-quiet",
+			backgrounded: false,
+			cancelled: true,
+		});
+		const cancelled = summarizeInteractiveResult("sleep 10", {
+			exitCode: null,
+			completionReason: "killed",
+			backgrounded: false,
+			cancelled: true,
+		});
+		for (const summary of [timeout, quiet, cancelled]) {
+			expect(summary).toContain("termination was attempted and subprocess exit is not confirmed");
+		}
+		expect(quiet).toContain("This is not a terminal command verdict");
 	});
 
 	it("formats final result notifications", () => {

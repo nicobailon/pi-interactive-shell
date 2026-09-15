@@ -351,26 +351,19 @@ export class ShellSessionManager {
 	}
 
 	killAll(): void {
-		// Kill all background sessions
-		// Collect IDs first to avoid modifying map during iteration
-		const bgIds = Array.from(this.sessions.keys());
-		for (const id of bgIds) {
-			this.remove(id);
-		}
-
 		// Kill all active hands-free sessions
 		// Collect entries first since kill() may trigger unregisterActive()
 		const activeEntries = Array.from(this.activeSessions.entries());
-		for (const [id, session] of activeEntries) {
-			try {
-				session.kill();
-				// Only release ID if kill succeeded - let natural cleanup handle failures
-				// The session's exit handler will call unregisterActive() which releases the ID
-			} catch (error) {
-				console.error(`interactive-shell: failed to kill active session ${id} during shutdown`, error);
-				// Keep the slug reservation when kill fails so a potentially still-running
-				// session cannot collide with a newly generated ID.
-			}
+		for (const [, session] of activeEntries) {
+			session.kill();
+		}
+
+		// Active and background maps can share a PtyTerminalSession. Cancel through
+		// the active owner first, then dispose background storage idempotently.
+		const bgIds = Array.from(this.sessions.keys());
+		for (const id of bgIds) {
+			this.remove(id);
+			this.unregisterActive(id, false);
 		}
 		// Don't clear immediately - let unregisterActive() handle cleanup as sessions exit
 		// This prevents ID reuse while processes are still terminating

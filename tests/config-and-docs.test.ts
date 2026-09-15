@@ -154,6 +154,12 @@ describe("config + docs parity", () => {
 		expect(skill).toContain('completionReason: "auto-close-quiet"');
 		expect(skill).toContain("provider-agnostic external gate watcher");
 		expect(toolSchema).toContain('completionReason: "auto-close-quiet"');
+		expect(toolSchema).toContain('Dispatch completion notifications set completionReason: "auto-close-quiet" when quiet auto-close cancels local supervision and attempts termination; this is not a command-completion verdict and subprocess exit is not confirmed.');
+		expect(toolSchema).toContain("Cancel the session locally and attempt termination (requires sessionId); subprocess exit is not confirmed.");
+		expect(toolSchema).toContain("Running sessions are cancelled locally and termination is attempted; subprocess exit is not confirmed.");
+		expect(toolSchema).toContain("Startup grace period before autoExitOnQuiet cancels local supervision and attempts termination; subprocess exit is not confirmed");
+		expect(toolSchema).toContain("Auto-cancel local session supervision and attempt termination when output stops (after quietThreshold); subprocess exit is not confirmed.");
+		expect(toolSchema).toContain("Cancel local supervision after N milliseconds and attempt termination; subprocess exit is not confirmed.");
 		expect(readme).toContain('submit: true');
 		expect(readme).toContain('raw `input` only types text. It does not submit the prompt.');
 		expect(skill).toContain("~8s of quiet");

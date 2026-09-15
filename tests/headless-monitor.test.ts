@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HeadlessDispatchMonitor } from "../headless-monitor.ts";
 import type { InteractiveShellConfig } from "../config.ts";
+import { PtyTerminalSession } from "../pty-session.ts";
+import { resolvePiShell } from "../shell-resolution.ts";
 
 const config: InteractiveShellConfig = {
 	defer: false,
@@ -78,7 +80,10 @@ describe("HeadlessDispatchMonitor", () => {
 	it("does not reset quiet timer for ANSI-only data", () => {
 		const session = createSession();
 		const onComplete = vi.fn();
-		new HeadlessDispatchMonitor(session, config, {
+		let cancelledAfterCommit = false;
+		let monitor!: HeadlessDispatchMonitor;
+		session.kill.mockImplementation(() => { cancelledAfterCommit = monitor.disposed; });
+		monitor = new HeadlessDispatchMonitor(session, config, {
 			autoExitOnQuiet: true,
 			quietThreshold: 1000,
 			gracePeriod: 0,
@@ -88,6 +93,7 @@ describe("HeadlessDispatchMonitor", () => {
 		session.emitData("\u001b[2K\u001b[1G");
 		vi.advanceTimersByTime(1000);
 		expect(session.kill).toHaveBeenCalledTimes(1);
+		expect(cancelledAfterCommit).toBe(true);
 		expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({
 			cancelled: true,
 			autoClosedOnQuiet: true,
@@ -152,6 +158,62 @@ describe("HeadlessDispatchMonitor", () => {
 			cancelled: true,
 			completionReason: "killed",
 		}));
+	});
+
+	it("reports timeout as local cancellation", () => {
+		const session = createSession();
+		const onComplete = vi.fn();
+		const monitor = new HeadlessDispatchMonitor(session, config, {
+			autoExitOnQuiet: false,
+			quietThreshold: 1000,
+			timeout: 100,
+		}, onComplete);
+
+		vi.advanceTimersByTime(100);
+
+		expect(session.kill).toHaveBeenCalledTimes(1);
+		expect(monitor.getResult()).toEqual(expect.objectContaining({
+			completionReason: "timed-out",
+			timedOut: true,
+			cancelled: true,
+		}));
+		expect(onComplete).toHaveBeenCalledTimes(1);
+	});
+
+	it.runIf(process.platform !== "win32")("publishes one local cancellation when final escalation fails", async () => {
+		vi.useRealTimers();
+		let resolveReady!: () => void;
+		const ready = new Promise<void>((resolve) => { resolveReady = resolve; });
+		const session = new PtyTerminalSession(
+			{ command: "trap '' TERM; printf 'ready\\n'; while :; do sleep 1; done", shellConfig: resolvePiShell(process.cwd(), true) },
+			{ onData: (data) => { if (data.includes("ready")) resolveReady(); } },
+		);
+		await ready;
+		const originalKill = process.kill.bind(process);
+		let groupAttempt = 0;
+		const failure = Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+		const groupKill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+			if (pid >= 0) return originalKill(pid, signal);
+			groupAttempt++;
+			if (groupAttempt === 1) return true;
+			throw failure;
+		});
+		const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+		const onComplete = vi.fn();
+		const monitor = new HeadlessDispatchMonitor(session, config, { autoExitOnQuiet: false, quietThreshold: 1000 }, onComplete);
+
+		monitor.kill();
+		expect(monitor.disposed).toBe(true);
+		expect(onComplete).toHaveBeenCalledTimes(1);
+		expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ completionReason: "killed", cancelled: true }));
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(groupAttempt).toBe(2);
+		expect(onComplete).toHaveBeenCalledTimes(1);
+		expect(errorLog).toHaveBeenCalledWith("interactive-shell: failed to signal PTY with SIGKILL:", failure);
+
+		groupKill.mockRestore();
+		errorLog.mockRestore();
+		session.dispose();
 	});
 
 	it("emits stream monitor events from ANSI-stripped line output", () => {

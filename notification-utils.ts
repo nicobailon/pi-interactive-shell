@@ -9,6 +9,7 @@ export function buildDispatchNotification(sessionId: string, info: HeadlessCompl
 	if (info.completionOutput && info.completionOutput.totalLines > 0) {
 		parts.push(` ${info.completionOutput.totalLines} lines of output.`);
 	}
+	if (info.cancelled && info.completionOutput?.lines.length) parts.push("\n\nOutput captured at cancellation:");
 	appendTailBlock(parts, info.completionOutput?.lines, BRIEF_TAIL_LINES);
 	parts.push(`\n\nAttach to review full output: interactive_shell({ attach: "${sessionId}" })`);
 	return parts.join("");
@@ -20,7 +21,8 @@ export function buildResultNotification(sessionId: string, result: InteractiveSh
 		const truncNote = result.completionOutput.truncated
 			? ` (truncated from ${result.completionOutput.totalLines} total lines)`
 			: "";
-		parts.push(`\nOutput (${result.completionOutput.lines.length} lines${truncNote}):\n\n${result.completionOutput.lines.join("\n")}`);
+		const outputLabel = result.cancelled ? "Output captured at cancellation" : "Output";
+		parts.push(`\n${outputLabel} (${result.completionOutput.lines.length} lines${truncNote}):\n\n${result.completionOutput.lines.join("\n")}`);
 	}
 	return parts.join("");
 }
@@ -42,7 +44,7 @@ export function buildMonitorLifecycleNotification(state: MonitorSessionState): s
 	if (reason === "stream-ended") {
 		headline = `Monitor ${state.sessionId} stream ended.`;
 	} else if (reason === "timed-out") {
-		headline = `Monitor ${state.sessionId} timed out.`;
+		headline = `Monitor ${state.sessionId} cancelled after timeout. Local supervision stopped; termination was attempted and subprocess exit is not confirmed.`;
 	} else if (reason === "script-failed") {
 		headline = `Monitor ${state.sessionId} script failed.`;
 	} else {
@@ -76,7 +78,7 @@ export function buildHandsFreeUpdateMessage(update: HandsFreeUpdate): { content:
 			statusLine = `Session ${update.sessionId} exited (${formatDurationMs(update.runtime)})`;
 			break;
 		case "killed":
-			statusLine = `Session ${update.sessionId} killed (${formatDurationMs(update.runtime)})`;
+			statusLine = `Session ${update.sessionId} cancelled (${formatDurationMs(update.runtime)}). Termination was attempted; subprocess exit is not confirmed.`;
 			break;
 		case "user-takeover":
 			statusLine = `Session ${update.sessionId}: user took over (${formatDurationMs(update.runtime)})`;
@@ -136,17 +138,17 @@ export function buildIdlePromptWarning(command: string, reason: string | undefin
 }
 
 function buildDispatchStatusLine(sessionId: string, info: HeadlessCompletionInfo, duration: string): string {
-	if (info.timedOut) return `Session ${sessionId} timed out (${duration}).`;
-	if (info.completionReason === "auto-close-quiet") return `Session ${sessionId} auto-closed after quiet (${duration}). This is not a terminal command verdict.`;
-	if (info.cancelled) return `Session ${sessionId} was killed (${duration}).`;
+	if (info.timedOut) return `Session ${sessionId} cancelled after timeout (${duration}). Local supervision stopped; termination was attempted and subprocess exit is not confirmed.`;
+	if (info.completionReason === "auto-close-quiet") return `Session ${sessionId} auto-closed after quiet (${duration}). Local supervision stopped; termination was attempted and subprocess exit is not confirmed. This is not a terminal command verdict.`;
+	if (info.cancelled) return `Session ${sessionId} cancelled (${duration}). Termination was attempted; subprocess exit is not confirmed.`;
 	if (info.exitCode === 0) return `Session ${sessionId} completed successfully (${duration}).`;
 	return `Session ${sessionId} exited with code ${info.exitCode} (${duration}).`;
 }
 
 function buildResultStatusLine(sessionId: string, result: InteractiveShellResult): string {
-	if (result.timedOut) return `Session ${sessionId} timed out.`;
-	if (result.completionReason === "auto-close-quiet") return `Session ${sessionId} auto-closed after quiet. This is not a terminal command verdict.`;
-	if (result.cancelled) return `Session ${sessionId} was killed.`;
+	if (result.timedOut) return `Session ${sessionId} cancelled after timeout. Local supervision stopped; termination was attempted and subprocess exit is not confirmed.`;
+	if (result.completionReason === "auto-close-quiet") return `Session ${sessionId} auto-closed after quiet. Local supervision stopped; termination was attempted and subprocess exit is not confirmed. This is not a terminal command verdict.`;
+	if (result.cancelled) return `Session ${sessionId} cancelled. Termination was attempted; subprocess exit is not confirmed.`;
 	if (result.exitCode === 0) return `Session ${sessionId} completed successfully.`;
 	return `Session ${sessionId} exited with code ${result.exitCode}.`;
 }
@@ -159,8 +161,9 @@ function buildInteractiveSummary(result: InteractiveShellResult, timeout?: numbe
 	if (result.backgrounded) {
 		return `Session running in background (id: ${result.backgroundId}). User can reattach with /attach ${result.backgroundId}`;
 	}
-	if (result.cancelled) return "User killed the interactive session";
-	if (result.timedOut) return `Session killed after timeout (${timeout ?? "?"}ms)`;
+	if (result.completionReason === "auto-close-quiet") return "Interactive session auto-closed after quiet; local supervision stopped, termination was attempted and subprocess exit is not confirmed. This is not a terminal command verdict";
+	if (result.timedOut) return `Interactive session locally cancelled after timeout (${timeout ?? "?"}ms); termination was attempted and subprocess exit is not confirmed`;
+	if (result.cancelled) return "Interactive session locally cancelled; termination was attempted and subprocess exit is not confirmed";
 	const status = result.exitCode === 0 ? "successfully" : `with code ${result.exitCode}`;
 	return `Session ended ${status}`;
 }

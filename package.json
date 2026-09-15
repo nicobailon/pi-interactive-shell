@@ -8,6 +8,7 @@
     "config.ts",
     "key-encoding.ts",
     "overlay-component.ts",
+    "pty-process.ts",
     "pty-session.ts",
     "shell-resolution.ts",
     "reattach-overlay.ts",

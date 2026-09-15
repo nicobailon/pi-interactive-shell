@@ -6,6 +6,8 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ### Fixed
 - Keep hands-free sessions under agent control when Ctrl+B moves them to the background (#54).
+- Preserve final PTY output before reporting process completion on Linux (#58).
+- Clarify that cancellation uses best-effort termination signaling and does not confirm every subprocess exited.
 
 ## [0.15.2] - 2026-09-04
 

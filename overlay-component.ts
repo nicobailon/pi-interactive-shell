@@ -262,11 +262,9 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		}, 16);
 	}
 
-	/** Kill the session programmatically */
+	/** Cancel local session supervision programmatically. */
 	killSession(): void {
-		if (!this.finished) {
-			this.finishWithKill();
-		}
+		if (!this.finished) this.finishWithKill();
 	}
 
 	private startExitCountdown(): void {
@@ -327,7 +325,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.quietTimer = setTimeout(() => {
 			this.quietTimer = null;
 			if (this.state === "hands-free") {
-				// Auto-exit on quiet: kill session when output stops (agent likely finished task)
+				// Auto-exit on quiet: cancel local supervision when output stops.
 				if (this.options.autoExitOnQuiet) {
 					const gracePeriod = this.options.autoExitGracePeriod ?? this.config.autoExitGracePeriod;
 					if (Date.now() - this.startTime < gracePeriod) {
@@ -343,20 +341,20 @@ export class InteractiveShellOverlay implements Component, Focusable {
 						this.emitHandsFreeUpdate();
 						this.hasUnsentData = false;
 					}
-					// Send completion notification and auto-close.
-					// This is a quiet auto-close, not a command completion verdict.
-					if (this.options.onHandsFreeUpdate && this.sessionId) {
-						this.options.onHandsFreeUpdate({
-							status: "killed",
-							sessionId: this.sessionId,
-							runtime: Date.now() - this.startTime,
-							tail: [],
-							tailTruncated: false,
-							totalCharsSent: this.totalCharsSent,
-							budgetExhausted: this.budgetExhausted,
-						});
-					}
-					this.finishWithKill("auto-close-quiet");
+					this.finishWithKill("auto-close-quiet", () => {
+						// Legacy killed status means local quiet cancellation, not command exit.
+						if (this.options.onHandsFreeUpdate && this.sessionId) {
+							this.options.onHandsFreeUpdate({
+								status: "killed",
+								sessionId: this.sessionId,
+								runtime: Date.now() - this.startTime,
+								tail: [],
+								tailTruncated: false,
+								totalCharsSent: this.totalCharsSent,
+								budgetExhausted: this.budgetExhausted,
+							});
+						}
+					});
 					return;
 				}
 				// Normal behavior: just emit update
@@ -593,7 +591,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		options.push(
 			{ key: "transfer", label: "Transfer output to agent" },
 			{ key: "background", label: "Run in background" },
-			{ key: "kill", label: "Kill process" },
+			{ key: "kill", label: "Cancel session" },
 			{ key: "cancel", label: "Cancel (return to session)" },
 		);
 		return options;
@@ -695,9 +693,10 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.done(result);
 	}
 
-	private finishWithKill(completionReason: InteractiveShellResult["completionReason"] = "killed"): void {
+	private finishWithKill(completionReason: InteractiveShellResult["completionReason"] = "killed", onCommitted?: () => void): void {
 		if (this.finished) return;
 		this.finished = true;
+		this.session.kill();
 		this.stopCountdown();
 		this.stopTimeout();
 		this.stopHandsFreeUpdates();
@@ -705,7 +704,6 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const handoffPreview = this.maybeBuildHandoffPreview("kill");
 		const handoff = this.maybeWriteHandoffSnapshot("kill");
 		const completionOutput = this.captureCompletionOutput();
-		this.session.kill();
 		const result: InteractiveShellResult = {
 			exitCode: null,
 			completionReason,
@@ -718,6 +716,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			handoff,
 		};
 		this.completionResult = result;
+		onCommitted?.();
 		this.triggerCompleteCallbacks();
 		if (!this.shouldRetainTerminalAfterCompletion()) {
 			this.disposeTerminalSession();
@@ -734,6 +733,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 	private finishWithTransfer(): void {
 		if (this.finished) return;
+		this.session.kill();
 		this.finished = true;
 		this.stopCountdown();
 		this.stopTimeout();
@@ -745,7 +745,6 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const handoffPreview = this.maybeBuildHandoffPreview("transfer");
 		const handoff = this.maybeWriteHandoffSnapshot("transfer");
 
-		this.session.kill();
 		this.disposeTerminalSession();
 		const result: InteractiveShellResult = {
 			exitCode: this.session.exitCode,
@@ -774,37 +773,27 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private finishWithTimeout(): void {
 		if (this.finished) return;
 		this.finished = true;
+		this.session.kill();
 		this.stopCountdown();
 		this.stopTimeout();
 
-		// Send final update with any unsent data, then "exited" notification (for timeout)
+		// Flush pending output before committing the final timeout result/update.
 		if (this.state === "hands-free" && this.options.onHandsFreeUpdate && this.sessionId) {
-			// Flush any pending output before sending exited notification
 			if (this.hasUnsentData || this.updateMode === "interval") {
 				this.emitHandsFreeUpdate();
 				this.hasUnsentData = false;
 			}
-			// Now send exited notification (timedOut is indicated in final tool result)
-			this.options.onHandsFreeUpdate({
-				status: "exited",
-				sessionId: this.sessionId,
-				runtime: Date.now() - this.startTime,
-				tail: [],
-				tailTruncated: false,
-				totalCharsSent: this.totalCharsSent,
-				budgetExhausted: this.budgetExhausted,
-			});
 		}
 
 		this.stopHandsFreeUpdates();
 		const handoffPreview = this.maybeBuildHandoffPreview("timeout");
 		const handoff = this.maybeWriteHandoffSnapshot("timeout");
 		const completionOutput = this.captureCompletionOutput();
-		this.session.kill();
 		const result: InteractiveShellResult = {
 			exitCode: null,
+			completionReason: "timed-out",
 			backgrounded: false,
-			cancelled: false,
+			cancelled: true,
 			timedOut: true,
 			sessionId: this.sessionId ?? undefined,
 			userTookOver: this.userTookOver,
@@ -813,6 +802,17 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			handoff,
 		};
 		this.completionResult = result;
+		if (this.state === "hands-free" && this.options.onHandsFreeUpdate && this.sessionId) {
+			this.options.onHandsFreeUpdate({
+				status: "killed",
+				sessionId: this.sessionId,
+				runtime: Date.now() - this.startTime,
+				tail: [],
+				tailTruncated: false,
+				totalCharsSent: this.totalCharsSent,
+				budgetExhausted: this.budgetExhausted,
+			});
+		}
 		this.triggerCompleteCallbacks();
 		if (!this.shouldRetainTerminalAfterCompletion()) {
 			this.disposeTerminalSession();
