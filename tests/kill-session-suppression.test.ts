@@ -6,6 +6,7 @@ type SetupOptions = {
 };
 
 async function setupKillHarness(options: SetupOptions = {}) {
+	Reflect.deleteProperty(globalThis, "__piInteractiveShellCoordinatorV1");
 	const kill = vi.fn();
 	const dispose = vi.fn();
 	const unregisterActive = vi.fn();
@@ -66,6 +67,10 @@ async function setupKillHarness(options: SetupOptions = {}) {
 	}));
 	vi.doMock("../runtime-coordinator.ts", () => ({
 		InteractiveShellCoordinator: class MockCoordinator {
+			bindExtensionApi = vi.fn();
+			unbindExtensionApi = vi.fn();
+			runWithExtensionApi = vi.fn((task) => task({ sendMessage: vi.fn(), events: { emit: vi.fn() } }));
+			clearPendingApiTasks = vi.fn();
 			markAgentHandledCompletion = vi.fn();
 			consumeAgentHandledCompletion = vi.fn(() => false);
 			getMonitor = vi.fn(() => ({ disposed: false }));

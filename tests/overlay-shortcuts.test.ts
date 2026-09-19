@@ -10,6 +10,7 @@ type Harness = {
 };
 
 async function setupHarness(): Promise<Harness> {
+	Reflect.deleteProperty(globalThis, "__piInteractiveShellCoordinatorV1");
 	let coordinatorInstance: any;
 	let inputHandler: ((data: string) => { consume?: boolean; data?: string } | undefined) | undefined;
 	const terminalInputUnsubscribe = vi.fn();
@@ -70,6 +71,10 @@ async function setupHarness(): Promise<Harness> {
 		InteractiveShellCoordinator: class MockCoordinator {
 			overlayOpen = false;
 			overlayFocused = false;
+			bindExtensionApi = vi.fn();
+			unbindExtensionApi = vi.fn();
+			runWithExtensionApi = vi.fn((task) => task({ sendMessage: vi.fn(), events: { emit: vi.fn() } }));
+			clearPendingApiTasks = vi.fn();
 			focusOverlay = vi.fn(() => {
 				this.overlayFocused = true;
 			});

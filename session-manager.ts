@@ -370,4 +370,13 @@ export class ShellSessionManager {
 	}
 }
 
-export const sessionManager = new ShellSessionManager();
+const SESSION_MANAGER_KEY = "__piInteractiveShellSessionManagerV1" as const;
+const runtimeGlobal = globalThis as typeof globalThis & Partial<Record<typeof SESSION_MANAGER_KEY, ShellSessionManager>>;
+
+export const sessionManager = runtimeGlobal[SESSION_MANAGER_KEY] ??= new ShellSessionManager();
+
+export function releaseSessionManagerSingleton(manager: ShellSessionManager): void {
+	if (runtimeGlobal[SESSION_MANAGER_KEY] === manager) {
+		Reflect.deleteProperty(runtimeGlobal, SESSION_MANAGER_KEY);
+	}
+}
