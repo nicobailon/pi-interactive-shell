@@ -389,6 +389,8 @@ interactive_shell({ dismissBackground: "calm-reef" })        // specific session
 
 Monitor sessions work the same way — they're headless background sessions that wake you on monitor events instead of completion.
 
+The background-session list below the editor shows only running sessions, uses at most 20% of the terminal height (up to six rows), and collapses overflow into a summary. Completed sessions disappear from the widget immediately but remain temporarily queryable. Use `/attach` to view the retained full list.
+
 User can also `/spawn` to launch the configured default spawn agent, `/spawn codex`, `/spawn cursor`, `/spawn claude`, `/spawn pi`, `/spawn fork`, `/spawn pi fork`, or `/spawn <custom-agent>` for any agent added to `spawn.commands`. Add `--worktree` to spawn in a separate git worktree, for example `/spawn cursor --worktree`, `/spawn codex --worktree`, or `/spawn pi fork --worktree`. Plain `/spawn cursor` stays a normal interactive overlay. `fork` is Pi-only. Worktrees are left in place and the overlay will tell you where they were created. `/attach` or `/attach <id>` reattaches, and `/dismiss` or `/dismiss <id>` cleans up from the chat. The keyboard spawn shortcut is separate from `/spawn` and uses `spawn.shortcut`.
 
 ### Prompt-Bearing `/spawn`

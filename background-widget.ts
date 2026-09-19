@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { formatDuration } from "./types.ts";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
@@ -53,37 +53,33 @@ export function setupBackgroundWidget(
 			tuiRef = tui;
 			return {
 				render: (width: number) => {
-					const sessions = sessionManager.list();
+					const sessions = sessionManager.list().filter((session) => !session.session.exited);
 					if (sessions.length === 0) return [];
 					const cols = width || tui.terminal?.columns || 120;
+					const terminalRows = tui.terminal?.rows || 24;
+					const maxRows = Math.max(2, Math.min(6, Math.floor(terminalRows * 0.2)));
+					const visibleCount = sessions.length > maxRows ? maxRows - 1 : maxRows;
+					const visibleSessions = sessions.slice(0, visibleCount);
 					const lines: string[] = [];
-					for (const s of sessions) {
+					for (const s of visibleSessions) {
 						const monitorState = coordinator?.getMonitorSessionState(s.id);
-						const exited = s.session.exited;
-						const dot = exited
-							? theme.fg("dim", "○")
-							: monitorState
-								? theme.fg("accent", "◆")
-								: theme.fg("accent", "●");
+						const dot = monitorState ? theme.fg("accent", "◆") : theme.fg("accent", "●");
 						const id = theme.fg("dim", s.id);
 						const cmd = s.command.replace(/\s+/g, " ").trim();
-						const truncCmd = cmd.length > 60 ? cmd.slice(0, 57) + "..." : cmd;
-						const reason = s.reason ? theme.fg("dim", ` · ${s.reason}`) : "";
+						const reasonText = s.reason?.replace(/\s+/g, " ").trim();
+						const reason = reasonText ? theme.fg("dim", ` · ${reasonText}`) : "";
 						const statusText = monitorState
 							? `${monitorState.status === "running" ? "monitoring" : "monitor-stopped"}${monitorState.eventCount > 0 ? ` e:${monitorState.eventCount}` : ""}`
-							: exited
-								? "exited"
-								: "running";
-						const status = exited ? theme.fg("dim", statusText) : monitorState ? theme.fg("accent", statusText) : theme.fg("success", statusText);
+							: "running";
+						const status = monitorState ? theme.fg("accent", statusText) : theme.fg("success", statusText);
 						const duration = theme.fg("dim", formatDuration(Date.now() - s.startedAt.getTime()));
 						const strategy = monitorState ? theme.fg("dim", ` · ${monitorState.strategy}`) : "";
-						const oneLine = ` ${dot} ${id}  ${truncCmd}${reason}${strategy}  ${status} ${duration}`;
-						if (visibleWidth(oneLine) <= cols) {
-							lines.push(oneLine);
-						} else {
-							lines.push(truncateToWidth(` ${dot} ${id}  ${cmd}`, cols, "…"));
-							lines.push(truncateToWidth(`   ${status} ${duration}${reason}`, cols, "…"));
-						}
+						const oneLine = ` ${dot} ${id}  ${status} ${duration}${strategy}  ${cmd}${reason}`;
+						lines.push(truncateToWidth(oneLine, cols, "…"));
+					}
+					if (sessions.length > visibleSessions.length) {
+						const hiddenCount = sessions.length - visibleSessions.length;
+						lines.push(truncateToWidth(theme.fg("dim", ` … +${hiddenCount} more running · /attach to view all`), cols, "…"));
 					}
 					return lines;
 				},
