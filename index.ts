@@ -15,7 +15,7 @@ import type {
 	MonitorThresholdOperator,
 	MonitorTriggerConfig,
 } from "./types.ts";
-import { sessionManager, generateSessionId, type ActiveSession } from "./session-manager.ts";
+import { sessionManager, generateSessionId, releaseSessionManagerSingleton, type ActiveSession } from "./session-manager.ts";
 import { loadConfig } from "./config.ts";
 import type { InteractiveShellConfig } from "./config.ts";
 import { isEmptySpawnPlaceholder, normalizeSpawnRequest, parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.ts";
@@ -45,7 +45,9 @@ import { InteractiveShellCoordinator } from "./runtime-coordinator.ts";
 import { spawn as spawnChildProcess } from "node:child_process";
 import { resolvePiShell, type ResolvedShellConfig } from "./shell-resolution.ts";
 
-const coordinator = new InteractiveShellCoordinator();
+const COORDINATOR_KEY = "__piInteractiveShellCoordinatorV1" as const;
+const runtimeGlobal = globalThis as typeof globalThis & Partial<Record<typeof COORDINATOR_KEY, InteractiveShellCoordinator>>;
+const coordinator = runtimeGlobal[COORDINATOR_KEY] ??= new InteractiveShellCoordinator();
 const SIDE_CHAT_SHORTCUT = "alt+/";
 
 /** Overlay options for ctx.ui.custom, derived from pi so width/anchor stay in sync with the host. */
@@ -71,7 +73,6 @@ function describeShellResolutionError(error: unknown): string {
 }
 
 function makeMonitorCompletionCallback(
-	pi: ExtensionAPI,
 	id: string,
 	startTime: number,
 ): (info: HeadlessCompletionInfo) => void {
@@ -80,13 +81,15 @@ function makeMonitorCompletionCallback(
 		if (!wasAgentHandled) {
 			const duration = formatDuration(Date.now() - startTime);
 			const content = buildDispatchNotification(id, info, duration);
-			pi.sendMessage({
-				customType: "interactive-shell-transfer",
-				content,
-				display: true,
-				details: { sessionId: id, duration, ...info },
-			}, { triggerTurn: true });
-			pi.events.emit("interactive-shell:transfer", { sessionId: id, ...info });
+			coordinator.runWithExtensionApi((activePi) => {
+				activePi.sendMessage({
+					customType: "interactive-shell-transfer",
+					content,
+					display: true,
+					details: { sessionId: id, duration, ...info },
+				}, { triggerTurn: true });
+				activePi.events.emit("interactive-shell:transfer", { sessionId: id, ...info });
+			});
 		}
 		sessionManager.unregisterActive(id, false);
 		coordinator.deleteMonitor(id);
@@ -104,7 +107,6 @@ function resolveMonitorTerminalReason(info: HeadlessCompletionInfo, override?: M
 }
 
 function makeStructuredMonitorCompletionCallback(
-	pi: ExtensionAPI,
 	id: string,
 ): (info: HeadlessCompletionInfo) => void {
 	return (info) => {
@@ -113,13 +115,15 @@ function makeStructuredMonitorCompletionCallback(
 		const wasAgentHandled = coordinator.consumeAgentHandledCompletion(id);
 		if (!wasAgentHandled && state) {
 			const content = buildMonitorLifecycleNotification(state);
-			pi.sendMessage({
-				customType: "interactive-shell-monitor-lifecycle",
-				content,
-				display: true,
-				details: { sessionId: id, state, completion: info },
-			}, { triggerTurn: true });
-			pi.events.emit("interactive-shell:monitor-lifecycle", { sessionId: id, state, completion: info });
+			coordinator.runWithExtensionApi((activePi) => {
+				activePi.sendMessage({
+					customType: "interactive-shell-monitor-lifecycle",
+					content,
+					display: true,
+					details: { sessionId: id, state, completion: info },
+				}, { triggerTurn: true });
+				activePi.events.emit("interactive-shell:monitor-lifecycle", { sessionId: id, state, completion: info });
+			});
 		}
 		sessionManager.unregisterActive(id, false);
 		coordinator.deleteMonitor(id);
@@ -540,7 +544,6 @@ async function runDetectorCommand(
 }
 
 function makeMonitorEventCallback(
-	pi: ExtensionAPI,
 	sessionId: string,
 	config: CompiledMonitorConfig,
 	shellConfig: ResolvedShellConfig,
@@ -589,13 +592,15 @@ function makeMonitorEventCallback(
 
 			const payload = coordinator.recordMonitorEvent(candidate);
 			const content = buildMonitorEventNotification(payload);
-			pi.sendMessage({
-				customType: "interactive-shell-monitor-event",
-				content,
-				display: true,
-				details: payload,
-			}, { triggerTurn: true });
-			pi.events.emit("interactive-shell:monitor-event", payload);
+			coordinator.runWithExtensionApi((activePi) => {
+				activePi.sendMessage({
+					customType: "interactive-shell-monitor-event",
+					content,
+					display: true,
+					details: payload,
+				}, { triggerTurn: true });
+				activePi.events.emit("interactive-shell:monitor-event", payload);
+			});
 
 			emitted += 1;
 			if (config.persistence.stopAfterFirstEvent || (config.persistence.maxEvents !== undefined && emitted >= config.persistence.maxEvents)) {
@@ -721,6 +726,7 @@ function appendWorktreeNotice(text: string, worktreePath: string | undefined): s
 }
 
 export default function interactiveShellExtension(pi: ExtensionAPI) {
+	coordinator.bindExtensionApi(pi);
 	const startupConfig = loadConfig(process.cwd());
 	const supportsDeferredTools = typeof pi.getActiveTools === "function" && typeof pi.setActiveTools === "function";
 	const deferToolLoading = startupConfig.defer && supportsDeferredTools;
@@ -932,8 +938,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				timeout,
 				startedAt: startTime,
 				monitor: compiled.runtime,
-				onMonitorEvent: makeMonitorEventCallback(pi, id, compiled, shellConfig, effectiveCwd),
-			}, makeStructuredMonitorCompletionCallback(pi, id));
+				onMonitorEvent: makeMonitorEventCallback(id, compiled, shellConfig, effectiveCwd),
+			}, makeStructuredMonitorCompletionCallback(id));
 			registerHeadlessActive(id, sessionCommand, effectiveReason, session, monitorRunner, startTime, config, "monitoring");
 
 			return {
@@ -965,7 +971,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				gracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 				timeout,
 				startedAt: startTime,
-			}, makeMonitorCompletionCallback(pi, id, startTime));
+			}, makeMonitorCompletionCallback(id, startTime));
 			registerHeadlessActive(id, launchCommand, effectiveReason, session, monitor, startTime, config);
 
 			return {
@@ -1151,6 +1157,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", (_event, ctx) => {
+		coordinator.bindExtensionApi(pi);
 		if (deferToolLoading) {
 			const activeTools = pi.getActiveTools().filter((name) => name !== TOOL_NAME);
 			pi.setActiveTools([...new Set([...activeTools, ENABLE_TOOL_NAME])]);
@@ -1184,12 +1191,17 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		});
 	});
 
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", (event) => {
 		terminalInputCleanup?.();
 		terminalInputCleanup = null;
 		coordinator.clearBackgroundWidget();
+		coordinator.unbindExtensionApi(pi);
+		if (event.reason === "reload") return;
 		sessionManager.killAll();
 		coordinator.disposeAllMonitors();
+		coordinator.clearPendingApiTasks();
+		releaseSessionManagerSingleton(sessionManager);
+		Reflect.deleteProperty(runtimeGlobal, COORDINATOR_KEY);
 	});
 
 	pi.registerTool({
@@ -2052,7 +2064,7 @@ function setupDispatchCompletion(
 				gracePeriod: ctx.handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 				timeout: remainingTimeout,
 				startedAt: bgStartTime,
-			}, makeMonitorCompletionCallback(pi, bgId, bgStartTime));
+			}, makeMonitorCompletionCallback(bgId, bgStartTime));
 			registerHeadlessActive(bgId, command, reason, bgSession.session, monitor, bgStartTime, config);
 			return;
 		}

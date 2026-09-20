@@ -1,4 +1,5 @@
 import type { OverlayHandle } from "@earendil-works/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HeadlessDispatchMonitor } from "./headless-monitor.ts";
 import type { MonitorConfig, MonitorEventPayload, MonitorSessionState, MonitorTerminalReason } from "./types.ts";
 
@@ -24,6 +25,30 @@ export class InteractiveShellCoordinator {
 	private pendingMonitorReason = new Map<string, MonitorTerminalReason>();
 	private bgWidgetCleanup: (() => void) | null = null;
 	private agentHandledCompletion = new Set<string>();
+	private extensionApi: ExtensionAPI | null = null;
+	private pendingApiTasks: Array<(pi: ExtensionAPI) => void> = [];
+
+	bindExtensionApi(pi: ExtensionAPI): void {
+		this.extensionApi = pi;
+		const pending = this.pendingApiTasks.splice(0);
+		for (const task of pending) task(pi);
+	}
+
+	unbindExtensionApi(pi: ExtensionAPI): void {
+		if (this.extensionApi === pi) this.extensionApi = null;
+	}
+
+	runWithExtensionApi(task: (pi: ExtensionAPI) => void): void {
+		if (this.extensionApi) {
+			task(this.extensionApi);
+			return;
+		}
+		this.pendingApiTasks.push(task);
+	}
+
+	clearPendingApiTasks(): void {
+		this.pendingApiTasks = [];
+	}
 
 	isOverlayOpen(): boolean {
 		return this.overlayOpen;

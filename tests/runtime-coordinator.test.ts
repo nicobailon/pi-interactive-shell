@@ -57,6 +57,24 @@ describe("InteractiveShellCoordinator monitor state", () => {
 	});
 });
 
+describe("InteractiveShellCoordinator extension API rebinding", () => {
+	it("delivers work through the replacement API after a reload gap", () => {
+		const coordinator = new InteractiveShellCoordinator();
+		const firstApi = {} as never;
+		const secondApi = {} as never;
+		const delivered: unknown[] = [];
+
+		coordinator.bindExtensionApi(firstApi);
+		coordinator.runWithExtensionApi((pi) => delivered.push(pi));
+		coordinator.unbindExtensionApi(firstApi);
+		coordinator.runWithExtensionApi((pi) => delivered.push(pi));
+
+		expect(delivered).toEqual([firstApi]);
+		coordinator.bindExtensionApi(secondApi);
+		expect(delivered).toEqual([firstApi, secondApi]);
+	});
+});
+
 describe("InteractiveShellCoordinator background widget cleanup", () => {
 	it("stores the replacement cleanup before running the previous cleanup", () => {
 		const coordinator = new InteractiveShellCoordinator();

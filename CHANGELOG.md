@@ -5,6 +5,8 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 ## [Unreleased]
 
 ### Fixed
+- Preserve running background sessions and monitors across `/reload` instead of cancelling them during extension teardown.
+- Keep the background-session widget compact on short and mobile terminals by hiding completed sessions and collapsing running-session overflow.
 - Keep hands-free sessions under agent control when Ctrl+B moves them to the background (#54).
 - Preserve final PTY output before reporting process completion on Linux (#58).
 - Clarify that cancellation uses best-effort termination signaling and does not confirm every subprocess exited.
