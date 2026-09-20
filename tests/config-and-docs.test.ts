@@ -107,19 +107,24 @@ describe("config + docs parity", () => {
 		mkdirSync(agentDir, { recursive: true });
 		mkdirSync(join(project, ".pi"), { recursive: true });
 		writeFileSync(join(project, ".pi", "interactive-shell.json"), JSON.stringify({
-			jev: { enabled: true, model: "project-model", maxRecentChars: 700, redactionPatterns: ["PROJECT_SECRET"] },
+			jev: { enabled: true, model: "project-model", maxRecentChars: 700, redactionPatterns: ["PROJECT_SECRET"], diagnostics: { enabled: true, retentionDays: 1 } },
 		}));
 		const { loadConfig } = await loadConfigModule(agentDir);
 		const projectOnly = loadConfig(project);
-		expect(projectOnly.jev).toMatchObject({ enabled: false, model: "jev-1.13.0", maxRecentChars: 700 });
+		expect(projectOnly.jev).toMatchObject({ enabled: false, model: "jev-1.13.0", maxRecentChars: 700, diagnostics: { enabled: false, retentionDays: 14, maxBytes: 20_000_000 } });
 
 		writeFileSync(join(agentDir, "interactive-shell.json"), JSON.stringify({
-			jev: { enabled: true, model: "jev-1.13.0", maxRecentChars: 4000, maxRetries: 1, redactionPatterns: ["GLOBAL_SECRET"] },
+			jev: { enabled: true, model: "jev-1.13.0", maxRecentChars: 4000, maxRetries: 1, redactionPatterns: ["GLOBAL_SECRET"], diagnostics: { enabled: true, retentionDays: 30, maxBytes: 5_000_000 } },
 		}));
 		const reloaded = await loadConfigModule(agentDir);
 		const enabled = reloaded.loadConfig(project);
-		expect(enabled.jev).toMatchObject({ enabled: true, model: "jev-1.13.0", maxRecentChars: 700, maxRetries: 1 });
+		expect(enabled.jev).toMatchObject({ enabled: true, model: "jev-1.13.0", maxRecentChars: 700, maxRetries: 1, diagnostics: { enabled: true, retentionDays: 30, maxBytes: 5_000_000 } });
 		expect(enabled.jev?.redactionPatterns).toEqual(["GLOBAL_SECRET", "PROJECT_SECRET"]);
+		writeFileSync(join(agentDir, "interactive-shell.json"), JSON.stringify({ jev: { diagnostics: "PRIVATE_DIAGNOSTIC_CONFIG" } }));
+		let diagnosticError: unknown;
+		try { reloaded.loadConfig(project); } catch (caught) { diagnosticError = caught; }
+		expect(diagnosticError).toEqual(new Error("Invalid global Jev diagnostics configuration."));
+		expect(String(diagnosticError)).not.toContain("PRIVATE_DIAGNOSTIC_CONFIG");
 		rmSync(root, { recursive: true, force: true });
 	});
 
@@ -243,7 +248,7 @@ describe("config + docs parity", () => {
 
 	it("packages the semantic runtime, corpus evaluator, command, and accurate key-free documentation", () => {
 		const pkg = JSON.parse(readFileSync("package.json", "utf-8")) as { files: string[]; scripts: Record<string, string>; dependencies: Record<string, string> };
-		for (const asset of ["jev-client.ts", "terminal-observation.ts", "semantic-supervisor.ts", "semantic-events.ts", "semantic-actions.ts", "semantic-corpus.ts", "semantic-evaluator.ts", "scripts/evaluate-jev.ts"]) {
+		for (const asset of ["jev-client.ts", "terminal-observation.ts", "semantic-supervisor.ts", "semantic-events.ts", "semantic-actions.ts", "semantic-corpus.ts", "semantic-evaluator.ts", "semantic-diagnostics.ts", "scripts/evaluate-jev.ts"]) {
 			expect(pkg.files).toContain(asset);
 		}
 		expect(pkg.scripts["eval:jev"]).toBe("node --experimental-strip-types scripts/evaluate-jev.ts");

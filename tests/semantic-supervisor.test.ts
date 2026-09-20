@@ -33,11 +33,12 @@ function result(choice = "working", confidence = 0.95) {
 	};
 }
 
-function createSupervisor(session: FakeSession, client: JevClient, decisions: SemanticDecisionInput[], overrides: { watches?: Array<{ id: string; condition: string }>; epoch?: () => boolean } = {}) {
+function createSupervisor(session: FakeSession, client: JevClient, decisions: SemanticDecisionInput[], overrides: { watches?: Array<{ id: string; condition: string }>; epoch?: () => boolean; onDiagnostic?: (outcome: "stale-response" | "cancelled-response") => void } = {}) {
 	return new SemanticSupervisor({
 		session, mode: "monitor", config: { goal: "test", minIntervalMs: 250, watches: overrides.watches }, client,
 		model: "jev-1.13.0", requestTimeoutMs: 1000, startedAt: Date.now(), isEpochCurrent: overrides.epoch ?? (() => true),
 		bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] }, onDecision: (decision) => decisions.push(decision),
+		onDiagnostic: overrides.onDiagnostic,
 	});
 }
 
@@ -219,7 +220,8 @@ describe("SemanticSupervisor observe-only state machine", () => {
 			return work.promise.finally(() => { active -= 1; });
 		}) };
 		const decisions: SemanticDecisionInput[] = [];
-		const supervisor = createSupervisor(session, client, decisions);
+		const diagnostics = vi.fn();
+		const supervisor = createSupervisor(session, client, decisions, { onDiagnostic: diagnostics });
 
 		session.mutate("A"); supervisor.handleOutput("A"); await vi.advanceTimersByTimeAsync(0);
 		expect(calls).toHaveLength(1);
@@ -228,6 +230,7 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		expect(calls[0]?.signal.aborted).toBe(true);
 		calls[0]!.work.resolve(result()); await flush();
 		expect(decisions).toEqual([]);
+		expect(diagnostics).toHaveBeenCalledWith("cancelled-response");
 		await vi.advanceTimersByTimeAsync(250);
 		expect(calls).toHaveLength(2);
 		expect(JSON.stringify(calls[1]?.request)).toContain("ABC");
@@ -242,7 +245,8 @@ describe("SemanticSupervisor observe-only state machine", () => {
 			const session = new FakeSession(); const work = deferred<unknown>(); let epoch = true;
 			const client: JevClient = { evaluate: vi.fn(() => work.promise) };
 			const decisions: SemanticDecisionInput[] = [];
-			const supervisor = createSupervisor(session, client, decisions, { epoch: () => epoch });
+			const diagnostics = vi.fn();
+			const supervisor = createSupervisor(session, client, decisions, { epoch: () => epoch, onDiagnostic: diagnostics });
 			session.mutate("A"); supervisor.handleOutput("A"); await vi.advanceTimersByTimeAsync(0);
 			if (invalidate === "resize") session.mutate("resized");
 			if (invalidate === "pause") supervisor.pause();
@@ -250,6 +254,7 @@ describe("SemanticSupervisor observe-only state machine", () => {
 			if (invalidate === "epoch") epoch = false;
 			work.resolve(result()); await flush();
 			expect(decisions, invalidate).toEqual([]);
+			expect(diagnostics, invalidate).toHaveBeenCalledWith(invalidate === "epoch" ? "stale-response" : "cancelled-response");
 			supervisor.dispose();
 		}
 	});

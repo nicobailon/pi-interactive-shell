@@ -34,6 +34,7 @@ export interface SemanticSupervisorOptions {
 	startedAt: number;
 	isEpochCurrent: () => boolean;
 	onDecision: (decision: SemanticDecisionInput) => void;
+	onDiagnostic?: (outcome: "stale-response" | "cancelled-response") => void;
 	actionRegistry?: SemanticActionRegistry;
 	isActionOwner?: () => boolean;
 	reserveGlobalAction?: () => boolean;
@@ -177,7 +178,10 @@ export class SemanticSupervisor {
 				signal: controller.signal,
 				timeoutMs: this.options.requestTimeoutMs,
 			});
-			if (!this.isFresh(generation, snapshot.hash, controller)) return;
+			if (!this.isFresh(generation, snapshot.hash, controller)) {
+				this.options.onDiagnostic?.(controller.signal.aborted ? "cancelled-response" : "stale-response");
+				return;
+			}
 			try {
 				const parsed = parseSemanticResult(raw, this.options.config, this.options.model, registry);
 				const action = parsed.action ? this.applyAction(parsed.action, generation, snapshot.hash) : undefined;
@@ -192,7 +196,7 @@ export class SemanticSupervisor {
 		} catch (error) {
 			if (!controller.signal.aborted && this.isFresh(generation, snapshot.hash, controller)) {
 				this.recordError(error, snapshot.hash, generation, Date.now() - started, this.options.model);
-			}
+			} else this.options.onDiagnostic?.(controller.signal.aborted ? "cancelled-response" : "stale-response");
 		} finally {
 			if (this.inFlight?.controller === controller) this.inFlight = undefined;
 			if (this.pending && !this.disposed && !this.paused) this.schedule();

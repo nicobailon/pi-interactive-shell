@@ -450,7 +450,8 @@ Example global opt-in (the default is `false`):
     "maxRetries": 1,
     "maxViewportLines": 40,
     "maxRecentChars": 4000,
-    "redactionPatterns": []
+    "redactionPatterns": [],
+    "diagnostics": { "enabled": false, "retentionDays": 14, "maxBytes": 20000000 }
   }
 }
 ```
@@ -464,6 +465,9 @@ Example global opt-in (the default is `false`):
 | `maxViewportLines` | `40` | 5–80; project may only lower the global value |
 | `maxRecentChars` | `4000` | 500–8,000; project may only lower the global value |
 | `redactionPatterns` | `[]` | Up to 50 global-first, project-added RE2-compatible patterns; each source is 1–512 characters |
+| `diagnostics.enabled` | `false` | Global config only; records local structured metadata without another model call |
+| `diagnostics.retentionDays` | `14` | 1–90 days; global config only |
+| `diagnostics.maxBytes` | `20000000` | 1–100 MB per process across its retained journals; global config only |
 
 Per-session `monitor.semantic` supports: `goal` (optional task context, sent bounded to 1,000 characters), `attention` (built-in events, default `false`), `watches` (safe unique IDs, nonempty conditions, optional threshold 0–1 with default `0.8`), `minIntervalMs` (default `1000`, clamped 250–60,000), `uncertain` (`"continue"` by default or `"notify"`), and optional `actions`. Actions require literal `enabled: true`, 1–10 items, session `maxActions` default 1/max 10, safe unique IDs, descriptions up to 500 characters, exactly one text input (1–2,000 characters, optional `submit`) or strict key array (1–32 keys), encoded bytes up to 4,096, cooldown 0–86,400,000 ms, and per-action executions 1–10. A code-owned process-wide cap permits at most 10 semantic action attempts across all sessions; refused or throwing writes consume an attempt, and the cap is not caller-configurable.
 
@@ -521,6 +525,30 @@ interactive_shell({
 Actions are predeclared immutable `input` (+ optional `submit`) or strict `inputKeys`, never generated text, hex, paste, credentials, secret/payment entry, or lifecycle commands. Confidence is one required safety gate, not authorization. User takeover pauses supervision; returning control requires fresh rendered output before evaluation/action resumes. Semantic events never mark a process exited.
 
 Inspect semantic decisions with `interactive_shell({ semanticDecisions: true, semanticSessionId: sessionId })`. Inspect delivered events with `interactive_shell({ monitorEvents: true, monitorSessionId: sessionId })`; `monitorStatus: true` returns monitor lifecycle state.
+
+Optional diagnostics write private per-process JSONL journals under Pi's agent directory. Each process owns and bounds its own files, so writers need no shared lock. Records contain only fixed schema/version identifiers, random run and incident IDs, timestamps, bounded timing/token counts, fixed decision/event/outcome categories, and sanitized model names. They never contain terminal text, commands, paths, session IDs, observation hashes, configured goals or watches, credentials, API keys, raw provider responses, or free-form notes. Files are mode `0600`; expired records are excluded from summaries immediately, and old journals are pruned on later writes. Diagnostics add no terminal polling, provider request, notification, action, or automatic tuning.
+
+Summarize recent diagnostics without reading terminal content:
+
+```typescript
+interactive_shell({ semanticDiagnostics: true, semanticDiagnosticDays: 7 })
+```
+
+When ordinary task handling supplies observable evidence of a discrepancy, the agent can attach one fixed-category incident to a live semantic run:
+
+```typescript
+interactive_shell({
+  semanticSessionId: sessionId,
+  semanticIncident: {
+    kind: "wrong-notification-type",
+    decisionId: 12,
+    expectedEvent: "input-required",
+    observedEvent: "result-ready"
+  }
+})
+```
+
+Supported incident categories are `missed-notification`, `unnecessary-notification`, `wrong-notification-type`, `duplicate-notification`, `premature-result`, and `stale-notification`. A report is a suspected problem, not ground truth. Confirm recurring incidents with an observable outcome or sanitized reproduction, add the reproduction to the corpus, then run `npm run eval:jev` before changing calibration. Diagnostics cannot discover a silent missed notification unless normal work or an explicit check causes the terminal state to be observed.
 
 Troubleshooting:
 - **Disabled globally:** set global `jev.enabled: true`; project configuration cannot enable transmission.

@@ -32,6 +32,7 @@
     "semantic-policy.ts",
     "semantic-corpus.ts",
     "semantic-evaluator.ts",
+    "semantic-diagnostics.ts",
     "scripts/evaluate-jev.ts",
     "skills/**/*",
     "examples/",

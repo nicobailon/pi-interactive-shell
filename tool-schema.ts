@@ -257,9 +257,27 @@ export const toolParameters = Type.Object({
 	semanticDecisions: Type.Optional(
 		Type.Boolean({ description: "Inspect observe-only semantic decision history. Never triggers notifications or process actions." }),
 	),
-	semanticSessionId: Type.Optional(Type.String({ description: "Target session for semanticDecisions; sessionId is also accepted." })),
+	semanticSessionId: Type.Optional(Type.String({ description: "Target session for semanticDecisions or semanticIncident; sessionId is also accepted." })),
 	semanticDecisionLimit: Type.Optional(Type.Number({ description: "Maximum semantic decisions to return (default: 20)." })),
 	semanticDecisionOffset: Type.Optional(Type.Number({ description: "Number of newest semantic decisions to skip." })),
+	semanticDiagnostics: Type.Optional(Type.Boolean({ description: "Summarize safe local Jev diagnostic activity and recurring agent-reported incidents. Does not inspect terminal content." })),
+	semanticDiagnosticDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 90, description: "Recent diagnostic days to summarize (default 7, capped by configured retention)." })),
+	semanticDiagnosticLimit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, description: "Maximum recent incidents to return (default 20)." })),
+	semanticIncident: Type.Optional(Type.Object({
+		kind: Type.Union([
+			Type.Literal("missed-notification"), Type.Literal("unnecessary-notification"), Type.Literal("wrong-notification-type"),
+			Type.Literal("duplicate-notification"), Type.Literal("premature-result"), Type.Literal("stale-notification"),
+		], { description: "Fixed discrepancy category observed during normal task execution." }),
+		decisionId: Type.Optional(Type.Integer({ minimum: 1, description: "Related semantic decision ID when one exists." })),
+		expectedEvent: Type.Optional(Type.Union([
+			Type.Literal("input-required"), Type.Literal("approval-required"), Type.Literal("result-ready"), Type.Literal("intervention-required"),
+			Type.Literal("uncertain"), Type.Literal("watch"), Type.Literal("evaluator-error"), Type.Literal("action-control"),
+		])),
+		observedEvent: Type.Optional(Type.Union([
+			Type.Literal("input-required"), Type.Literal("approval-required"), Type.Literal("result-ready"), Type.Literal("intervention-required"),
+			Type.Literal("uncertain"), Type.Literal("watch"), Type.Literal("evaluator-error"), Type.Literal("action-control"),
+		])),
+	}, { additionalProperties: false, description: "Record a structured Jev discrepancy naturally observed by the agent. Requires semanticSessionId or sessionId. No free-form terminal content is accepted." })),
 	monitorSessionId: Type.Optional(
 		Type.String({
 			description: "Target monitor session for monitorStatus/monitorEvents queries.",

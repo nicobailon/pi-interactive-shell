@@ -50,6 +50,7 @@ import { createJevClient } from "./jev-client.ts";
 import type { SemanticConfig } from "./types.ts";
 import { classifySemanticEvents } from "./semantic-events.ts";
 import { SEMANTIC_SAFE_ID, SEMANTIC_THRESHOLDS } from "./semantic-policy.ts";
+import { createSemanticDiagnosticsSession, getSemanticDiagnosticRunId, recordSemanticIncident, summarizeSemanticDiagnostics, type SemanticDeliveryDiagnostic, type SemanticDiagnosticEventType } from "./semantic-diagnostics.ts";
 
 const COORDINATOR_KEY = "__piInteractiveShellCoordinatorV1" as const;
 const runtimeGlobal = globalThis as typeof globalThis & Partial<Record<typeof COORDINATOR_KEY, InteractiveShellCoordinator>>;
@@ -173,6 +174,35 @@ type DetectorDecision = {
 	lineOrDiff?: string;
 };
 
+function diagnosticEventType(candidate: ReturnType<typeof classifySemanticEvents>[number]): SemanticDiagnosticEventType {
+	switch (candidate.semantic?.kind) {
+		case "attention":
+			switch (candidate.semantic.attentionState) {
+				case "waiting_input": return "input-required";
+				case "waiting_approval": return "approval-required";
+				case "presenting_result": return "result-ready";
+				case "blocked": return "intervention-required";
+				default: throw new Error("Semantic attention candidate has no diagnostic event type.");
+			}
+		case "watch": return "watch";
+		case "uncertain": return "uncertain";
+		case "evaluator-error": return "evaluator-error";
+		case "action-control": return "action-control";
+		default: throw new Error("Semantic candidate has no diagnostic event kind.");
+	}
+}
+
+function validateSemanticIncident(incident: NonNullable<ToolParams["semanticIncident"]>): string | undefined {
+	switch (incident.kind) {
+		case "missed-notification": return incident.expectedEvent && !incident.observedEvent ? undefined : "missed-notification requires expectedEvent and no observedEvent.";
+		case "unnecessary-notification": return incident.decisionId && incident.observedEvent && !incident.expectedEvent ? undefined : "unnecessary-notification requires decisionId and observedEvent only.";
+		case "wrong-notification-type": return incident.decisionId && incident.expectedEvent && incident.observedEvent && incident.expectedEvent !== incident.observedEvent ? undefined : "wrong-notification-type requires decisionId and different expectedEvent/observedEvent values.";
+		case "duplicate-notification": return incident.decisionId && incident.observedEvent && !incident.expectedEvent ? undefined : "duplicate-notification requires decisionId and observedEvent only.";
+		case "premature-result": return incident.decisionId && incident.observedEvent === "result-ready" && !incident.expectedEvent ? undefined : "premature-result requires decisionId and observedEvent='result-ready'.";
+		case "stale-notification": return incident.decisionId && incident.observedEvent && !incident.expectedEvent ? undefined : "stale-notification requires decisionId and observedEvent only.";
+	}
+}
+
 function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatch" | "monitor", semantic: SemanticConfig | undefined, config: InteractiveShellConfig) {
 	if (!semantic) return { ok: true as const, runtime: undefined };
 	let actionRegistry;
@@ -190,6 +220,9 @@ function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatc
 	try {
 		const client = createJevClient({ enabled: jev.enabled, model: jev.model, maxRetries: jev.maxRetries });
 		const epoch = coordinator.getRuntimeEpoch();
+		const diagnostics = jev.diagnostics?.enabled
+			? createSemanticDiagnosticsSession({ config: jev.diagnostics, sessionId, mode, model: jev.model })
+			: undefined;
 		let lastAttentionTriggerId: string | undefined;
 		return {
 			ok: true as const,
@@ -200,15 +233,22 @@ function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatc
 				onDecision: (decision: import("./types.ts").SemanticDecisionInput) => {
 					const recorded = coordinator.recordSemanticDecision(sessionId, decision);
 					const candidates = classifySemanticEvents(recorded, semantic);
+					const deliveries: SemanticDeliveryDiagnostic[] = [];
 					for (const candidate of candidates) {
 						if ((candidate.semantic?.kind === "attention" || candidate.semantic?.kind === "uncertain")
-							&& candidate.triggerId === lastAttentionTriggerId) continue;
-						coordinator.getMonitor(sessionId)?.submitMonitorCandidate(candidate, `${recorded.generation}:${candidate.triggerId}`);
+							&& candidate.triggerId === lastAttentionTriggerId) {
+							deliveries.push({ eventType: diagnosticEventType(candidate), outcome: "suppressed-unchanged" });
+							continue;
+						}
+						const delivered = coordinator.getMonitor(sessionId)?.submitMonitorCandidate(candidate, `${recorded.generation}:${candidate.triggerId}`) === true;
+						deliveries.push({ eventType: diagnosticEventType(candidate), outcome: delivered ? "delivered" : "suppressed-monitor" });
 					}
+					diagnostics?.recordDecision(recorded, deliveries);
 					if (recorded.kind === "observation") {
 						lastAttentionTriggerId = candidates.find((candidate) => candidate.semantic?.kind === "attention" || candidate.semantic?.kind === "uncertain")?.triggerId;
 					}
 				},
+				onDiagnostic: (outcome: "stale-response" | "cancelled-response") => diagnostics?.recordRequest(outcome),
 				actionRegistry,
 				isOwner: (monitor: HeadlessDispatchMonitor) => coordinator.getMonitor(sessionId) === monitor,
 				reserveGlobalAction: () => coordinator.reserveSemanticActionAttempt(),
@@ -1477,6 +1517,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				semanticSessionId,
 				semanticDecisionLimit,
 				semanticDecisionOffset,
+				semanticDiagnostics,
+				semanticDiagnosticDays,
+				semanticDiagnosticLimit,
+				semanticIncident,
 				handsFree,
 				handoffPreview,
 				handoffSnapshot,
@@ -1489,7 +1533,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				? { text: input, keys: inputKeys, hex: inputHex, paste: inputPaste }
 				: input;
 			const normalizedSpawn = normalizeSpawnRequest(spawn);
-			const hasExistingSessionAction = Boolean(sessionId || attach || listBackground || dismissBackground || monitorEvents || monitorStatus || semanticDecisions);
+			const hasExistingSessionAction = Boolean(sessionId || attach || listBackground || dismissBackground || monitorEvents || monitorStatus || semanticDecisions || semanticDiagnostics || semanticIncident);
+			if (semanticDiagnostics && semanticIncident) {
+				return { content: [{ type: "text", text: "Choose semanticDiagnostics or semanticIncident, not both." }], isError: true };
+			}
 			const spawnForAction = (command || hasExistingSessionAction) && isEmptySpawnPlaceholder(spawn)
 				? undefined
 				: normalizedSpawn;
@@ -1500,7 +1547,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					isError: true,
 				};
 			}
-			if (spawnForAction && (sessionId || attach || listBackground || dismissBackground || monitorEvents || monitorStatus || semanticDecisions)) {
+			if (spawnForAction && hasExistingSessionAction) {
 				return {
 					content: [{ type: "text", text: "'spawn' is only valid when starting a new session." }],
 					isError: true,
@@ -1619,6 +1666,47 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					content: [{ type: "text", text: history.total === 0 ? `No semantic decisions for session ${target}.` : `Semantic decisions for ${target} (${history.decisions.length}/${history.total}, newest first):\n${lines.join("\n")}` }],
 					details: { sessionId: target, ...history, state },
 				};
+			}
+
+			if (semanticDiagnostics) {
+				const diagnosticsConfig = loadRuntimeConfig(ctx.cwd).jev?.diagnostics;
+				if (!diagnosticsConfig?.enabled) return { content: [{ type: "text", text: "Jev diagnostics are disabled in the global interactive-shell configuration." }], isError: true };
+				const summary = summarizeSemanticDiagnostics({ config: diagnosticsConfig, days: semanticDiagnosticDays, incidentLimit: semanticDiagnosticLimit });
+				const incidentLines = Object.entries(summary.incidentsByKind).map(([kind, count]) => `${kind}: ${count}`);
+				const recurringLines = summary.recurring.map((item) => `${item.kind}: ${item.count} incidents across ${item.runs} runs`);
+				const actionLines = Object.entries(summary.actionOutcomes).map(([outcome, count]) => `${outcome}: ${count}`);
+				const text = [
+					`Jev diagnostics (${summary.days} days)`,
+					`Decisions: ${summary.totals.decisions}; deliveries: ${summary.totals.deliveries}; incidents: ${summary.totals.incidents}`,
+					`Provider errors: ${summary.totals.evaluatorErrors}; stale/cancelled: ${summary.totals.staleResponses}/${summary.totals.cancelledResponses}; secret skips: ${summary.totals.secretSkips}`,
+					`Delivered/suppressed unchanged/suppressed monitor: ${summary.deliveryOutcomes.delivered}/${summary.deliveryOutcomes["suppressed-unchanged"]}/${summary.deliveryOutcomes["suppressed-monitor"]}`,
+					`Action outcomes: ${actionLines.join(", ") || "none"}`,
+					`Incidents: ${incidentLines.join(", ") || "none"}`,
+					`Recurring: ${recurringLines.join(", ") || "none"}`,
+					summary.malformedLines ? `Unreadable records: ${summary.malformedLines}` : "Unreadable records: 0",
+				].join("\n");
+				return { content: [{ type: "text", text }], details: summary };
+			}
+
+			if (semanticIncident) {
+				const target = semanticSessionId ?? sessionId;
+				if (!target) return { content: [{ type: "text", text: "semanticIncident requires semanticSessionId (or sessionId)." }], isError: true };
+				const diagnosticsConfig = loadRuntimeConfig(ctx.cwd).jev?.diagnostics;
+				if (!diagnosticsConfig?.enabled) return { content: [{ type: "text", text: "Jev diagnostics are disabled in the global interactive-shell configuration." }], isError: true };
+				const state = coordinator.getSemanticSessionState(target);
+				const runId = getSemanticDiagnosticRunId(target);
+				if (!state || state.status === "stopped" || !runId) return { content: [{ type: "text", text: "No live diagnostic context exists for that semantic session." }], isError: true };
+				const validationError = validateSemanticIncident(semanticIncident);
+				if (validationError) return { content: [{ type: "text", text: validationError }], isError: true };
+				if (semanticIncident.decisionId !== undefined && !coordinator.getSemanticDecisions(target, { limit: 200 }).decisions.some((decision) => decision.decisionId === semanticIncident.decisionId)) {
+					return { content: [{ type: "text", text: "The referenced semantic decision is not available in bounded session history." }], isError: true };
+				}
+				try {
+					const incident = recordSemanticIncident({ config: diagnosticsConfig, runId, ...semanticIncident });
+					return { content: [{ type: "text", text: `Recorded Jev diagnostic incident ${incident.incidentId} (${incident.kind}).` }], details: { incident } };
+				} catch {
+					return { content: [{ type: "text", text: "The Jev diagnostic incident could not be written to local storage." }], isError: true };
+				}
 			}
 
 			// ── Branch 1: Interact with existing session ──

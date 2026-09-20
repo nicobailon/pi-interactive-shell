@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 type MonitorOptionsCapture = {
 	monitor?: {
@@ -20,7 +23,7 @@ type DetectorLaunchCapture = {
 	stdin: string;
 } | null;
 
-async function setupHarness(options: { detectorStdout?: string } = {}) {
+async function setupHarness(options: { detectorStdout?: string; diagnostics?: boolean; agentDir?: string } = {}) {
 	let toolDef: any;
 	let monitorOptions: MonitorOptionsCapture = null;
 	let detectorLaunch: DetectorLaunchCapture = null;
@@ -36,7 +39,7 @@ async function setupHarness(options: { detectorStdout?: string } = {}) {
 
 	vi.resetModules();
 	vi.doMock("@earendil-works/pi-coding-agent", () => ({
-		getAgentDir: () => "/tmp/pi-agent",
+		getAgentDir: () => options.agentDir ?? "/tmp/pi-agent",
 		getShellConfig: () => ({ shell: "/bin/bash", args: ["-c"] }),
 		SettingsManager: { create: () => ({ getShellPath: () => undefined }) },
 	}));
@@ -111,7 +114,7 @@ async function setupHarness(options: { detectorStdout?: string } = {}) {
 				handsFreeUpdateMaxChars: 1500,
 				handsFreeMaxTotalChars: 100000,
 				minQueryIntervalSeconds: 60,
-				jev: { enabled: true, model: "jev-1.13.0", requestTimeoutMs: 1000, maxRetries: 0, maxViewportLines: 20, maxRecentChars: 1000, redactionPatterns: [] },
+				jev: { enabled: true, model: "jev-1.13.0", requestTimeoutMs: 1000, maxRetries: 0, maxViewportLines: 20, maxRecentChars: 1000, redactionPatterns: [], diagnostics: { enabled: options.diagnostics === true, retentionDays: 14, maxBytes: 1_000_000 } },
 			})),
 		};
 	});
@@ -267,6 +270,32 @@ describe("monitor mode", () => {
 		expect(sendMessage.mock.calls[0]?.[0].content).toContain("Message: Semantic watch matched: ready");
 		expect(JSON.stringify(sendMessage.mock.calls[0]?.[0])).not.toContain("not-forwarded");
 		expect(eventsEmit).toHaveBeenCalledWith("interactive-shell:monitor-event", expect.objectContaining({ triggerId: "semantic:watch:ready" }));
+	});
+
+	it("records fixed agent incidents and returns a content-free diagnostic summary", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "interactive-shell-diagnostic-tool-"));
+		try {
+			const { toolDef, getMonitorOptions } = await setupHarness({ diagnostics: true, agentDir });
+			const ctx = { hasUI: false, cwd: "/tmp/private-project", ui: {}, sessionManager: { getSessionFile: () => "/tmp/private-session.jsonl" } } as any;
+			const launched = await toolDef.execute("diagnostic-launch", {
+				command: "PRIVATE_COMMAND", mode: "monitor", monitor: { strategy: "semantic", semantic: { attention: true } },
+			}, undefined, undefined, ctx);
+			const target = launched.details.sessionId as string;
+			getMonitorOptions()?.semantic?.onDecision({
+				kind: "observation", route: "notify", model: "jev-1.13.0", observationHash: "PRIVATE_OBSERVATION", generation: 1, latencyMs: 3,
+				answers: { requestsInput: 0, requestsApproval: 0, presentsResult: 0.99, requiresIntervention: 0, meaningfulProgress: 0, watches: {},
+					attention: { value: "presenting_result", confidence: 0.99, probabilities: { working: 0, waiting_input: 0, waiting_approval: 0, presenting_result: 0.99, blocked: 0, other: 0.01 } } },
+			});
+			const filed = await toolDef.execute("diagnostic-incident", {
+				semanticSessionId: target, semanticIncident: { kind: "premature-result", decisionId: 1, observedEvent: "result-ready" },
+			}, undefined, undefined, ctx);
+			expect(filed.isError).toBeUndefined();
+			expect(filed.content[0].text).toContain("premature-result");
+			const summary = await toolDef.execute("diagnostic-summary", { semanticDiagnostics: true }, undefined, undefined, ctx);
+			expect(summary.details.totals).toMatchObject({ decisions: 1, deliveries: 1, incidents: 1 });
+			expect(summary.details.incidentsByKind).toEqual({ "premature-result": 1 });
+			expect(JSON.stringify(summary)).not.toMatch(/PRIVATE_COMMAND|PRIVATE_OBSERVATION|private-project|private-session/);
+		} finally { rmSync(agentDir, { recursive: true, force: true }); }
 	});
 
 	it("delivers an already-classified action-control candidate through the bounded wake sink", async () => {
