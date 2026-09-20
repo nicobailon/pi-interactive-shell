@@ -55,6 +55,13 @@ export interface JevConfig {
 	maxViewportLines: number;
 	maxRecentChars: number;
 	redactionPatterns: readonly string[];
+	diagnostics: JevDiagnosticsConfig;
+}
+
+export interface JevDiagnosticsConfig {
+	enabled: boolean;
+	retentionDays: number;
+	maxBytes: number;
 }
 
 const DEFAULT_JEV_CONFIG: JevConfig = {
@@ -65,6 +72,7 @@ const DEFAULT_JEV_CONFIG: JevConfig = {
 	maxViewportLines: 40,
 	maxRecentChars: 4_000,
 	redactionPatterns: [],
+	diagnostics: { enabled: false, retentionDays: 14, maxBytes: 20_000_000 },
 };
 
 const DEFAULT_SPAWN_CONFIG: SpawnConfig = {
@@ -202,6 +210,8 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 }
 
 function resolveJevConfig(globalValue: Record<string, unknown>, projectValue: Record<string, unknown>): JevConfig {
+	if (globalValue.diagnostics !== undefined && !isPlainObject(globalValue.diagnostics)) throw new Error("Invalid global Jev diagnostics configuration.");
+	const diagnostics = isPlainObject(globalValue.diagnostics) ? globalValue.diagnostics : {};
 	const globalPatterns = resolveRedactionPatterns(globalValue.redactionPatterns, "global");
 	const projectPatterns = resolveRedactionPatterns(projectValue.redactionPatterns, "project");
 	const selectedPatterns = [
@@ -226,6 +236,11 @@ function resolveJevConfig(globalValue: Record<string, unknown>, projectValue: Re
 		maxViewportLines: Math.min(globalViewportLines, clampInt(projectValue.maxViewportLines, globalViewportLines, 5, 80)),
 		maxRecentChars: Math.min(globalRecentChars, clampInt(projectValue.maxRecentChars, globalRecentChars, 500, 8_000)),
 		redactionPatterns,
+		diagnostics: {
+			enabled: diagnostics.enabled === true,
+			retentionDays: clampInt(diagnostics.retentionDays, DEFAULT_JEV_CONFIG.diagnostics.retentionDays, 1, 90),
+			maxBytes: clampInt(diagnostics.maxBytes, DEFAULT_JEV_CONFIG.diagnostics.maxBytes, 1_000_000, 100_000_000),
+		},
 	};
 }
 

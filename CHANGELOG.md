@@ -6,6 +6,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ### Added
 - Add optional, globally gated Jev semantic supervision with bounded/redacted observations, typed attention/watch events, narrowly authorized exact-input actions, inspectable audit history, and a repository corpus evaluator (#61).
+- Add an opt-in, content-free local Jev diagnostic journal with bounded summaries and structured agent-reported incidents (#65).
 
 ### Fixed
 - Calibrate Jev's built-in attention questions, route confident attention states directly, suppress duplicate attention events until the state changes, and separate operational corpus gates from atomic diagnostics (#63).

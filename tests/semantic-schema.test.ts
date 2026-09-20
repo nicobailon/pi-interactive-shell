@@ -14,6 +14,13 @@ describe("semantic tool schema bounds", () => {
 		expect(Value.Check(toolParameters, params({ goal: "observe", minIntervalMs: 250, watches: [{ id: "build.ready", condition: "build is visibly ready", threshold: 0.8 }] }))).toBe(true);
 	});
 
+	it("accepts only fixed diagnostic incident fields", () => {
+		expect(Value.Check(toolParameters, { semanticDiagnostics: true, semanticDiagnosticDays: 7, semanticDiagnosticLimit: 20 })).toBe(true);
+		expect(Value.Check(toolParameters, { semanticSessionId: "session", semanticIncident: { kind: "wrong-notification-type", decisionId: 3, expectedEvent: "input-required", observedEvent: "result-ready" } })).toBe(true);
+		expect(Value.Check(toolParameters, { semanticSessionId: "session", semanticIncident: { kind: "missed-notification", expectedEvent: "result-ready", note: "terminal text" } })).toBe(false);
+		expect(Value.Check(toolParameters, { semanticIncident: { kind: "invented-category" } })).toBe(false);
+	});
+
 	it.each([
 		["goal length", params({ goal: "x".repeat(1001) })],
 		["watch id", params({ watches: [{ id: "bad id", condition: "visible" }] })],
