@@ -58,6 +58,22 @@ afterEach(() => {
 });
 
 describe("PtyTerminalSession cleanup", () => {
+	it("increments visual generation for viewport scroll mutations", async () => {
+		let resolveExit!: () => void;
+		const exited = new Promise<void>((resolve) => { resolveExit = resolve; });
+		const session = new PtyTerminalSession({
+			command: "for i in {1..40}; do echo line-$i; done",
+			shellConfig: resolvePiShell(process.cwd(), true), rows: 10,
+		}, { onExit: () => resolveExit() });
+		sessions.push(session);
+		await exited;
+		const generation = session.visualGeneration;
+		session.scrollUp(1);
+		expect(session.visualGeneration).toBe(generation + 1);
+		session.scrollDown(1);
+		expect(session.visualGeneration).toBe(generation + 2);
+	});
+
 	it("executes commands through the resolved Pi shell argv", async () => {
 		if (process.platform === "win32") return;
 		const previousShell = process.env.SHELL;
@@ -285,9 +301,15 @@ describe("PtyTerminalSession cleanup", () => {
 		expect(processExists(session.pid)).toBe(false);
 		await new Promise((resolve) => setImmediate(resolve));
 		expect(session.exited).toBe(false);
+		const beforeResizeGeneration = session.visualGeneration;
+		const visualChange = vi.fn();
+		const unsubscribeVisual = session.addVisualChangeListener(visualChange);
 		session.resize(80, 20);
 		session.resize(90, 25);
 		session.resize(103, 31);
+		expect(session.visualGeneration).toBe(beforeResizeGeneration + 3);
+		expect(visualChange).toHaveBeenCalledTimes(3);
+		unsubscribeVisual();
 		session.write("hello-from-pty\n");
 		await exited;
 		expect(output.join("")).toContain("value=hello-from-pty size=31 103");

@@ -3,13 +3,14 @@ import { EventEmitter } from "node:events";
 
 type MonitorOptionsCapture = {
 	monitor?: {
-		strategy: "stream" | "poll-diff" | "file-watch";
+		strategy: "stream" | "poll-diff" | "file-watch" | "semantic";
 		triggers: Array<{ id: string; match: (input: string) => string | undefined; cooldownMs?: number }>;
 		pollIntervalMs: number;
 		dedupeExactLine: boolean;
 		cooldownMs?: number;
 	};
 	onMonitorEvent?: (event: unknown) => void | Promise<void>;
+	semantic?: { onDecision: (decision: unknown) => void };
 } | null;
 
 type DetectorLaunchCapture = {
@@ -28,9 +29,10 @@ async function setupHarness(options: { detectorStdout?: string } = {}) {
 	let activeSession: unknown;
 	let resolveMonitorNotification!: () => void;
 	const monitorNotification = new Promise<void>((resolve) => { resolveMonitorNotification = resolve; });
-	const sendMessage = vi.fn((message: { customType?: string }) => {
+	const sendMessage = vi.fn((message: { customType?: string; content?: string }) => {
 		if (message.customType === "interactive-shell-monitor-event") resolveMonitorNotification();
 	});
+	const eventsEmit = vi.fn();
 
 	vi.resetModules();
 	vi.doMock("@earendil-works/pi-coding-agent", () => ({
@@ -109,9 +111,11 @@ async function setupHarness(options: { detectorStdout?: string } = {}) {
 				handsFreeUpdateMaxChars: 1500,
 				handsFreeMaxTotalChars: 100000,
 				minQueryIntervalSeconds: 60,
+				jev: { enabled: true, model: "jev-1.13.0", requestTimeoutMs: 1000, maxRetries: 0, maxViewportLines: 20, maxRecentChars: 1000, redactionPatterns: [] },
 			})),
 		};
 	});
+	vi.doMock("../jev-client.ts", () => ({ createJevClient: vi.fn(() => ({ evaluate: vi.fn() })) }));
 	vi.doMock("../overlay-component.ts", () => ({
 		InteractiveShellOverlay: class MockInteractiveShellOverlay {},
 	}));
@@ -139,18 +143,24 @@ async function setupHarness(options: { detectorStdout?: string } = {}) {
 	vi.doMock("../headless-monitor.ts", () => ({
 		HeadlessDispatchMonitor: class MockHeadlessDispatchMonitor {
 			disposed = false;
+			private options: MonitorOptionsCapture;
 			constructor(
 				_session: unknown,
 				_config: unknown,
 				options: MonitorOptionsCapture,
 				onComplete: (info: unknown) => void,
 			) {
+				this.options = options;
 				monitorOptions = options;
 				monitorCompleteCallback = onComplete;
 			}
 			getResult() { return undefined; }
 			registerCompleteCallback() {}
 			dispose() { this.disposed = true; }
+			rebindSemanticEpoch() {}
+			pauseSemantic() {}
+			resumeSemantic() {}
+			submitMonitorCandidate(event: unknown) { void this.options?.onMonitorEvent?.(event); return true; }
 		},
 	}));
 	vi.doMock("../session-manager.ts", () => ({
@@ -183,7 +193,7 @@ async function setupHarness(options: { detectorStdout?: string } = {}) {
 			toolDef = definition;
 		}),
 		on: vi.fn(),
-		events: { emit: vi.fn() },
+		events: { emit: eventsEmit },
 		sendMessage,
 	} as any);
 
@@ -196,6 +206,7 @@ async function setupHarness(options: { detectorStdout?: string } = {}) {
 		waitForMonitorNotification: () => monitorNotification,
 		setActiveSession: (session: unknown) => { activeSession = session; },
 		sendMessage,
+		eventsEmit,
 	};
 }
 
@@ -210,6 +221,7 @@ describe("monitor mode", () => {
 		vi.doUnmock("../pty-session.ts");
 		vi.doUnmock("../headless-monitor.ts");
 		vi.doUnmock("../session-manager.ts");
+		vi.doUnmock("../jev-client.ts");
 	});
 
 	it("requires monitor object when mode is monitor", async () => {
@@ -226,6 +238,151 @@ describe("monitor mode", () => {
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toBe("mode='monitor' requires monitor configuration.");
+	});
+
+	it("launches semantic monitor and routes watch events through the existing wake sink", async () => {
+		const { toolDef, getMonitorOptions, sendMessage, eventsEmit, waitForMonitorNotification } = await setupHarness();
+		const result = await toolDef.execute("call-semantic", {
+			command: "agent", mode: "monitor",
+			monitor: { strategy: "semantic", semantic: { goal: "observe", watches: [{ id: "ready", condition: "result is visible" }] } },
+		}, undefined, undefined, {
+			hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => "/tmp/project/session.jsonl" },
+		} as any);
+		expect(result.isError).toBeUndefined();
+		expect(result.content[0].text).toContain("Semantic: attention off; watches ready; actions none");
+		expect(getMonitorOptions()?.monitor?.strategy).toBe("semantic");
+		expect(getMonitorOptions()?.semantic).toBeDefined();
+		expect(getMonitorOptions()?.onMonitorEvent).toBeTypeOf("function");
+		expect(sendMessage).not.toHaveBeenCalled();
+		getMonitorOptions()?.semantic?.onDecision({
+			kind: "observation", route: "notify", model: "jev-1.13.0", observationHash: "not-forwarded", generation: 4, latencyMs: 2,
+			answers: {
+				requestsInput: 0, requestsApproval: 0, presentsResult: 0, requiresIntervention: 0, meaningfulProgress: 1,
+				watches: { ready: 0.8 }, attention: { value: "working", confidence: 0.9, probabilities: { working: 0.9, waiting_input: 0.02, waiting_approval: 0.02, presenting_result: 0.02, blocked: 0.02, other: 0.02 } },
+			},
+		});
+		await waitForMonitorNotification();
+		expect(sendMessage).toHaveBeenCalledTimes(1);
+		expect(sendMessage.mock.calls[0]?.[0]).toMatchObject({ customType: "interactive-shell-monitor-event", details: { triggerId: "semantic:watch:ready", semantic: { watchId: "ready", probability: 0.8 } } });
+		expect(sendMessage.mock.calls[0]?.[0].content).toContain("Message: Semantic watch matched: ready");
+		expect(JSON.stringify(sendMessage.mock.calls[0]?.[0])).not.toContain("not-forwarded");
+		expect(eventsEmit).toHaveBeenCalledWith("interactive-shell:monitor-event", expect.objectContaining({ triggerId: "semantic:watch:ready" }));
+	});
+
+	it("delivers an already-classified action-control candidate through the bounded wake sink", async () => {
+		const { toolDef, getMonitorOptions, sendMessage, eventsEmit, waitForMonitorNotification } = await setupHarness();
+		await toolDef.execute("call-action-control", {
+			command: "agent", mode: "monitor", monitor: { strategy: "semantic", semantic: { goal: "observe" } },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		getMonitorOptions()?.onMonitorEvent?.({
+			strategy: "semantic", triggerId: "semantic:action-control:notify_pi", eventType: "semantic-action-control",
+			matchedText: "semantic-action-control", lineOrDiff: "Semantic action requested Pi intervention", stream: "pty",
+			semantic: { kind: "action-control", decisionId: 3, generation: 6, model: "jev-1.13.0", controlChoice: "notify_pi", confidence: 0.96, probability: 0.96 },
+		});
+		await waitForMonitorNotification();
+		expect(sendMessage).toHaveBeenCalledTimes(1);
+		expect(sendMessage.mock.calls[0]?.[0]).toMatchObject({ details: { triggerId: "semantic:action-control:notify_pi", semantic: { kind: "action-control", controlChoice: "notify_pi" } } });
+		expect(JSON.stringify(sendMessage.mock.calls[0]?.[0])).not.toContain("private-hash");
+		expect(eventsEmit).toHaveBeenCalledWith("interactive-shell:monitor-event", expect.objectContaining({ triggerId: "semantic:action-control:notify_pi" }));
+	});
+
+	it("returns only fixed malformed-response diagnostics in semantic tool details", async () => {
+		const { toolDef, getMonitorOptions } = await setupHarness();
+		await toolDef.execute("malformed-audit", {
+			command: "agent", mode: "monitor", monitor: { strategy: "semantic", semantic: { goal: "observe" } },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		getMonitorOptions()?.semantic?.onDecision({
+			kind: "evaluator-error", route: "error", model: "jev-1.13.0", observationHash: "private-hash", generation: 2, latencyMs: 1,
+			error: "SemanticResponseError: semantic evaluator response invalid",
+		});
+		const query = await toolDef.execute("query-malformed", { semanticDecisions: true, semanticSessionId: "monitor-1" }, undefined, undefined, { cwd: "/tmp/project" } as any);
+		expect(query.details.decisions[0]).toMatchObject({ model: "jev-1.13.0", error: "SemanticResponseError: semantic evaluator response invalid" });
+		expect(query.content[0].text).toContain("SemanticResponseError: semantic evaluator response invalid");
+		expect(JSON.stringify(query)).not.toMatch(/provider-model-secret|provider_answer_key_secret|BODY_SECRET/);
+	});
+
+	it("compiles authorized actions privately and rejects mixed input forms before launch", async () => {
+		const valid = await setupHarness();
+		const launched = await valid.toolDef.execute("valid-actions", {
+			command: "agent", mode: "monitor", monitor: { strategy: "semantic", semantic: { actions: { enabled: true, items: [{ id: "confirm", description: "Confirm the ordinary prompt", input: "yes", submit: true }] } } },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(launched.isError).toBeUndefined();
+		expect((valid.getMonitorOptions()?.semantic as any)?.actionRegistry.get("confirm").bytes).toBe("yes\r");
+		expect(JSON.stringify(launched)).not.toContain('"input":"yes"');
+		valid.getMonitorOptions()?.semantic?.onDecision({
+			kind: "observation", route: "continue", model: "jev-1.13.0", observationHash: "private", generation: 1, latencyMs: 1,
+			action: { choice: "confirm", actionId: "confirm", confidence: 0.99, probability: 0.99, readiness: 0.99, outcome: "blocked", reason: "global-budget", budgetCount: 0 },
+			answers: { requestsInput: 0, requestsApproval: 0, presentsResult: 0, requiresIntervention: 0, meaningfulProgress: 0, watches: {}, attention: { value: "working", confidence: 0.99, probabilities: { working: 0.99, waiting_input: 0.002, waiting_approval: 0.002, presenting_result: 0.002, blocked: 0.002, other: 0.002 } } },
+		});
+		const decisions = await valid.toolDef.execute("action-decisions", { semanticDecisions: true, semanticSessionId: "monitor-1" }, undefined, undefined, { cwd: "/tmp/project" } as any);
+		expect(decisions.content[0].text).toContain("action:confirm/blocked/global-budget");
+		expect(decisions.content[0].text).not.toContain("yes");
+
+		const invalid = await setupHarness();
+		const rejected = await invalid.toolDef.execute("invalid-actions", {
+			command: "agent", mode: "monitor", monitor: { strategy: "semantic", semantic: { actions: { enabled: true, items: [{ id: "bad", description: "Mixed", input: "yes", inputKeys: ["enter"] }] } } },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(rejected.isError).toBe(true);
+		expect(rejected.content[0].text).toContain("exactly one input form");
+	});
+
+	it("routes semantic-enabled background dispatch through structured history and persistence", async () => {
+		const { toolDef, getMonitorOptions, waitForMonitorNotification, setActiveSession, sendMessage } = await setupHarness();
+		const active = { kill: vi.fn() };
+		setActiveSession(active);
+		const launched = await toolDef.execute("dispatch-semantic", {
+			command: "agent", mode: "dispatch", background: true,
+			monitor: { semantic: { watches: [{ id: "dispatch-ready", condition: "ready" }] }, persistence: { stopAfterFirstEvent: true } },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(launched.isError).toBeUndefined();
+		getMonitorOptions()?.semantic?.onDecision({
+			kind: "observation", route: "notify", model: "jev-1.13.0", observationHash: "private", generation: 2, latencyMs: 1,
+			answers: {
+				requestsInput: 0, requestsApproval: 0, presentsResult: 0, requiresIntervention: 0, meaningfulProgress: 1, watches: { "dispatch-ready": 0.9 },
+				attention: { value: "working", confidence: 0.9, probabilities: { working: 0.9, waiting_input: 0.02, waiting_approval: 0.02, presenting_result: 0.02, blocked: 0.02, other: 0.02 } },
+			},
+		});
+		await waitForMonitorNotification();
+		expect(sendMessage).toHaveBeenCalledTimes(1);
+		expect(active.kill).toHaveBeenCalledTimes(1);
+		const history = await toolDef.execute("query-semantic", { monitorEvents: true, monitorSessionId: "monitor-1", monitorTriggerId: "semantic:watch:dispatch-ready" }, undefined, undefined, { cwd: "/tmp/project" } as any);
+		expect(history.details.events).toHaveLength(1);
+		expect(history.details.events[0]).toMatchObject({ triggerId: "semantic:watch:dispatch-ready", semantic: { generation: 2, watchId: "dispatch-ready" } });
+	});
+
+	it("applies maxEvents through the shared semantic sink", async () => {
+		const { toolDef, getMonitorOptions, waitForMonitorNotification, setActiveSession, sendMessage } = await setupHarness();
+		const active = { kill: vi.fn() }; setActiveSession(active);
+		await toolDef.execute("semantic-max", {
+			command: "agent", mode: "monitor",
+			monitor: { strategy: "semantic", semantic: { watches: [{ id: "a", condition: "a" }, { id: "b", condition: "b" }] }, persistence: { maxEvents: 2 } },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		getMonitorOptions()?.semantic?.onDecision({
+			kind: "observation", route: "notify", model: "jev-1.13.0", observationHash: "private", generation: 3, latencyMs: 1,
+			answers: { requestsInput: 0, requestsApproval: 0, presentsResult: 0, requiresIntervention: 0, meaningfulProgress: 0, watches: { a: 0.9, b: 0.9 }, attention: { value: "working", confidence: 0.9, probabilities: { working: 0.9, waiting_input: 0.02, waiting_approval: 0.02, presenting_result: 0.02, blocked: 0.02, other: 0.02 } } },
+		});
+		await waitForMonitorNotification(); await new Promise((resolve) => setImmediate(resolve));
+		expect(sendMessage).toHaveBeenCalledTimes(2);
+		expect(active.kill).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps result-ready separate from one natural lifecycle completion", async () => {
+		const { toolDef, getMonitorOptions, getMonitorCompleteCallback, waitForMonitorNotification, setActiveSession, sendMessage, eventsEmit } = await setupHarness();
+		const active = { kill: vi.fn() }; setActiveSession(active);
+		await toolDef.execute("semantic-result", {
+			command: "agent", mode: "monitor", monitor: { strategy: "semantic", semantic: { attention: true } },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		getMonitorOptions()?.semantic?.onDecision({
+			kind: "observation", route: "notify", model: "jev-1.13.0", observationHash: "private", generation: 5, latencyMs: 1,
+			answers: { requestsInput: 0, requestsApproval: 0, presentsResult: 0.95, requiresIntervention: 0, meaningfulProgress: 0, watches: {}, attention: { value: "presenting_result", confidence: 0.9, probabilities: { working: 0.02, waiting_input: 0.02, waiting_approval: 0.02, presenting_result: 0.9, blocked: 0.02, other: 0.02 } } },
+		});
+		await waitForMonitorNotification();
+		expect(active.kill).not.toHaveBeenCalled();
+		expect(sendMessage).toHaveBeenCalledTimes(1);
+		getMonitorCompleteCallback()?.({ exitCode: 0, completionReason: "exited" });
+		expect(sendMessage).toHaveBeenCalledTimes(2);
+		expect(sendMessage.mock.calls.map((call) => call[0].customType)).toEqual(["interactive-shell-monitor-event", "interactive-shell-monitor-lifecycle"]);
+		expect(eventsEmit).toHaveBeenCalledTimes(2);
 	});
 
 	it("wires compiled monitor config and callback for monitor mode", async () => {

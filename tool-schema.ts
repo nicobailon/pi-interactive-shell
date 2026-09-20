@@ -1,4 +1,5 @@
 import { Type, type Static } from "typebox";
+import { SEMANTIC_SAFE_ID_PATTERN } from "./semantic-policy.ts";
 
 export const TOOL_NAME = "interactive_shell";
 export const TOOL_LABEL = "Interactive Shell";
@@ -6,6 +7,9 @@ export const ENABLE_TOOL_NAME = "enable_interactive_shell";
 export const ENABLE_TOOL_LABEL = "Enable Interactive Shell";
 export const ENABLE_TOOL_DESCRIPTION = "Enable the interactive_shell tool for interactive CLI coding agents, overlay supervision, background dispatch, and event-driven monitoring. Call this when interactive_shell is not available; it becomes callable on the next turn.";
 export const enableToolParameters = Type.Object({});
+
+const SEMANTIC_NONCONTROL_PATTERN = "^(?=.*\\S)[^\\u0000-\\u001F\\u007F]+$";
+const SEMANTIC_TEXT_PATTERN = "^[^\\u0000-\\u001F\\u007F;&|`$<>]+$";
 
 export const TOOL_DESCRIPTION = `Run an interactive CLI in an overlay or managed background session.
 
@@ -131,7 +135,7 @@ export const toolParameters = Type.Object({
 			Type.Literal("dispatch"),
 			Type.Literal("monitor"),
 		], {
-			description: "Mode: 'interactive' (default, user controls), 'hands-free' (agent monitors, user can take over), 'dispatch' (agent notified on completion, no polling needed), or 'monitor' (headless structured event monitor with stream/poll-diff/file-watch strategies).",
+			description: "Mode: 'interactive' (default, user controls), 'hands-free' (agent monitors, user can take over), 'dispatch' (agent notified on completion, no polling needed), or 'monitor' (headless structured event monitor with stream, poll-diff, file-watch, or semantic strategy).",
 		}),
 	),
 	monitor: Type.Optional(
@@ -139,11 +143,12 @@ export const toolParameters = Type.Object({
 			strategy: Type.Optional(Type.Union([
 				Type.Literal("stream"),
 				Type.Literal("poll-diff"),
-			Type.Literal("file-watch"),
+				Type.Literal("file-watch"),
+				Type.Literal("semantic"),
 			], {
-				description: "Monitor strategy. stream = line-based trigger matching. poll-diff = periodic snapshot diffing. file-watch = first-class filesystem watch events.",
+				description: "Monitor strategy: stream matches live output; poll-diff compares periodic rendered output; file-watch observes file changes; semantic uses optional Jev observation and requires global user enablement plus TYPESAFE_API_KEY (project config alone cannot enable transmission).",
 			})),
-			triggers: Type.Array(Type.Object({
+			triggers: Type.Optional(Type.Array(Type.Object({
 				id: Type.String({ description: "Unique trigger id used in emitted event payloads." }),
 				literal: Type.Optional(Type.String({ description: "Literal substring trigger." })),
 				regex: Type.Optional(Type.String({ description: "Regex trigger string. Supports /pattern/flags format." })),
@@ -160,7 +165,38 @@ export const toolParameters = Type.Object({
 				})),
 			}), {
 				description: "Named trigger definitions. Each trigger must define exactly one matcher: literal or regex.",
-			}),
+			})),
+			semantic: Type.Optional(Type.Object({
+				goal: Type.Optional(Type.String({ maxLength: 1000, description: "Task context for bounded semantic observation (maximum 1000 characters)." })),
+				attention: Type.Optional(Type.Boolean({ description: "Emit built-in semantic attention events for clear input, approval, result, or intervention states (default: false)." })),
+				watches: Type.Optional(Type.Array(Type.Object({
+					id: Type.String({ minLength: 1, maxLength: 64, pattern: SEMANTIC_SAFE_ID_PATTERN }),
+					condition: Type.String({ pattern: "\\S", description: "Nonblank visible condition. Runtime also rejects duplicate watch IDs." }),
+					threshold: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+				}, { additionalProperties: false }))),
+				minIntervalMs: Type.Optional(Type.Integer({ minimum: 250, maximum: 60000, description: "Minimum interval between coalesced semantic requests (250-60000ms)." })),
+				uncertain: Type.Optional(Type.Union([Type.Literal("continue"), Type.Literal("notify")], { description: "Emit semantic-uncertain events or continue silently (default: continue)." })),
+				actions: Type.Optional(Type.Object({
+					enabled: Type.Literal(true, { description: "Explicitly authorize only the listed immutable terminal inputs." }),
+					maxActions: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: "Session action-attempt budget (default 1, maximum 10)." })),
+					items: Type.Array(Type.Union([
+						Type.Object({
+							id: Type.String({ minLength: 1, maxLength: 64, pattern: SEMANTIC_SAFE_ID_PATTERN }),
+							description: Type.String({ minLength: 1, maxLength: 500, pattern: SEMANTIC_NONCONTROL_PATTERN, description: "Runtime additionally rejects reserved IDs and forbidden credential/lifecycle intent." }),
+							input: Type.String({ minLength: 1, maxLength: 2000, pattern: SEMANTIC_TEXT_PATTERN, description: "Exact text. Runtime additionally rejects credential/lifecycle intent and opaque token shapes." }),
+							submit: Type.Optional(Type.Boolean()), cooldownMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 86400000 })),
+							maxExecutions: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })),
+						}, { additionalProperties: false }),
+						Type.Object({
+							id: Type.String({ minLength: 1, maxLength: 64, pattern: SEMANTIC_SAFE_ID_PATTERN }),
+							description: Type.String({ minLength: 1, maxLength: 500, pattern: SEMANTIC_NONCONTROL_PATTERN, description: "Runtime additionally rejects reserved IDs and forbidden credential/lifecycle intent." }),
+							inputKeys: Type.Array(Type.String({ minLength: 1, maxLength: 64, pattern: SEMANTIC_NONCONTROL_PATTERN }), { minItems: 1, maxItems: 32, description: "Strict named keys (1-64 characters each, no controls). Runtime rejects unknown names and effective dangerous bytes." }),
+							cooldownMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 86400000 })),
+							maxExecutions: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })),
+						}, { additionalProperties: false }),
+					]), { minItems: 1, maxItems: 10 }),
+				}, { additionalProperties: false })),
+			}, { additionalProperties: false, description: "Optional per-session Jev supervision. Bounded terminal text is sent to TypeSafe AI only with global jev.enabled and TYPESAFE_API_KEY in Pi's environment. Attention/watches notify; actions require a separate explicit immutable allowlist." })),
 			fileWatch: Type.Optional(Type.Object({
 				path: Type.String({ description: "Path to watch for strategy='file-watch'. Relative paths resolve from cwd." }),
 				recursive: Type.Optional(Type.Boolean({ description: "Watch subdirectories recursively (platform-dependent support)." })),
@@ -218,6 +254,12 @@ export const toolParameters = Type.Object({
 			description: "Query structured monitor event history instead of session output. Requires monitorSessionId or sessionId.",
 		}),
 	),
+	semanticDecisions: Type.Optional(
+		Type.Boolean({ description: "Inspect observe-only semantic decision history. Never triggers notifications or process actions." }),
+	),
+	semanticSessionId: Type.Optional(Type.String({ description: "Target session for semanticDecisions; sessionId is also accepted." })),
+	semanticDecisionLimit: Type.Optional(Type.Number({ description: "Maximum semantic decisions to return (default: 20)." })),
+	semanticDecisionOffset: Type.Optional(Type.Number({ description: "Number of newest semantic decisions to skip." })),
 	monitorSessionId: Type.Optional(
 		Type.String({
 			description: "Target monitor session for monitorStatus/monitorEvents queries.",

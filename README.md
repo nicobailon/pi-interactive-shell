@@ -435,6 +435,100 @@ Each reloaded, new, resumed, or forked session starts with `interactive_shell` i
 
 Deferred mode omits `interactive_shell`'s `promptSnippet`; the same operating guidance remains in the tool description. This keeps the system-prompt prefix stable when Pi uses native deferred loading.
 
+## Optional Jev semantic supervision
+
+Jev integration is optional and off by default. Terminal data reaches TypeSafe AI only when all three gates are open: the user enables `jev.enabled` in the **global** config, `TYPESAFE_API_KEY` exists in Pi's process environment, and a tool call explicitly supplies `monitor.semantic`. Put the environment variable in the shell that starts Pi or inject it with your secret manager; it is never a tool argument or an `interactive-shell.json` field. A project config cannot enable Jev or switch its model.
+
+Example global opt-in (the default is `false`):
+
+```json
+{
+  "jev": {
+    "enabled": true,
+    "model": "jev-1.13.0",
+    "requestTimeoutMs": 10000,
+    "maxRetries": 1,
+    "maxViewportLines": 40,
+    "maxRecentChars": 4000,
+    "redactionPatterns": []
+  }
+}
+```
+
+| Jev field | Default | Implemented bounds/ownership |
+|---|---:|---|
+| `enabled` | `false` | Global config only |
+| `model` | `jev-1.13.0` | Nonempty global value only; project model is ignored |
+| `requestTimeoutMs` | `10000` | 1,000–30,000; project may only lower the global value |
+| `maxRetries` | `1` | 0–2; project may only lower the global value |
+| `maxViewportLines` | `40` | 5–80; project may only lower the global value |
+| `maxRecentChars` | `4000` | 500–8,000; project may only lower the global value |
+| `redactionPatterns` | `[]` | Up to 50 global-first, project-added RE2-compatible patterns; each source is 1–512 characters |
+
+Per-session `monitor.semantic` supports: `goal` (optional task context, sent bounded to 1,000 characters), `attention` (built-in events, default `false`), `watches` (safe unique IDs, nonempty conditions, optional threshold 0–1 with default `0.8`), `minIntervalMs` (default `1000`, clamped 250–60,000), `uncertain` (`"continue"` by default or `"notify"`), and optional `actions`. Actions require literal `enabled: true`, 1–10 items, session `maxActions` default 1/max 10, safe unique IDs, descriptions up to 500 characters, exactly one text input (1–2,000 characters, optional `submit`) or strict key array (1–32 keys), encoded bytes up to 4,096, cooldown 0–86,400,000 ms, and per-action executions 1–10. A code-owned process-wide cap permits at most 10 semantic action attempts across all sessions; refused or throwing writes consume an attempt, and the cap is not caller-configurable.
+
+Bounded viewport/recent terminal text is sent to TypeSafe AI. ANSI/control text is stripped and built-in plus configured redaction runs first, but redaction is defense in depth—not a promise to identify every secret. Custom patterns use linear-time RE2-compatible syntax (no backreferences, lookaround, or nested repetition), are validated at config load, and replace every case-insensitive match with literal `[REDACTED]`. Invalid selected patterns reject configuration rather than being skipped. Full scrollback, request bodies, exact action input/bytes, and the API key are not stored in semantic history. Provider failures, uncertainty, stale responses, or a visible result never imply process completion or permission to act; PTY exit remains deterministic authority.
+
+Observe a hands-free or dispatch session without authorizing input:
+
+```typescript
+interactive_shell({
+  command: 'pi "Review the changes"',
+  mode: "hands-free", // mode: "dispatch" also works
+  monitor: { semantic: { goal: "Review changes and report blockers" } }
+})
+```
+
+Emit built-in attention events and an independent watch:
+
+```typescript
+interactive_shell({
+  command: "npm test -- --watch",
+  mode: "monitor",
+  monitor: {
+    strategy: "semantic",
+    semantic: {
+      attention: true,
+      uncertain: "notify",
+      watches: [{ id: "tests-failed", condition: "A test failure is visibly present", threshold: 0.85 }]
+    }
+  }
+})
+```
+
+Authorize one bounded, immutable exact response:
+
+```typescript
+interactive_shell({
+  command: "deploy-tool",
+  mode: "monitor",
+  monitor: {
+    strategy: "semantic",
+    semantic: {
+      attention: true,
+      actions: {
+        enabled: true,
+        maxActions: 1,
+        items: [{ id: "confirm", description: "Confirm the visible ordinary deployment prompt", input: "yes", submit: true, maxExecutions: 1 }]
+      }
+    }
+  }
+})
+```
+
+Actions are predeclared immutable `input` (+ optional `submit`) or strict `inputKeys`, never generated text, hex, paste, credentials, secret/payment entry, or lifecycle commands. Confidence is one required safety gate, not authorization. User takeover pauses supervision; returning control requires fresh rendered output before evaluation/action resumes. Semantic events never mark a process exited.
+
+Inspect semantic decisions with `interactive_shell({ semanticDecisions: true, semanticSessionId: sessionId })`. Inspect delivered events with `interactive_shell({ monitorEvents: true, monitorSessionId: sessionId })`; `monitorStatus: true` returns monitor lifecycle state.
+
+Troubleshooting:
+- **Disabled globally:** set global `jev.enabled: true`; project configuration cannot enable transmission.
+- **Missing credential:** start Pi from an environment containing `TYPESAFE_API_KEY`; do not put it in tool or project configuration.
+- **Timeout/rate limit/provider failure:** the decision fails closed with a bounded diagnostic; increase only the global timeout within its bound or retry after provider recovery.
+- **Uncertain result:** default behavior is continue silently; set `uncertain: "notify"` to emit a bounded event. Uncertainty never authorizes input.
+- **Model change:** run the repository corpus explicitly with `npm run eval:jev` before relying on the new globally configured model. This command reads only packaged fixtures, requires the same global enablement and environment credential, and never runs in normal tests/CI.
+
+TypeSafe states that customer requests/responses are not used to train Jev; see [Models](https://docs.typesafe.ai/models) and [Legal](https://docs.typesafe.ai/legal). Its [public privacy policy](https://typesafe.ai/legal/privacy-policy) says personal data is retained as reasonably necessary, so do not assume default zero retention. Enterprise zero-data-retention is a separate arrangement described by TypeSafe and is not enabled by this direct SDK integration.
+
 ## Config
 
 Configuration files (project overrides global):

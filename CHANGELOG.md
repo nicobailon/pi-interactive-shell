@@ -4,7 +4,12 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Added
+- Add optional, globally gated Jev semantic supervision with bounded/redacted observations, typed attention/watch events, narrowly authorized exact-input actions, inspectable audit history, and a repository corpus evaluator (#61).
+
 ### Fixed
+- Validate custom semantic redactions as bounded RE2-compatible patterns and apply them with linear-time matching instead of arbitrary JavaScript regular expressions (#61).
+- Start semantic supervision while hands-free/dispatch overlays are foregrounded, preserve one supervisor across background transfer, and enforce a reload-safe ten-attempt global action budget (#61).
 - Preserve running background sessions and monitors across `/reload` instead of cancelling them during extension teardown.
 - Keep the background-session widget compact on short and mobile terminals by hiding completed sessions and collapsing running-session overflow.
 - Keep hands-free sessions under agent control when Ctrl+B moves them to the background (#54).

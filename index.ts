@@ -14,12 +14,14 @@ import type {
 	MonitorTerminalReason,
 	MonitorThresholdOperator,
 	MonitorTriggerConfig,
+	SemanticDecision,
 } from "./types.ts";
 import { sessionManager, generateSessionId, releaseSessionManagerSingleton, type ActiveSession } from "./session-manager.ts";
 import { loadConfig } from "./config.ts";
 import type { InteractiveShellConfig } from "./config.ts";
 import { isEmptySpawnPlaceholder, normalizeSpawnRequest, parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.ts";
 import { translateInput, type InputSpec } from "./key-encoding.ts";
+import { compileSemanticActions } from "./semantic-actions.ts";
 import {
 	ENABLE_TOOL_DESCRIPTION,
 	ENABLE_TOOL_LABEL,
@@ -44,10 +46,17 @@ import { createSessionQueryState, getSessionOutput } from "./session-query.ts";
 import { InteractiveShellCoordinator } from "./runtime-coordinator.ts";
 import { spawn as spawnChildProcess } from "node:child_process";
 import { resolvePiShell, type ResolvedShellConfig } from "./shell-resolution.ts";
+import { createJevClient } from "./jev-client.ts";
+import type { SemanticConfig } from "./types.ts";
+import { classifySemanticEvents } from "./semantic-events.ts";
+import { SEMANTIC_SAFE_ID, SEMANTIC_THRESHOLDS } from "./semantic-policy.ts";
 
 const COORDINATOR_KEY = "__piInteractiveShellCoordinatorV1" as const;
 const runtimeGlobal = globalThis as typeof globalThis & Partial<Record<typeof COORDINATOR_KEY, InteractiveShellCoordinator>>;
+const retainedCoordinator = runtimeGlobal[COORDINATOR_KEY];
+if (retainedCoordinator) Object.setPrototypeOf(retainedCoordinator, InteractiveShellCoordinator.prototype);
 const coordinator = runtimeGlobal[COORDINATOR_KEY] ??= new InteractiveShellCoordinator();
+coordinator.ensureReloadState?.();
 const SIDE_CHAT_SHORTCUT = "alt+/";
 
 /** Overlay options for ctx.ui.custom, derived from pi so width/anchor stay in sync with the host. */
@@ -63,6 +72,7 @@ function scheduleMonitorHistoryCleanup(sessionId: string, delayMs = 5 * 60 * 100
 			return;
 		}
 		coordinator.clearMonitorEvents(sessionId);
+		coordinator.clearSemanticDecisions(sessionId);
 	};
 	setTimeout(attempt, delayMs);
 }
@@ -77,6 +87,10 @@ function makeMonitorCompletionCallback(
 	startTime: number,
 ): (info: HeadlessCompletionInfo) => void {
 	return (info) => {
+		coordinator.setSemanticSessionStatus(id, "stopped");
+		if (coordinator.getMonitorSessionState(id)) {
+			coordinator.finalizeMonitorSession(id, { exitCode: info.exitCode, signal: info.signal }, resolveMonitorTerminalReason(info, coordinator.consumePendingMonitorReason(id)));
+		}
 		const wasAgentHandled = coordinator.consumeAgentHandledCompletion(id);
 		if (!wasAgentHandled) {
 			const duration = formatDuration(Date.now() - startTime);
@@ -110,6 +124,7 @@ function makeStructuredMonitorCompletionCallback(
 	id: string,
 ): (info: HeadlessCompletionInfo) => void {
 	return (info) => {
+		coordinator.setSemanticSessionStatus(id, "stopped");
 		const reason = resolveMonitorTerminalReason(info, coordinator.consumePendingMonitorReason(id));
 		const state = coordinator.finalizeMonitorSession(id, { exitCode: info.exitCode, signal: info.signal }, reason);
 		const wasAgentHandled = coordinator.consumeAgentHandledCompletion(id);
@@ -143,11 +158,12 @@ type CompiledMonitorBase = {
 		timeoutMs: number;
 	};
 	publicConfig: MonitorConfig;
+	semanticConfig?: import("./types.ts").SemanticConfig;
 };
 
 type CompiledMonitorConfig =
 	| (CompiledMonitorBase & { strategy: "file-watch"; fileWatch: Required<MonitorFileWatchConfig> })
-	| (CompiledMonitorBase & { strategy: "stream" | "poll-diff"; fileWatch?: undefined });
+	| (CompiledMonitorBase & { strategy: "stream" | "poll-diff" | "semantic"; fileWatch?: undefined });
 
 type DetectorDecision = {
 	emit: boolean;
@@ -156,6 +172,63 @@ type DetectorDecision = {
 	matchedText?: string;
 	lineOrDiff?: string;
 };
+
+function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatch" | "monitor", semantic: SemanticConfig | undefined, config: InteractiveShellConfig) {
+	if (!semantic) return { ok: true as const, runtime: undefined };
+	let actionRegistry;
+	try { actionRegistry = compileSemanticActions(semantic.actions); }
+	catch (error) { return { ok: false as const, error: error instanceof Error ? error.message : "Invalid semantic actions." }; }
+	const watchIds = new Set<string>();
+	for (const watch of semantic.watches ?? []) {
+		if (!SEMANTIC_SAFE_ID.test(watch.id) || !watch.condition.trim()) return { ok: false as const, error: "Semantic watches require a non-empty safe id and condition." };
+		if (watchIds.has(watch.id)) return { ok: false as const, error: `Duplicate semantic watch id: ${watch.id}` };
+		if (watch.threshold !== undefined && (!Number.isFinite(watch.threshold) || watch.threshold < 0 || watch.threshold > 1)) return { ok: false as const, error: `Invalid semantic watch threshold: ${watch.id}` };
+		watchIds.add(watch.id);
+	}
+	const jev = config.jev;
+	if (!jev) return { ok: false as const, error: "Jev semantic supervision configuration is unavailable." };
+	try {
+		const client = createJevClient({ enabled: jev.enabled, model: jev.model, maxRetries: jev.maxRetries });
+		const epoch = coordinator.getRuntimeEpoch();
+		return {
+			ok: true as const,
+			runtime: {
+				sessionId, mode, config: semantic, client, model: jev.model, requestTimeoutMs: jev.requestTimeoutMs,
+				bounds: { maxViewportLines: jev.maxViewportLines, maxRecentChars: jev.maxRecentChars, redactionPatterns: jev.redactionPatterns },
+				isEpochCurrent: () => coordinator.isRuntimeEpochCurrent(epoch),
+				onDecision: (decision: import("./types.ts").SemanticDecisionInput) => {
+					const recorded = coordinator.recordSemanticDecision(sessionId, decision);
+					const candidates = classifySemanticEvents(recorded, semantic);
+					for (const candidate of candidates) {
+						coordinator.getMonitor(sessionId)?.submitMonitorCandidate(candidate, `${recorded.generation}:${candidate.triggerId}`);
+					}
+				},
+				actionRegistry,
+				isOwner: (monitor: HeadlessDispatchMonitor) => coordinator.getMonitor(sessionId) === monitor,
+				reserveGlobalAction: () => coordinator.reserveSemanticActionAttempt(),
+			},
+		};
+	} catch (error) {
+		return { ok: false as const, error: error instanceof Error ? error.message : "Unable to start Jev semantic supervision." };
+	}
+}
+
+function describeSemanticMonitor(config: SemanticConfig): string {
+	const watches = config.watches?.map((watch) => watch.id).join(", ") || "none";
+	const actions = config.actions?.enabled === true
+		? config.actions.items.map((action) => action.id).join(", ") || "enabled"
+		: "none";
+	return `Semantic: attention ${config.attention === true ? "on" : "off"}; watches ${watches}; actions ${actions}`;
+}
+
+function describeSemanticDecision(decision: SemanticDecision): string {
+	if (decision.kind === "evaluator-error") return decision.error;
+	if (decision.kind === "skipped") return `skip:${decision.reason}`;
+	if (decision.action) return `action:${decision.action.choice}/${decision.action.outcome}/${decision.action.reason}`.slice(0, 180);
+	const watch = Object.entries(decision.answers.watches).sort((left, right) => right[1] - left[1])[0];
+	if (watch && watch[1] >= SEMANTIC_THRESHOLDS.noul) return `watch:${watch[0]}`.slice(0, 80);
+	return `attention:${decision.answers.attention.value}`;
+}
 
 function parseDetectorDecision(raw: string): DetectorDecision {
 	const parsed = JSON.parse(raw) as unknown;
@@ -380,18 +453,19 @@ function compileMonitorConfig(raw: MonitorConfig | undefined):
 	}
 
 	const strategy: MonitorStrategy = raw.strategy ?? "stream";
-	if (strategy !== "stream" && strategy !== "poll-diff" && strategy !== "file-watch") {
+	if (strategy !== "stream" && strategy !== "poll-diff" && strategy !== "file-watch" && strategy !== "semantic") {
 		return { ok: false, error: `Unsupported monitor.strategy: ${String(raw.strategy)}` };
 	}
 
-	if (!Array.isArray(raw.triggers) || raw.triggers.length === 0) {
+	if (strategy !== "semantic" && (!Array.isArray(raw.triggers) || raw.triggers.length === 0)) {
 		return { ok: false, error: "monitor.triggers must contain at least one trigger." };
 	}
+	if (strategy === "semantic" && !raw.semantic) return { ok: false, error: "monitor.semantic is required when monitor.strategy='semantic'." };
 
 	const ids = new Set<string>();
 	const compiledTriggers: MonitorTriggerMatcher[] = [];
-	for (let i = 0; i < raw.triggers.length; i++) {
-		const trigger = raw.triggers[i];
+	for (let i = 0; i < (strategy === "semantic" ? 0 : (raw.triggers ?? []).length); i++) {
+		const trigger = raw.triggers![i];
 		const compiled = compileMonitorTrigger(trigger, i);
 		if (!compiled.ok) return compiled;
 		if (ids.has(compiled.compiled.id)) {
@@ -437,7 +511,8 @@ function compileMonitorConfig(raw: MonitorConfig | undefined):
 	const persistence = { stopAfterFirstEvent, maxEvents };
 	const publicConfig: MonitorConfig = {
 		strategy,
-		triggers: raw.triggers,
+		triggers: strategy === "semantic" ? [] : raw.triggers ?? [],
+		semantic: raw.semantic ? { ...raw.semantic, actions: undefined } : undefined,
 		poll: strategy === "poll-diff" ? { intervalMs: pollIntervalMs } : undefined,
 		persistence: {
 			stopAfterFirstEvent,
@@ -479,11 +554,11 @@ function compileMonitorConfig(raw: MonitorConfig | undefined):
 		};
 		return {
 			ok: true,
-			compiled: { strategy, fileWatch, runtime, persistence, detector, publicConfig: { ...publicConfig, fileWatch } },
+			compiled: { strategy, fileWatch, runtime, persistence, detector, publicConfig: { ...publicConfig, fileWatch }, semanticConfig: raw.semantic },
 		};
 	}
 
-	return { ok: true, compiled: { strategy, runtime, persistence, detector, publicConfig } };
+	return { ok: true, compiled: { strategy, runtime, persistence, detector, publicConfig, semanticConfig: raw.semantic } };
 }
 
 async function runDetectorCommand(
@@ -569,6 +644,7 @@ function makeMonitorEventCallback(
 				matchedText: event.matchedText,
 				lineOrDiff: event.lineOrDiff,
 				stream: event.stream,
+				semantic: event.semantic,
 			};
 
 			if (config.detector) {
@@ -749,6 +825,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		if (!monitor || monitor.disposed) return;
 		coordinator.disposeMonitor(id);
 		coordinator.clearMonitorEvents(id);
+		coordinator.clearSemanticDecisions(id);
 		sessionManager.unregisterActive(id, false);
 	};
 	const createOverlayUiOptions = (config: InteractiveShellConfig): CustomUiOptions => ({
@@ -924,10 +1001,13 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			}
 
 			const id = generateSessionId(name);
+			const semanticRuntime = compileSemanticRuntime(id, "monitor", compiled.semanticConfig, config);
+			if (!semanticRuntime.ok) return { content: [{ type: "text", text: semanticRuntime.error }], isError: true };
 			const session = new PtyTerminalSession(
 				{ command: monitorCommand, shellConfig, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
 			);
 			const startTime = Date.now();
+			if (semanticRuntime.runtime) coordinator.registerSemanticSession(id, new Date(startTime));
 			sessionManager.add(sessionCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
 
 			coordinator.registerMonitorSession(id, compiled.publicConfig, new Date(startTime));
@@ -939,11 +1019,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				startedAt: startTime,
 				monitor: compiled.runtime,
 				onMonitorEvent: makeMonitorEventCallback(id, compiled, shellConfig, effectiveCwd),
+				semantic: semanticRuntime.runtime,
 			}, makeStructuredMonitorCompletionCallback(id));
 			registerHeadlessActive(id, sessionCommand, effectiveReason, session, monitorRunner, startTime, config, "monitoring");
 
 			return {
-				content: [{ type: "text", text: appendWorktreeNotice(`Monitor started in background (id: ${id}).\nStrategy: ${compiled.publicConfig.strategy ?? "stream"}\nTriggers: ${compiled.publicConfig.triggers.map((trigger) => trigger.id).join(", ")}\nYou'll be notified when a trigger emits an event.`, spawnWorktreePath) }],
+				content: [{ type: "text", text: appendWorktreeNotice(`Monitor started in background (id: ${id}).\nStrategy: ${compiled.publicConfig.strategy ?? "stream"}\n${compiled.semanticConfig ? describeSemanticMonitor(compiled.semanticConfig) : `Triggers: ${(compiled.publicConfig.triggers ?? []).map((trigger) => trigger.id).join(", ") || "(none)"}`}\nYou'll be notified when a configured event emits.`, spawnWorktreePath) }],
 				details: { sessionId: id, backgroundId: id, mode: "monitor", monitor: compiled.publicConfig, background: true, spawnAgent, spawnMode, spawnWorktreePath },
 			};
 		}
@@ -958,21 +1039,33 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 		if (effectiveMode === "dispatch" && background) {
 			const id = generateSessionId(name);
+			const semanticDelivery = monitor?.semantic
+				? compileMonitorConfig({ ...monitor, strategy: "semantic", triggers: [] })
+				: undefined;
+			if (semanticDelivery && !semanticDelivery.ok) return { content: [{ type: "text", text: semanticDelivery.error }], isError: true };
+			const semanticCompiled = semanticDelivery?.ok ? semanticDelivery.compiled : undefined;
+			const semanticRuntime = compileSemanticRuntime(id, "dispatch", semanticCompiled?.semanticConfig, config);
+			if (!semanticRuntime.ok) return { content: [{ type: "text", text: semanticRuntime.error }], isError: true };
 			const session = new PtyTerminalSession(
 				{ command: launchCommand, shellConfig, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
 			);
 
 			const startTime = Date.now();
+			if (semanticRuntime.runtime) coordinator.registerSemanticSession(id, new Date(startTime));
+			if (semanticCompiled) coordinator.registerMonitorSession(id, semanticCompiled.publicConfig, new Date(startTime));
 			sessionManager.add(launchCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
 
-			const monitor = new HeadlessDispatchMonitor(session, config, {
+			const dispatchMonitor = new HeadlessDispatchMonitor(session, config, {
 				autoExitOnQuiet: handsFree?.autoExitOnQuiet !== false,
 				quietThreshold: handsFree?.quietThreshold ?? config.handsFreeQuietThreshold,
 				gracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 				timeout,
 				startedAt: startTime,
+				monitor: semanticCompiled?.runtime,
+				onMonitorEvent: semanticCompiled ? makeMonitorEventCallback(id, semanticCompiled, shellConfig, effectiveCwd) : undefined,
+				semantic: semanticRuntime.runtime,
 			}, makeMonitorCompletionCallback(id, startTime));
-			registerHeadlessActive(id, launchCommand, effectiveReason, session, monitor, startTime, config);
+			registerHeadlessActive(id, launchCommand, effectiveReason, session, dispatchMonitor, startTime, config);
 
 			return {
 				content: [{ type: "text", text: appendWorktreeNotice(`Session dispatched in background (id: ${id}).\nYou'll be notified when it completes. User can /attach ${id} to watch.`, spawnWorktreePath) }],
@@ -982,6 +1075,13 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 		const generatedSessionId = returnsImmediately ? generateSessionId(name) : undefined;
 		if (returnsImmediately && generatedSessionId) {
+			const foregroundSemanticDelivery = monitor?.semantic
+				? compileMonitorConfig({ ...monitor, strategy: "semantic", triggers: [] })
+				: undefined;
+			if (foregroundSemanticDelivery && !foregroundSemanticDelivery.ok) return { content: [{ type: "text", text: foregroundSemanticDelivery.error }], isError: true };
+			const foregroundSemanticCompiled = foregroundSemanticDelivery?.ok ? foregroundSemanticDelivery.compiled : undefined;
+			const foregroundSemanticRuntime = compileSemanticRuntime(generatedSessionId, effectiveMode === "hands-free" ? "hands-free" : "dispatch", foregroundSemanticCompiled?.semanticConfig, config);
+			if (!foregroundSemanticRuntime.ok) return { content: [{ type: "text", text: foregroundSemanticRuntime.error }], isError: true };
 			if (!coordinator.beginOverlay()) {
 				return {
 					content: [{ type: "text", text: appendWorktreeNotice("An interactive shell overlay is already open. Wait for it to close or cancel the active session before starting a new one.", spawnWorktreePath) }],
@@ -990,6 +1090,29 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				};
 			}
 			const overlayStartTime = Date.now();
+			let foregroundSemanticMonitor: HeadlessDispatchMonitor | undefined;
+			let semanticSetupFailureReported = false;
+			const failSemanticSetup = foregroundSemanticRuntime.runtime ? () => {
+				if (semanticSetupFailureReported) return;
+				semanticSetupFailureReported = true;
+				try { foregroundSemanticMonitor?.dispose(); } catch { /* best-effort cleanup */ }
+				try { coordinator.disposeMonitor(generatedSessionId); } catch { /* best-effort cleanup */ }
+				try { coordinator.deleteMonitor(generatedSessionId); } catch { /* best-effort cleanup */ }
+				try { coordinator.setSemanticSessionStatus(generatedSessionId, "stopped"); } catch { /* best-effort cleanup */ }
+				try {
+					if (coordinator.getMonitorSessionState(generatedSessionId)) {
+						coordinator.finalizeMonitorSession(generatedSessionId, { exitCode: null }, "stopped");
+					}
+				} catch { /* best-effort cleanup */ }
+				try { coordinator.clearSemanticDecisions(generatedSessionId); } catch { /* best-effort cleanup */ }
+				try { coordinator.clearMonitorEvents(generatedSessionId); } catch { /* best-effort cleanup */ }
+				pi.sendMessage({
+					customType: "interactive-shell-monitor-lifecycle",
+					content: "Semantic supervision stopped because foreground setup failed.",
+					display: true,
+					details: { status: "stopped", reason: "foreground-setup-failed" },
+				}, { triggerTurn: true });
+			} : undefined;
 
 			let overlayPromise: Promise<InteractiveShellResult>;
 			try {
@@ -1013,6 +1136,49 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 								? handsFree?.autoExitOnQuiet !== false
 								: effectiveMode === "hands-free" && handsFree?.autoExitOnQuiet === true,
 							autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
+							onSessionReady: foregroundSemanticRuntime.runtime && foregroundSemanticCompiled ? (session) => {
+								try {
+									foregroundSemanticMonitor = new HeadlessDispatchMonitor(session, config, {
+										autoExitOnQuiet: false,
+										quietThreshold: handsFree?.quietThreshold ?? config.handsFreeQuietThreshold,
+										gracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
+										startedAt: overlayStartTime,
+										deferLifecycle: true,
+										monitor: foregroundSemanticCompiled.runtime,
+										onMonitorEvent: makeMonitorEventCallback(generatedSessionId, foregroundSemanticCompiled, shellConfig, effectiveCwd),
+										semantic: foregroundSemanticRuntime.runtime,
+									}, () => {});
+									coordinator.setMonitor(generatedSessionId, foregroundSemanticMonitor);
+									coordinator.registerSemanticSession(generatedSessionId, new Date(overlayStartTime));
+									coordinator.registerMonitorSession(generatedSessionId, foregroundSemanticCompiled.publicConfig, new Date(overlayStartTime));
+								} catch {
+									failSemanticSetup?.();
+									throw new Error("Semantic supervision setup failed");
+								}
+							} : undefined,
+							onAgentControlChange: foregroundSemanticRuntime.runtime ? (agentControlled) => {
+								if (agentControlled) {
+									foregroundSemanticMonitor?.resumeSemantic();
+									coordinator.setSemanticSessionStatus(generatedSessionId, "running");
+								} else {
+									foregroundSemanticMonitor?.pauseSemantic();
+									coordinator.setSemanticSessionStatus(generatedSessionId, "paused");
+								}
+							} : undefined,
+							onSessionLifecycleEnd: foregroundSemanticRuntime.runtime ? (result) => {
+								coordinator.setSemanticSessionStatus(generatedSessionId, "stopped");
+								if (result) {
+									const state = coordinator.getMonitorSessionState(generatedSessionId);
+									if (state && state.status !== "stopped") {
+										coordinator.finalizeMonitorSession(
+											generatedSessionId,
+											result,
+											result.exitCode === 0 ? "stream-ended" : "script-failed",
+										);
+									}
+								}
+								foregroundSemanticMonitor?.dispose();
+							} : undefined,
 							onUnfocus: () => coordinator.unfocusOverlay(),
 							onHandsFreeUpdate: effectiveMode === "hands-free"
 								? makeNonBlockingUpdateHandler(pi)
@@ -1029,6 +1195,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				);
 			} catch (error) {
 				coordinator.endOverlay();
+				failSemanticSetup?.();
 				throw error;
 			}
 
@@ -1040,6 +1207,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				timeout,
 				handsFree,
 				overlayStartTime,
+				onSemanticSetupFailure: failSemanticSetup,
+				semantic: foregroundSemanticCompiled && foregroundSemanticRuntime.runtime ? {
+					compiled: foregroundSemanticCompiled,
+					shellConfig,
+					cwd: effectiveCwd,
+				} : undefined,
 			});
 
 			if (effectiveMode === "dispatch") {
@@ -1294,6 +1467,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				monitorEventOffset,
 				monitorSinceEventId,
 				monitorTriggerId,
+				semanticDecisions,
+				semanticSessionId,
+				semanticDecisionLimit,
+				semanticDecisionOffset,
 				handsFree,
 				handoffPreview,
 				handoffSnapshot,
@@ -1306,7 +1483,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				? { text: input, keys: inputKeys, hex: inputHex, paste: inputPaste }
 				: input;
 			const normalizedSpawn = normalizeSpawnRequest(spawn);
-			const hasExistingSessionAction = Boolean(sessionId || attach || listBackground || dismissBackground || monitorEvents || monitorStatus);
+			const hasExistingSessionAction = Boolean(sessionId || attach || listBackground || dismissBackground || monitorEvents || monitorStatus || semanticDecisions);
 			const spawnForAction = (command || hasExistingSessionAction) && isEmptySpawnPlaceholder(spawn)
 				? undefined
 				: normalizedSpawn;
@@ -1317,7 +1494,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					isError: true,
 				};
 			}
-			if (spawnForAction && (sessionId || attach || listBackground || dismissBackground || monitorEvents || monitorStatus)) {
+			if (spawnForAction && (sessionId || attach || listBackground || dismissBackground || monitorEvents || monitorStatus || semanticDecisions)) {
 				return {
 					content: [{ type: "text", text: "'spawn' is only valid when starting a new session." }],
 					isError: true,
@@ -1426,6 +1603,18 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				};
 			}
 
+			if (semanticDecisions) {
+				const target = semanticSessionId ?? sessionId;
+				if (!target) return { content: [{ type: "text", text: "semanticDecisions requires semanticSessionId (or sessionId)." }], isError: true };
+				const history = coordinator.getSemanticDecisions(target, { limit: semanticDecisionLimit, offset: semanticDecisionOffset });
+				const state = coordinator.getSemanticSessionState(target);
+				const lines = history.decisions.map((decision) => `#${decision.decisionId} [${decision.kind}/${decision.route}] ${decision.timestamp} :: ${decision.model} :: ${describeSemanticDecision(decision)}`);
+				return {
+					content: [{ type: "text", text: history.total === 0 ? `No semantic decisions for session ${target}.` : `Semantic decisions for ${target} (${history.decisions.length}/${history.total}, newest first):\n${lines.join("\n")}` }],
+					details: { sessionId: target, ...history, state },
+				};
+			}
+
 			// ── Branch 1: Interact with existing session ──
 			if (sessionId) {
 				const session = sessionManager.getActive(sessionId);
@@ -1478,6 +1667,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 						};
 					}
 					sessionManager.unregisterActive(sessionId, false);
+					bMonitor?.resumeSemantic();
+					coordinator.setSemanticSessionStatus(sessionId, "running");
 					return {
 						content: [{ type: "text", text: `Session backgrounded (id: ${result.backgroundId})` }],
 						details: { sessionId, backgroundId: result.backgroundId, ...result },
@@ -1632,6 +1823,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				}
 
 				const monitor = coordinator.getMonitor(attach);
+				monitor?.pauseSemantic();
+				coordinator.setSemanticSessionStatus(attach, "paused");
 				const bgSession = sessionManager.take(attach);
 				if (!bgSession) {
 					disposeStaleMonitor(attach, monitor);
@@ -1644,6 +1837,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				const restoreAttachSession = () => {
 					bgSession.session.setEventHandlers({});
 					sessionManager.restore(bgSession, { noAutoCleanup: Boolean(monitor && !monitor.disposed) });
+					monitor?.resumeSemantic();
+					coordinator.setSemanticSessionStatus(attach, "running");
 					return {
 						releaseId: false,
 						disposeMonitor: false,
@@ -1742,6 +1937,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 						if (monitoredSession) {
 							sessionManager.restore(monitoredSession, { noAutoCleanup: true });
 						}
+						monitor.resumeSemantic();
+						coordinator.setSemanticSessionStatus(attach, "running");
 					}
 				} else if (result.backgrounded) {
 					sessionManager.restartAutoCleanup(attach);
@@ -1790,6 +1987,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				for (const tid of targetIds) {
 					coordinator.disposeMonitor(tid);
 					coordinator.clearMonitorEvents(tid);
+					coordinator.clearSemanticDecisions(tid);
 					sessionManager.unregisterActive(tid, false);
 					sessionManager.remove(tid);
 				}
@@ -1897,10 +2095,19 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				ctx.ui.notify(`Session not found: ${targetId}`, "error");
 				return;
 			}
+			monitor?.pauseSemantic();
+			coordinator.setSemanticSessionStatus(targetId, "paused");
 
 			const restoreBackgroundLifecycle = () => {
 				session.session.setEventHandlers({});
 				if (monitor && !monitor.disposed) {
+					if (session.session.exited) {
+						monitor.handleExternalCompletion(session.session.exitCode, session.session.signal);
+						coordinator.deleteMonitor(targetId);
+						return;
+					}
+					monitor.resumeSemantic();
+					coordinator.setSemanticSessionStatus(targetId, "running");
 					return;
 				}
 				if (session.session.exited) {
@@ -1934,6 +2141,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 						}
 						monitor.handleExternalCompletion(result.exitCode, result.signal, result.completionOutput);
 						coordinator.deleteMonitor(targetId);
+					} else {
+						monitor.resumeSemantic();
+						coordinator.setSemanticSessionStatus(targetId, "running");
 					}
 				} else if (result.backgrounded) {
 					sessionManager.restartAutoCleanup(targetId);
@@ -1989,6 +2199,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			for (const tid of targetIds) {
 				coordinator.disposeMonitor(tid);
 				coordinator.clearMonitorEvents(tid);
+				coordinator.clearSemanticDecisions(tid);
 				sessionManager.unregisterActive(tid, false);
 				sessionManager.remove(tid);
 			}
@@ -2012,9 +2223,55 @@ function setupDispatchCompletion(
 		handsFree?: { autoExitOnQuiet?: boolean; quietThreshold?: number; gracePeriod?: number };
 		overlayStartTime?: number;
 		onOverlayError?: () => { releaseId?: boolean; disposeMonitor?: boolean } | void;
+		onSemanticSetupFailure?: () => void;
+		semantic?: {
+			compiled: CompiledMonitorConfig;
+			shellConfig: ResolvedShellConfig;
+			cwd?: string;
+		};
 	},
 ): void {
 	const { id, mode, command, reason } = ctx;
+	const createBackgroundMonitor = (bgId: string, bgSession: NonNullable<ReturnType<typeof sessionManager.get>>, autoExitOnQuiet: boolean, monitorTimeout = ctx.timeout): HeadlessDispatchMonitor => {
+		const startTime = bgSession.startedAt.getTime();
+		return new HeadlessDispatchMonitor(bgSession.session, config, {
+			autoExitOnQuiet,
+			quietThreshold: ctx.handsFree?.quietThreshold ?? config.handsFreeQuietThreshold,
+			gracePeriod: ctx.handsFree?.gracePeriod ?? config.autoExitGracePeriod,
+			timeout: monitorTimeout,
+			startedAt: startTime,
+		}, makeMonitorCompletionCallback(bgId, startTime));
+	};
+	const reportSemanticTransitionFailure = (sessionId: string): void => {
+		coordinator.setSemanticSessionStatus(sessionId, "stopped");
+		pi.sendMessage({
+			customType: "interactive-shell-monitor-lifecycle",
+			content: `Semantic supervision stopped for session ${sessionId}: foreground ownership could not transfer safely.`,
+			display: true,
+			details: { sessionId, terminalReason: "stopped" },
+		}, { triggerTurn: true });
+	};
+	const activateExistingMonitor = (monitor: HeadlessDispatchMonitor, bgId: string, bgSession: NonNullable<ReturnType<typeof sessionManager.get>>, autoExitOnQuiet: boolean, monitorTimeout?: number): void => {
+		monitor.activateBackgroundLifecycle({ autoExitOnQuiet, timeout: monitorTimeout, onComplete: makeMonitorCompletionCallback(bgId, bgSession.startedAt.getTime()) });
+		monitor.resumeSemantic();
+		coordinator.setSemanticSessionStatus(id, "running");
+		coordinator.deleteMonitor(id);
+		registerHeadlessActive(bgId, command, reason, bgSession.session, monitor, bgSession.startedAt.getTime(), config);
+	};
+	const finalizeForegroundSemantic = (result: InteractiveShellResult): void => {
+		if (!ctx.semantic) return;
+		coordinator.setSemanticSessionStatus(id, "stopped");
+		const monitorState = coordinator.getMonitorSessionState(id);
+		if (!monitorState || monitorState.status === "stopped") return;
+		const terminalReason = resolveMonitorTerminalReason({
+			exitCode: result.exitCode,
+			signal: result.signal,
+			timedOut: result.timedOut,
+			cancelled: result.cancelled,
+			completionReason: result.completionReason ?? "exited",
+		}, coordinator.consumePendingMonitorReason(id));
+		coordinator.finalizeMonitorSession(id, { exitCode: result.exitCode, signal: result.signal }, terminalReason);
+	};
 
 	overlayPromise.then((result) => {
 		coordinator.endOverlay();
@@ -2024,8 +2281,31 @@ function setupDispatchCompletion(
 		if (result.transferred) {
 			emitTransferredOutput(pi, result, id);
 			sessionManager.unregisterActive(id, true);
+			coordinator.setSemanticSessionStatus(id, "stopped");
+			if (coordinator.getMonitorSessionState(id)) {
+				coordinator.finalizeMonitorSession(id, { exitCode: result.exitCode, signal: result.signal }, "stopped");
+			}
 			coordinator.disposeMonitor(id);
+			scheduleMonitorHistoryCleanup(id);
 			return;
+		}
+
+		if (mode !== "dispatch" && result.backgrounded) {
+			const bgId = result.backgroundId ?? id;
+			const existingMonitor = coordinator.getMonitor(id);
+			const bgSession = sessionManager.get(bgId);
+			if (existingMonitor && !existingMonitor.disposed && bgSession) {
+				const elapsed = ctx.overlayStartTime ? Date.now() - ctx.overlayStartTime : 0;
+				const remainingTimeout = ctx.timeout ? Math.max(1, ctx.timeout - elapsed) : undefined;
+				activateExistingMonitor(existingMonitor, bgId, bgSession, ctx.handsFree?.autoExitOnQuiet === true, remainingTimeout);
+				return;
+			}
+			if (ctx.semantic && bgSession) {
+				reportSemanticTransitionFailure(id);
+				const monitor = createBackgroundMonitor(bgId, bgSession, ctx.handsFree?.autoExitOnQuiet === true);
+				registerHeadlessActive(bgId, command, reason, bgSession.session, monitor, bgSession.startedAt.getTime(), config);
+				return;
+			}
 		}
 
 		if (mode === "dispatch" && result.backgrounded) {
@@ -2050,24 +2330,30 @@ function setupDispatchCompletion(
 			sessionManager.unregisterActive(id, bgId !== id);
 
 			if (existingMonitor && !existingMonitor.disposed) {
-				coordinator.deleteMonitor(id);
-				registerHeadlessActive(bgId, command, reason, bgSession.session, existingMonitor, bgSession.startedAt.getTime(), config);
+				const elapsed = ctx.overlayStartTime ? Date.now() - ctx.overlayStartTime : 0;
+				const remainingTimeout = ctx.timeout ? Math.max(1, ctx.timeout - elapsed) : undefined;
+				activateExistingMonitor(existingMonitor, bgId, bgSession, ctx.handsFree?.autoExitOnQuiet !== false, remainingTimeout);
 				return;
 			}
 
 			const elapsed = ctx.overlayStartTime ? Date.now() - ctx.overlayStartTime : 0;
-			const remainingTimeout = ctx.timeout ? Math.max(0, ctx.timeout - elapsed) : undefined;
+			const remainingTimeout = ctx.timeout ? Math.max(1, ctx.timeout - elapsed) : undefined;
 			const bgStartTime = bgSession.startedAt.getTime();
-			const monitor = new HeadlessDispatchMonitor(bgSession.session, config, {
-				autoExitOnQuiet: ctx.handsFree?.autoExitOnQuiet !== false,
-				quietThreshold: ctx.handsFree?.quietThreshold ?? config.handsFreeQuietThreshold,
-				gracePeriod: ctx.handsFree?.gracePeriod ?? config.autoExitGracePeriod,
-				timeout: remainingTimeout,
-				startedAt: bgStartTime,
-			}, makeMonitorCompletionCallback(bgId, bgStartTime));
+			if (ctx.semantic) reportSemanticTransitionFailure(id);
+			const monitor = ctx.semantic
+				? createBackgroundMonitor(bgId, bgSession, ctx.handsFree?.autoExitOnQuiet !== false, remainingTimeout)
+				: new HeadlessDispatchMonitor(bgSession.session, config, {
+					autoExitOnQuiet: ctx.handsFree?.autoExitOnQuiet !== false,
+					quietThreshold: ctx.handsFree?.quietThreshold ?? config.handsFreeQuietThreshold,
+					gracePeriod: ctx.handsFree?.gracePeriod ?? config.autoExitGracePeriod,
+					timeout: remainingTimeout,
+					startedAt: bgStartTime,
+				}, makeMonitorCompletionCallback(bgId, bgStartTime));
 			registerHeadlessActive(bgId, command, reason, bgSession.session, monitor, bgStartTime, config);
 			return;
 		}
+
+		finalizeForegroundSemantic(result);
 
 		if (mode === "dispatch") {
 			if (!wasAgentInitiated) {
@@ -2095,7 +2381,12 @@ function setupDispatchCompletion(
 
 		coordinator.disposeMonitor(id);
 	}).catch((error) => {
-		console.error(`interactive-shell: overlay error for session ${id}:`, error);
+		if (ctx.semantic) {
+			console.error("interactive-shell: semantic foreground setup failed");
+			ctx.onSemanticSetupFailure?.();
+		} else {
+			console.error(`interactive-shell: overlay error for session ${id}:`, error);
+		}
 		coordinator.endOverlay();
 		const recovery = ctx.onOverlayError?.();
 		sessionManager.unregisterActive(id, recovery?.releaseId ?? true);

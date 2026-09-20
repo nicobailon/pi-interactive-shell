@@ -28,6 +28,25 @@ export function buildResultNotification(sessionId: string, result: InteractiveSh
 }
 
 export function buildMonitorEventNotification(event: MonitorEventPayload): string {
+	if (event.semantic) {
+		const detail = event.semantic.watchId
+			? `Watch: ${event.semantic.watchId}`
+			: event.semantic.attentionState
+				? `Attention: ${event.semantic.attentionState}`
+				: `Semantic kind: ${event.semantic.kind}`;
+		const probability = event.semantic.probability !== undefined
+			? `\nProbability: ${event.semantic.probability}${event.semantic.threshold !== undefined ? ` (threshold ${event.semantic.threshold})` : ""}`
+			: "";
+		return [
+			`Monitor Event (${event.sessionId}) #${event.eventId}`,
+			`Time: ${event.timestamp}`,
+			"Strategy: semantic",
+			`Trigger: ${event.triggerId}`,
+			`Message: ${event.lineOrDiff}`,
+			detail,
+			`Decision: #${event.semantic.decisionId}, generation ${event.semantic.generation}, model ${event.semantic.model}${probability}`,
+		].join("\n");
+	}
 	return [
 		`Monitor Event (${event.sessionId}) #${event.eventId}`,
 		`Time: ${event.timestamp}`,

@@ -1,14 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-async function setupHarness() {
+async function setupHarness(options: { headlessConstructionError?: string; monitorInstallError?: string; generatedSessionId?: string; onMonitorDispose?: () => void } = {}) {
 	Reflect.deleteProperty(globalThis, "__piInteractiveShellCoordinatorV1");
 	const unregisterActive = vi.fn();
-	const get = vi.fn(() => undefined);
-	const disposeMonitor = vi.fn();
+	let backgroundSession: any;
+	let existingMonitor: any;
+	const get = vi.fn(() => backgroundSession);
+	const disposeMonitor = vi.fn(() => { existingMonitor?.dispose?.(); existingMonitor = undefined; });
 	const deleteMonitor = vi.fn();
 
 	let coordinatorInstance: any;
 	let toolDef: any;
+	let headlessOptions: any;
+	let overlayOptions: any;
+	let foregroundSession: any;
+	let constructedMonitor: any;
+	let semanticState: any;
+	let monitorState: any;
+	let semanticHistory: any[] = [];
+	let monitorHistory: any[] = [];
+	let headlessConstructCount = 0;
+	const createJevClient = vi.fn(() => ({ evaluate: vi.fn() }));
+	const sendMessage = vi.fn();
 
 	vi.resetModules();
 	vi.doMock("@earendil-works/pi-coding-agent", () => ({
@@ -59,11 +72,43 @@ async function setupHarness() {
 				handsFreeUpdateMaxChars: 1500,
 				handsFreeMaxTotalChars: 100000,
 				minQueryIntervalSeconds: 60,
+				jev: { enabled: true, model: "jev-1.13.0", requestTimeoutMs: 1000, maxRetries: 0, maxViewportLines: 20, maxRecentChars: 1000, redactionPatterns: [] },
 			})),
 		};
 	});
 	vi.doMock("../overlay-component.ts", () => ({
-		InteractiveShellOverlay: class MockInteractiveShellOverlay {},
+		InteractiveShellOverlay: class MockInteractiveShellOverlay {
+			constructor(_tui: unknown, _theme: unknown, overlay: any) {
+				overlayOptions = overlay;
+				foregroundSession = { kill: vi.fn(), dispose: vi.fn() };
+				try { overlay.onSessionReady?.(foregroundSession); }
+				catch (error) {
+					foregroundSession.kill(); foregroundSession.dispose(); unregisterActive(overlay.sessionId, true);
+					throw error;
+				}
+			}
+		},
+	}));
+	vi.doMock("../jev-client.ts", () => ({ createJevClient }));
+	vi.doMock("../headless-monitor.ts", () => ({
+		HeadlessDispatchMonitor: class {
+			disposed = false;
+			activateBackgroundLifecycle = vi.fn();
+			pauseSemantic = vi.fn();
+			resumeSemantic = vi.fn();
+			constructor(_session: unknown, _config: unknown, monitorOptions: any) {
+				headlessConstructCount += 1; headlessOptions = monitorOptions;
+				if (options.headlessConstructionError) throw new Error(options.headlessConstructionError);
+				constructedMonitor = this;
+				if (monitorOptions.deferLifecycle && monitorOptions.semantic) monitorOptions.semantic.onDecision({ kind: "skipped", route: "continue", reason: "secret-prompt", model: "jev-1.13.0", observationHash: "hash", generation: 1, latencyMs: 0 });
+				if (options.monitorInstallError) monitorHistory.push({ triggerId: "constructor-event" });
+			}
+			getResult() { return undefined; }
+			registerCompleteCallback() {}
+			dispose() { options.onMonitorDispose?.(); this.disposed = true; }
+			rebindSemanticEpoch() {}
+			submitMonitorCandidate() { return true; }
+		},
 	}));
 	vi.doMock("../reattach-overlay.ts", () => ({
 		ReattachOverlay: class MockReattachOverlay {},
@@ -87,7 +132,7 @@ async function setupHarness() {
 			setActiveQuietThreshold: vi.fn(() => false),
 			writeToActive: vi.fn(() => false),
 		},
-		generateSessionId: vi.fn(() => "start-session"),
+		generateSessionId: vi.fn(() => options.generatedSessionId ?? "start-session"),
 	}));
 	vi.doMock("../runtime-coordinator.ts", () => ({
 		InteractiveShellCoordinator: class MockCoordinator {
@@ -97,7 +142,26 @@ async function setupHarness() {
 			clearPendingApiTasks = vi.fn();
 			markAgentHandledCompletion = vi.fn();
 			consumeAgentHandledCompletion = vi.fn(() => false);
-			getMonitor = vi.fn(() => ({ disposed: false }));
+			consumePendingMonitorReason = vi.fn(() => undefined);
+			getMonitor = vi.fn(() => existingMonitor);
+			getRuntimeEpoch = vi.fn(() => 1);
+			isRuntimeEpochCurrent = vi.fn(() => true);
+			reserveSemanticActionAttempt = vi.fn(() => true);
+			registerSemanticSession = vi.fn((sessionId) => { semanticState = { sessionId, status: "running" }; });
+			registerMonitorSession = vi.fn((sessionId) => { monitorState = { sessionId, status: "running" }; });
+			setSemanticSessionStatus = vi.fn((_id, status) => { if (semanticState) semanticState.status = status; });
+			getSemanticSessionState = vi.fn(() => semanticState);
+			getMonitorSessionState = vi.fn(() => monitorState);
+			finalizeMonitorSession = vi.fn((_id, _result, reason) => { if (monitorState) monitorState = { ...monitorState, status: "stopped", terminalReason: reason }; });
+			clearMonitorEvents = vi.fn(() => { monitorHistory = []; monitorState = undefined; });
+			clearSemanticDecisions = vi.fn(() => { semanticHistory = []; semanticState = undefined; });
+			getSemanticDecisions = vi.fn(() => ({ decisions: [...semanticHistory], total: semanticHistory.length, limit: 20, offset: 0 }));
+			getMonitorEvents = vi.fn(() => ({ events: [...monitorHistory], total: monitorHistory.length, limit: 20, offset: 0 }));
+			recordMonitorEvent = vi.fn((event) => { monitorHistory.push(event); return event; });
+			recordSemanticDecision = vi.fn((_id, decision) => {
+				const recorded = { ...decision, sessionId: _id, decisionId: semanticHistory.length + 1, timestamp: "now" };
+				semanticHistory.push(recorded); return recorded;
+			});
 			focusOverlay = vi.fn();
 			unfocusOverlay = vi.fn();
 			setOverlayHandle = vi.fn();
@@ -109,8 +173,11 @@ async function setupHarness() {
 			clearBackgroundWidget = vi.fn();
 			disposeAllMonitors = vi.fn();
 			disposeMonitor = disposeMonitor;
-			deleteMonitor = deleteMonitor;
-			setMonitor = vi.fn();
+			deleteMonitor = vi.fn((id) => { deleteMonitor(id); existingMonitor = undefined; });
+			setMonitor = vi.fn((_id, monitor) => {
+				if (options.monitorInstallError) throw new Error(options.monitorInstallError);
+				existingMonitor = monitor;
+			});
 			constructor() {
 				coordinatorInstance = this;
 			}
@@ -126,10 +193,13 @@ async function setupHarness() {
 		}),
 		on: vi.fn(),
 		events: { emit: vi.fn() },
-		sendMessage: vi.fn(),
+		sendMessage,
 	} as any);
 
-	return { toolDef, unregisterActive, get, disposeMonitor, deleteMonitor, coordinatorInstance };
+	return { toolDef, unregisterActive, get, disposeMonitor, deleteMonitor, coordinatorInstance, createJevClient, sendMessage,
+		setBackgroundSession: (value: any) => { backgroundSession = value; }, setExistingMonitor: (value: any) => { existingMonitor = value; },
+		getExistingMonitor: () => existingMonitor, getHeadlessOptions: () => headlessOptions, getOverlayOptions: () => overlayOptions,
+		getForegroundSession: () => foregroundSession, getConstructedMonitor: () => constructedMonitor, getHeadlessConstructCount: () => headlessConstructCount };
 }
 
 describe("dispatch background recovery", () => {
@@ -141,6 +211,8 @@ describe("dispatch background recovery", () => {
 		vi.doUnmock("../reattach-overlay.ts");
 		vi.doUnmock("../session-manager.ts");
 		vi.doUnmock("../runtime-coordinator.ts");
+		vi.doUnmock("../jev-client.ts");
+		vi.doUnmock("../headless-monitor.ts");
 	});
 
 	it("releases the source session and disposes monitor when background session lookup fails", async () => {
@@ -176,5 +248,133 @@ describe("dispatch background recovery", () => {
 		expect(unregisterActive).toHaveBeenCalledWith("start-session", true);
 		expect(disposeMonitor).toHaveBeenCalledWith("start-session");
 		expect(deleteMonitor).not.toHaveBeenCalled();
+	});
+
+	it("preserves semantic policy when hands-free foreground returns to background", async () => {
+		const { toolDef, setBackgroundSession, getHeadlessOptions, getExistingMonitor, getHeadlessConstructCount, createJevClient, coordinatorInstance } = await setupHarness();
+		const bgSession = { session: {}, startedAt: new Date(), command: "pi", reason: undefined };
+		setBackgroundSession(bgSession);
+		await toolDef.execute("call-semantic", {
+			command: "pi", mode: "hands-free", monitor: { semantic: { attention: true, uncertain: "notify", watches: [{ id: "ready", condition: "ready" }] } },
+		}, undefined, undefined, {
+			hasUI: true, cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined },
+			ui: { custom: vi.fn(async (factory) => {
+				factory({ terminal: { columns: 120, rows: 40 } }, {}, undefined, () => {});
+				return { exitCode: null, backgrounded: true, backgroundId: "bg-session", cancelled: false };
+			}) },
+		} as any);
+		await Promise.resolve(); await Promise.resolve();
+		expect(getHeadlessOptions()).toMatchObject({
+			monitor: { strategy: "semantic" },
+			semantic: { mode: "hands-free", config: { attention: true, uncertain: "notify", watches: [{ id: "ready" }] } },
+		});
+		expect(getHeadlessOptions().onMonitorEvent).toBeTypeOf("function");
+		expect(getHeadlessConstructCount()).toBe(1);
+		expect(createJevClient).toHaveBeenCalledTimes(1);
+		expect(getExistingMonitor().activateBackgroundLifecycle).toHaveBeenCalledTimes(1);
+		expect(coordinatorInstance.recordSemanticDecision).toHaveBeenCalledBefore(getExistingMonitor().activateBackgroundLifecycle);
+		expect(coordinatorInstance.setMonitor).toHaveBeenCalledBefore(coordinatorInstance.registerSemanticSession);
+		expect(coordinatorInstance.setMonitor).toHaveBeenCalledBefore(coordinatorInstance.registerMonitorSession);
+	});
+
+	it("fails foreground semantic setup transactionally and reports one bounded visible failure", async () => {
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const adversarialId = `${"caller-controlled-".repeat(80)}\n\u001b[31m\u0000SESSION`;
+			const { toolDef, coordinatorInstance, getExistingMonitor, getConstructedMonitor, getForegroundSession, unregisterActive, sendMessage } = await setupHarness({ monitorInstallError: "RAW_THROWN_SENTINEL", generatedSessionId: adversarialId });
+			const result = await toolDef.execute("call-setup-failure", {
+				command: "pi", name: adversarialId, mode: "dispatch", monitor: { semantic: { attention: true } },
+			}, undefined, undefined, {
+				hasUI: true, cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined },
+				ui: { custom: vi.fn(async (factory) => factory({ terminal: { columns: 120, rows: 40 } }, {}, undefined, () => {})) },
+			} as any);
+			expect(result.details).toMatchObject({ sessionId: adversarialId, status: "running" });
+			await Promise.resolve(); await Promise.resolve();
+			expect(coordinatorInstance.recordSemanticDecision).toHaveBeenCalledTimes(1);
+			expect(coordinatorInstance.registerSemanticSession).not.toHaveBeenCalled();
+			expect(coordinatorInstance.registerMonitorSession).not.toHaveBeenCalled();
+			expect(coordinatorInstance.setSemanticSessionStatus).toHaveBeenCalledWith(adversarialId, "stopped");
+			expect(coordinatorInstance.getSemanticSessionState(adversarialId)).toBeUndefined();
+			expect(coordinatorInstance.getMonitorSessionState(adversarialId)).toBeUndefined();
+			expect(coordinatorInstance.getSemanticDecisions(adversarialId).total).toBe(0);
+			expect(coordinatorInstance.getMonitorEvents(adversarialId).total).toBe(0);
+			expect(coordinatorInstance.clearSemanticDecisions).toHaveBeenCalledTimes(1);
+			expect(coordinatorInstance.clearMonitorEvents).toHaveBeenCalledTimes(1);
+			expect(getExistingMonitor()).toBeUndefined();
+			expect(getConstructedMonitor().disposed).toBe(true);
+			expect(getForegroundSession().kill).toHaveBeenCalledTimes(1);
+			expect(getForegroundSession().dispose).toHaveBeenCalledTimes(1);
+			expect(unregisterActive).toHaveBeenCalledWith(adversarialId, true);
+			expect(sendMessage).toHaveBeenCalledTimes(1);
+			expect(sendMessage).toHaveBeenCalledWith({
+				customType: "interactive-shell-monitor-lifecycle", display: true,
+				content: "Semantic supervision stopped because foreground setup failed.",
+				details: { status: "stopped", reason: "foreground-setup-failed" },
+			}, { triggerTurn: true });
+			expect(JSON.stringify(sendMessage.mock.calls)).not.toContain("RAW_THROWN_SENTINEL");
+			expect(JSON.stringify(sendMessage.mock.calls)).not.toContain("caller-controlled-");
+			expect(JSON.stringify(consoleError.mock.calls)).not.toContain("RAW_THROWN_SENTINEL");
+			expect(JSON.stringify(consoleError.mock.calls)).not.toContain("caller-controlled-");
+		} finally {
+			consoleError.mockRestore();
+		}
+	});
+
+	it("pauses foreground semantic ownership on takeover and resumes behind the supervisor fresh-output fence", async () => {
+		const onMonitorDispose = vi.fn();
+		const { toolDef, getOverlayOptions, getExistingMonitor, coordinatorInstance } = await setupHarness({ onMonitorDispose });
+		let finishOverlay!: (value: any) => void;
+		const executePromise = toolDef.execute("call-takeover", {
+			command: "pi", mode: "hands-free", monitor: { semantic: { attention: true } },
+		}, undefined, undefined, {
+			hasUI: true, cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined },
+			ui: { custom: vi.fn((factory) => {
+				factory({ terminal: { columns: 120, rows: 40 } }, {}, undefined, () => {});
+				return new Promise((resolve) => { finishOverlay = resolve; });
+			}) },
+		} as any);
+		await Promise.resolve(); await Promise.resolve();
+		getOverlayOptions().onAgentControlChange(false);
+		expect(getExistingMonitor().pauseSemantic).toHaveBeenCalledTimes(1);
+		expect(coordinatorInstance.setSemanticSessionStatus).toHaveBeenCalledWith("start-session", "paused");
+		getOverlayOptions().onAgentControlChange(true);
+		expect(getExistingMonitor().resumeSemantic).toHaveBeenCalledTimes(1);
+		expect(coordinatorInstance.setSemanticSessionStatus).toHaveBeenCalledWith("start-session", "running");
+		getOverlayOptions().onSessionLifecycleEnd({ exitCode: 0, signal: 15 });
+		expect(coordinatorInstance.finalizeMonitorSession).toHaveBeenCalledWith("start-session", { exitCode: 0, signal: 15 }, "stream-ended");
+		expect(coordinatorInstance.finalizeMonitorSession.mock.invocationCallOrder[0]).toBeLessThan(onMonitorDispose.mock.invocationCallOrder[0]);
+		expect(getExistingMonitor().disposed).toBe(true);
+		finishOverlay!({ exitCode: 0, signal: 15, backgrounded: false, cancelled: false });
+		await executePromise;
+		expect(coordinatorInstance.getSemanticSessionState("start-session")?.status).toBe("stopped");
+		expect(coordinatorInstance.getMonitorSessionState("start-session")?.status).toBe("stopped");
+		expect(coordinatorInstance.finalizeMonitorSession).toHaveBeenCalledTimes(1);
+	});
+
+	it("stops and schedules bounded semantic cleanup on transfer without killing ownership", async () => {
+		vi.useFakeTimers();
+		try {
+			const { toolDef, setExistingMonitor, coordinatorInstance, unregisterActive } = await setupHarness();
+			const semanticMonitor = { disposed: false, dispose: vi.fn(function (this: { disposed: boolean }) { this.disposed = true; }), kill: vi.fn() };
+			setExistingMonitor(semanticMonitor);
+			coordinatorInstance.registerMonitorSession("start-session");
+			await toolDef.execute("call-transfer", {
+				command: "pi", mode: "dispatch", monitor: { semantic: { attention: true } },
+			}, undefined, undefined, {
+				hasUI: true, cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined },
+				ui: { custom: vi.fn(async () => ({ exitCode: null, backgrounded: false, cancelled: false, sessionId: "start-session", transferred: { lines: ["done"], totalLines: 1, truncated: false } })) },
+			} as any);
+			await Promise.resolve(); await Promise.resolve();
+			expect(unregisterActive).toHaveBeenCalledWith("start-session", true);
+			expect(coordinatorInstance.setSemanticSessionStatus).toHaveBeenCalledWith("start-session", "stopped");
+			expect(coordinatorInstance.finalizeMonitorSession).toHaveBeenCalledWith("start-session", { exitCode: null, signal: undefined }, "stopped");
+			expect(semanticMonitor.dispose).toHaveBeenCalledTimes(1);
+			expect(semanticMonitor.kill).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+			expect(coordinatorInstance.clearSemanticDecisions).toHaveBeenCalledWith("start-session");
+			expect(coordinatorInstance.clearMonitorEvents).toHaveBeenCalledWith("start-session");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
