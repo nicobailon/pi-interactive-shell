@@ -77,7 +77,7 @@ async function loadOverlay() {
 		add: vi.fn(() => "bg-1"),
 	};
 	vi.doMock("@earendil-works/pi-tui", () => ({
-		matchesKey: (data: string, key: string) => data === "\x02" && key === "ctrl+b",
+		matchesKey: (data: string, key: string) => (data === "\x02" && key === "ctrl+b") || (data === "\x07" && key === "ctrl+g"),
 		truncateToWidth: (value: string, width: number) => value.length > width ? value.slice(0, width) : value,
 		visibleWidth: (value: string) => stripAnsi(value).length,
 	}));
@@ -107,6 +107,49 @@ async function loadOverlay() {
 }
 
 describe("InteractiveShellOverlay render focus cues", () => {
+	it("reports semantic ownership changes and ends non-background lifecycle exactly once", async () => {
+		const { InteractiveShellOverlay } = await loadOverlay();
+		const makeOverlay = (session: ReturnType<typeof createExistingSession>, callbacks: { ready: ReturnType<typeof vi.fn>; control: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> }) => new InteractiveShellOverlay(
+			{ terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() } as any,
+			{ fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text } as any,
+			{ command: "pi", existingSession: session as any, mode: "hands-free", sessionId: "semantic-1",
+				onSessionReady: callbacks.ready, onAgentControlChange: callbacks.control, onSessionLifecycleEnd: callbacks.end },
+			config, () => {},
+		);
+		const callbacks = { ready: vi.fn(), control: vi.fn(), end: vi.fn() };
+		const overlay = makeOverlay(createExistingSession(), callbacks);
+		expect(callbacks.ready).toHaveBeenCalledTimes(1);
+		overlay.handleInput("x");
+		overlay.handleInput("\x07");
+		expect(callbacks.control.mock.calls).toEqual([[false], [true]]);
+		overlay.killSession();
+		overlay.dispose();
+		expect(callbacks.end).toHaveBeenCalledTimes(1);
+
+		const backgroundCallbacks = { ready: vi.fn(), control: vi.fn(), end: vi.fn() };
+		const backgroundOverlay = makeOverlay(createExistingSession(), backgroundCallbacks);
+		backgroundOverlay.backgroundSession();
+		backgroundOverlay.dispose();
+		expect(backgroundCallbacks.end).not.toHaveBeenCalled();
+
+		const exitCallbacks = { ready: vi.fn(), control: vi.fn(), end: vi.fn() };
+		const liveExit = createExistingSession();
+		const exitOverlay = makeOverlay(liveExit, exitCallbacks);
+		liveExit.emitExit();
+		exitOverlay.dispose();
+		expect(exitCallbacks.end).toHaveBeenCalledWith({ exitCode: 0, signal: undefined });
+		expect(exitCallbacks.end.mock.invocationCallOrder[0]).toBeLessThan(liveExit.dispose.mock.invocationCallOrder[0]);
+
+		const immediateCallbacks = { ready: vi.fn(), control: vi.fn(), end: vi.fn() };
+		const immediateExit = createExistingSession();
+		immediateExit.exited = true;
+		const immediateOverlay = makeOverlay(immediateExit, immediateCallbacks);
+		await Promise.resolve();
+		immediateOverlay.dispose();
+		expect(immediateCallbacks.end).toHaveBeenCalledWith({ exitCode: 0, signal: undefined });
+		expect(immediateCallbacks.end.mock.invocationCallOrder[0]).toBeLessThan(immediateExit.dispose.mock.invocationCallOrder[0]);
+	});
+
 	afterEach(() => {
 		vi.useRealTimers();
 		vi.doUnmock("@earendil-works/pi-tui");

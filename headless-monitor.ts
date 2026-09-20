@@ -2,6 +2,10 @@ import { stripVTControlCharacters } from "node:util";
 import type { PtyTerminalSession } from "./pty-session.ts";
 import type { InteractiveShellConfig } from "./config.ts";
 import type { DispatchCompletionReason, MonitorEventPayload, MonitorStrategy } from "./types.ts";
+import type { SemanticConfig, SemanticDecisionInput } from "./types.ts";
+import type { JevClient } from "./jev-client.ts";
+import { SemanticSupervisor } from "./semantic-supervisor.ts";
+import type { SemanticActionRegistry } from "./semantic-actions.ts";
 
 export interface MonitorMatchInfo {
 	strategy: MonitorStrategy;
@@ -10,6 +14,7 @@ export interface MonitorMatchInfo {
 	matchedText: string;
 	lineOrDiff: string;
 	stream: MonitorEventPayload["stream"];
+	semantic?: MonitorEventPayload["semantic"];
 }
 
 export interface MonitorTriggerMatcher {
@@ -36,6 +41,22 @@ export interface HeadlessMonitorOptions {
 	onMonitorEvent?: (event: MonitorMatchInfo) => void | Promise<void>;
 	/** Original session start time in ms since epoch, preserved when a foreground session moves headless. */
 	startedAt?: number;
+	/** Foreground overlays own timeout/exit completion until this monitor is transferred headless. */
+	deferLifecycle?: boolean;
+	semantic?: {
+		sessionId: string;
+		mode: "hands-free" | "dispatch" | "monitor";
+		config: SemanticConfig;
+		client: JevClient;
+		model: string;
+		requestTimeoutMs: number;
+		bounds: { maxViewportLines: number; maxRecentChars: number; redactionPatterns: readonly string[] };
+		isEpochCurrent: () => boolean;
+		onDecision: (decision: SemanticDecisionInput) => void;
+		actionRegistry?: SemanticActionRegistry;
+		isOwner?: (monitor: HeadlessDispatchMonitor) => boolean;
+		reserveGlobalAction?: () => boolean;
+	};
 }
 
 /** Completion payload emitted when a headless dispatch session finishes. */
@@ -72,6 +93,7 @@ export class HeadlessDispatchMonitor {
 	private monitorLineBuffer = "";
 	private emittedMonitorKeys = new Set<string>();
 	private triggerLastEmitAt = new Map<string, number>();
+	private semanticSupervisor: SemanticSupervisor | undefined;
 
 	get disposed(): boolean { return this._disposed; }
 
@@ -82,13 +104,23 @@ export class HeadlessDispatchMonitor {
 		private onComplete: (info: HeadlessCompletionInfo) => void,
 	) {
 		this.startTime = options.startedAt ?? Date.now();
+		if (options.semantic) {
+			this.semanticSupervisor = new SemanticSupervisor({
+				session, mode: options.semantic.mode, config: options.semantic.config, client: options.semantic.client,
+				model: options.semantic.model, requestTimeoutMs: options.semantic.requestTimeoutMs,
+				bounds: options.semantic.bounds, startedAt: this.startTime,
+				isEpochCurrent: options.semantic.isEpochCurrent, onDecision: options.semantic.onDecision,
+				actionRegistry: options.semantic.actionRegistry, isActionOwner: () => options.semantic?.isOwner?.(this) === true,
+				reserveGlobalAction: options.semantic.reserveGlobalAction,
+			});
+		}
 		this.subscribe();
 
-		if (options.autoExitOnQuiet) {
+		if (!options.deferLifecycle && options.autoExitOnQuiet) {
 			this.resetQuietTimer();
 		}
 
-		if (options.timeout && options.timeout > 0) {
+		if (!options.deferLifecycle && options.timeout && options.timeout > 0) {
 			this.timeoutTimer = setTimeout(() => {
 				this.handleCompletion(null, undefined, true, true);
 			}, options.timeout);
@@ -98,7 +130,7 @@ export class HeadlessDispatchMonitor {
 			this.startPollTimer();
 		}
 
-		if (session.exited) {
+		if (!options.deferLifecycle && session.exited) {
 			queueMicrotask(() => {
 				if (!this._disposed) {
 					this.handleCompletion(session.exitCode, session.signal);
@@ -110,6 +142,7 @@ export class HeadlessDispatchMonitor {
 	private subscribe(): void {
 		this.unsubscribe();
 		this.unsubData = this.session.addDataListener((data) => {
+			this.semanticSupervisor?.handleOutput(data);
 			const visible = stripVTControlCharacters(data);
 			if (this.options.autoExitOnQuiet && visible.trim().length > 0) {
 				this.resetQuietTimer();
@@ -119,7 +152,7 @@ export class HeadlessDispatchMonitor {
 			}
 		});
 		this.unsubExit = this.session.addExitListener((exitCode, signal) => {
-			if (!this._disposed) {
+			if (!this._disposed && !this.options.deferLifecycle) {
 				this.handleCompletion(exitCode, signal);
 			}
 		});
@@ -259,6 +292,14 @@ export class HeadlessDispatchMonitor {
 		}
 	}
 
+	submitMonitorCandidate(event: MonitorMatchInfo, uniqueKey = event.lineOrDiff): boolean {
+		if (this._disposed) return false;
+		if (!this.canEmitTrigger(event.triggerId)) return false;
+		if (!this.shouldEmitUnique(event.triggerId, uniqueKey)) return false;
+		this.emitMonitorEvent(event);
+		return true;
+	}
+
 	private resetQuietTimer(): void {
 		this.stopQuietTimer();
 		this.quietTimer = setTimeout(() => {
@@ -302,6 +343,7 @@ export class HeadlessDispatchMonitor {
 	private handleCompletion(exitCode: number | null, signal?: number, timedOut?: boolean, cancelled?: boolean, autoClosedOnQuiet?: boolean): void {
 		if (this._disposed) return;
 		this._disposed = true;
+		this.semanticSupervisor?.dispose();
 		if (this.options.monitor?.strategy !== "poll-diff" && this.options.onMonitorEvent) {
 			this.processMonitorData("", true);
 		}
@@ -343,6 +385,7 @@ export class HeadlessDispatchMonitor {
 			this.processMonitorData("", true);
 		}
 		this._disposed = true;
+		this.semanticSupervisor?.dispose();
 		this.stopQuietTimer();
 		this.stopPollTimer();
 		if (this.timeoutTimer) { clearTimeout(this.timeoutTimer); this.timeoutTimer = null; }
@@ -367,6 +410,25 @@ export class HeadlessDispatchMonitor {
 		this.completeCallbacks.push(callback);
 	}
 
+	pauseSemantic(): void { this.semanticSupervisor?.pause(); }
+	resumeSemantic(): void { this.semanticSupervisor?.resume(); }
+	rebindSemanticEpoch(isEpochCurrent: () => boolean): void { this.semanticSupervisor?.rebindEpoch(isEpochCurrent); }
+
+	activateBackgroundLifecycle(options: { autoExitOnQuiet: boolean; timeout?: number; onComplete: (info: HeadlessCompletionInfo) => void }): void {
+		if (this._disposed || !this.options.deferLifecycle) return;
+		this.options.deferLifecycle = false;
+		this.options.autoExitOnQuiet = options.autoExitOnQuiet;
+		this.options.timeout = options.timeout;
+		this.onComplete = options.onComplete;
+		if (options.autoExitOnQuiet) this.resetQuietTimer();
+		if (options.timeout && options.timeout > 0) {
+			this.timeoutTimer = setTimeout(() => this.handleCompletion(null, undefined, true, true), options.timeout);
+		}
+		if (this.session.exited) queueMicrotask(() => {
+			if (!this._disposed) this.handleCompletion(this.session.exitCode, this.session.signal);
+		});
+	}
+
 	private triggerCompleteCallbacks(): void {
 		for (const cb of this.completeCallbacks) {
 			try {
@@ -381,6 +443,7 @@ export class HeadlessDispatchMonitor {
 	dispose(): void {
 		if (this._disposed) return;
 		this._disposed = true;
+		this.semanticSupervisor?.dispose();
 		this.stopQuietTimer();
 		this.stopPollTimer();
 		if (this.timeoutTimer) { clearTimeout(this.timeoutTimer); this.timeoutTimer = null; }

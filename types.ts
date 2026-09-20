@@ -54,7 +54,95 @@ export interface HandsFreeUpdate {
 	budgetExhausted?: boolean;
 }
 
-export type MonitorStrategy = "stream" | "poll-diff" | "file-watch";
+export type MonitorStrategy = "stream" | "poll-diff" | "file-watch" | "semantic";
+
+export interface SemanticWatchConfig {
+	id: string;
+	condition: string;
+	threshold?: number;
+}
+
+export interface SemanticActionItemConfig {
+	id: string;
+	description: string;
+	input?: string;
+	inputKeys?: string[];
+	submit?: boolean;
+	cooldownMs?: number;
+	maxExecutions?: number;
+}
+
+export interface SemanticActionsConfig {
+	enabled: true;
+	maxActions?: number;
+	items: SemanticActionItemConfig[];
+}
+
+export interface SemanticConfig {
+	goal?: string;
+	attention?: boolean;
+	watches?: SemanticWatchConfig[];
+	minIntervalMs?: number;
+	uncertain?: "continue" | "notify";
+	actions?: SemanticActionsConfig;
+}
+
+export type SemanticAttentionState = "working" | "waiting_input" | "waiting_approval" | "presenting_result" | "blocked" | "other";
+export type SemanticRoute = "continue" | "notify" | "uncertain" | "error";
+
+export interface SemanticAnswers {
+	requestsInput: number;
+	requestsApproval: number;
+	presentsResult: number;
+	requiresIntervention: number;
+	meaningfulProgress: number;
+	watches: Record<string, number>;
+	attention: {
+		value: SemanticAttentionState;
+		confidence: number;
+		probabilities: Record<SemanticAttentionState, number>;
+	};
+}
+
+interface SemanticDecisionBase {
+	sessionId: string;
+	decisionId: number;
+	timestamp: string;
+	observationHash: string;
+	generation: number;
+	model: string;
+	latencyMs: number;
+	inputTokens?: number;
+	route: SemanticRoute;
+	action?: {
+		choice: string;
+		actionId?: string;
+		confidence: number;
+		probability: number;
+		readiness?: number;
+		outcome: "executed" | "refused" | "error" | "observe-again" | "notified" | "stopped" | "blocked";
+		reason: string;
+		budgetCount: number;
+	};
+}
+
+export type SemanticDecision =
+	| (SemanticDecisionBase & { kind: "observation"; route: "continue" | "notify" | "uncertain"; answers: SemanticAnswers })
+	| (SemanticDecisionBase & { kind: "evaluator-error"; route: "error"; error: string })
+	| (SemanticDecisionBase & { kind: "skipped"; route: "continue"; reason: "secret-prompt" });
+
+export type SemanticDecisionInput = SemanticDecision extends infer D
+	? D extends SemanticDecision ? Omit<D, "sessionId" | "decisionId" | "timestamp"> : never
+	: never;
+
+export interface SemanticSessionState {
+	sessionId: string;
+	status: "running" | "paused" | "stopped";
+	decisionCount: number;
+	startedAt: string;
+	lastDecisionId?: number;
+	lastDecisionAt?: string;
+}
 
 export type MonitorThresholdOperator = "lt" | "lte" | "gt" | "gte";
 
@@ -80,7 +168,8 @@ export interface MonitorFileWatchConfig {
 
 export interface MonitorConfig {
 	strategy?: MonitorStrategy;
-	triggers: MonitorTriggerConfig[];
+	triggers?: MonitorTriggerConfig[];
+	semantic?: SemanticConfig;
 	fileWatch?: MonitorFileWatchConfig;
 	poll?: {
 		intervalMs?: number;
@@ -109,6 +198,18 @@ export interface MonitorEventPayload {
 	matchedText: string;
 	lineOrDiff: string;
 	stream: "pty";
+	semantic?: {
+		decisionId: number;
+		generation: number;
+		model: string;
+		kind: "attention" | "watch" | "uncertain" | "evaluator-error" | "action-control";
+		probability?: number;
+		threshold?: number;
+		confidence?: number;
+		attentionState?: SemanticAttentionState;
+		watchId?: string;
+		controlChoice?: "notify_pi";
+	};
 }
 
 export type MonitorTerminalReason = "stream-ended" | "script-failed" | "stopped" | "timed-out";
@@ -166,6 +267,9 @@ export interface InteractiveShellOptions {
 	// Existing PTY session (for attach flow -- skip creating a new PTY)
 	existingSession?: import("./pty-session.ts").PtyTerminalSession;
 	onUnfocus?: () => void;
+	onSessionReady?: (session: import("./pty-session.ts").PtyTerminalSession) => void;
+	onAgentControlChange?: (agentControlled: boolean) => void;
+	onSessionLifecycleEnd?: (result?: Pick<InteractiveShellResult, "exitCode" | "signal">) => void;
 }
 
 export type DialogChoice = "kill" | "background" | "transfer" | "cancel" | "return-to-agent";

@@ -24,6 +24,15 @@
     "runtime-coordinator.ts",
     "session-query.ts",
     "spawn.ts",
+    "jev-client.ts",
+    "terminal-observation.ts",
+    "semantic-supervisor.ts",
+    "semantic-events.ts",
+    "semantic-actions.ts",
+    "semantic-policy.ts",
+    "semantic-corpus.ts",
+    "semantic-evaluator.ts",
+    "scripts/evaluate-jev.ts",
     "skills/**/*",
     "examples/",
     "banner.png",
@@ -43,8 +52,10 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
+    "@typesafe-ai/sdk": "0.6.0",
     "@xterm/addon-serialize": "^0.13.0",
     "@xterm/headless": "^5.5.0",
+    "re2js": "2.8.6",
     "zigpty": "^0.1.6"
   },
   "peerDependencies": {
@@ -54,7 +65,8 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "eval:jev": "node --experimental-strip-types scripts/evaluate-jev.ts"
   },
   "keywords": [
     "pi-package",

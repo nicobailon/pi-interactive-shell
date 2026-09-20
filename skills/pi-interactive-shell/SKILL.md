@@ -165,6 +165,54 @@ interactive_shell({
 
 Use monitor mode for log watchers and long-running checks where polling would be noisy or expensive.
 
+### Optional Jev semantic supervision
+
+Jev is off by default. It sends bounded terminal viewport/recent text to TypeSafe AI only when (1) global `~/.pi/agent/interactive-shell.json` has `jev.enabled: true`, (2) `TYPESAFE_API_KEY` is present in Pi's startup environment, and (3) this session supplies `monitor.semantic`. Never put the key in a tool call or project config. Project config cannot enable Jev or change the model; it can only narrow timeout/retry/text limits and add redactions.
+
+Observe without authorizing terminal input:
+
+```typescript
+interactive_shell({
+  command: 'pi "Review this change"', mode: "dispatch",
+  monitor: { semantic: { goal: "Report a visible result or blocker" } }
+})
+```
+
+Semantic attention/watch events:
+
+```typescript
+interactive_shell({
+  command: "npm test -- --watch", mode: "monitor",
+  monitor: { strategy: "semantic", semantic: {
+    attention: true,
+    watches: [{ id: "failed", condition: "A test failure is visibly present", threshold: 0.85 }],
+    uncertain: "notify"
+  } }
+})
+```
+
+One immutable exact-input action:
+
+```typescript
+interactive_shell({
+  command: "deploy-tool", mode: "monitor",
+  monitor: { strategy: "semantic", semantic: { actions: {
+    enabled: true, maxActions: 1,
+    items: [{ id: "confirm", description: "Confirm the visible ordinary prompt", input: "yes", submit: true, maxExecutions: 1 }]
+  } } }
+})
+```
+
+Actions must be predeclared exact text or strict named keys. Model confidence is not authorization. Secret/credential/payment and process-lifecycle actions are forbidden; process exit remains PTY-owned. User takeover pauses semantics and fresh rendered output is required after control returns. In addition to per-action/session limits, a non-configurable process-wide cap allows 10 semantic action attempts across sessions; refused and throwing writes consume it.
+
+Query decisions with `{ semanticDecisions: true, semanticSessionId }`; query delivered events with `{ monitorEvents: true, monitorSessionId }`; query monitor state with `{ monitorStatus: true, monitorSessionId }`. Provider failure, uncertainty, staleness, or a visible final answer never means completion or permission.
+
+Configuration defaults/bounds: model `jev-1.13.0`; timeout 10,000 ms (1,000–30,000); retries 1 (0–2); viewport 40 lines (5–80); recent output 4,000 chars (500–8,000); up to 50 global-first/project-added RE2-compatible redaction patterns of 1–512 characters each. Backreferences, lookaround, nested repetition, and invalid syntax reject config; matches are case-insensitive and replaced literally. Full scrollback, request bodies, action bytes, and keys are not stored in semantic history. Redaction is defense in depth.
+
+Evaluate model changes with explicit `npm run eval:jev`; it reads only the packaged corpus and never runs in normal tests.
+
+Data handling: TypeSafe says customer requests/responses are not used to train Jev ([models](https://docs.typesafe.ai/models), [legal](https://docs.typesafe.ai/legal)), while its [privacy policy](https://typesafe.ai/legal/privacy-policy) retains personal data as reasonably necessary. Do not assume default zero retention. Enterprise ZDR is a separate TypeSafe arrangement, not enabled by this SDK integration.
+
 ### Hands-Free (Foreground Subagent) - NON-BLOCKING
 Agent works autonomously, **returns immediately** with sessionId. You query for status/output and cancel local supervision when done.
 

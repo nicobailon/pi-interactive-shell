@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { KeyId, OverlayAnchor } from "@earendil-works/pi-tui";
+import { validateRedactionPatterns } from "./terminal-observation.ts";
+import { DEFAULT_JEV_MODEL } from "./semantic-policy.ts";
 
 /** A spawn agent is any key configured in `spawn.commands`, including the built-in defaults. */
 export type SpawnAgent = string;
@@ -42,7 +44,28 @@ export interface InteractiveShellConfig {
 	handsFreeUpdateMaxChars: number;
 	handsFreeMaxTotalChars: number;
 	minQueryIntervalSeconds: number;
+	jev?: JevConfig;
 }
+
+export interface JevConfig {
+	enabled: boolean;
+	model: string;
+	requestTimeoutMs: number;
+	maxRetries: number;
+	maxViewportLines: number;
+	maxRecentChars: number;
+	redactionPatterns: readonly string[];
+}
+
+const DEFAULT_JEV_CONFIG: JevConfig = {
+	enabled: false,
+	model: DEFAULT_JEV_MODEL,
+	requestTimeoutMs: 10_000,
+	maxRetries: 1,
+	maxViewportLines: 40,
+	maxRecentChars: 4_000,
+	redactionPatterns: [],
+};
 
 const DEFAULT_SPAWN_CONFIG: SpawnConfig = {
 	defaultAgent: "pi",
@@ -89,6 +112,7 @@ const DEFAULT_CONFIG: InteractiveShellConfig = {
 	handsFreeUpdateMaxChars: 1500,
 	handsFreeMaxTotalChars: 100000,
 	minQueryIntervalSeconds: 60,
+	jev: DEFAULT_JEV_CONFIG,
 };
 
 export function loadConfig(cwd: string): InteractiveShellConfig {
@@ -100,6 +124,10 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 
 	const mergedSpawn = mergeSpawnConfig(globalConfig.spawn, projectConfig.spawn);
 	const merged = { ...DEFAULT_CONFIG, ...globalConfig, ...projectConfig, spawn: mergedSpawn };
+	const globalJev = isPlainObject(globalConfig.jev) ? globalConfig.jev : {};
+	const projectJev = isPlainObject(projectConfig.jev) ? projectConfig.jev : {};
+	// Transmission can only be enabled by the user's global config. Project config may only narrow limits/redaction.
+	const jev = resolveJevConfig(globalJev, projectJev);
 
 	return {
 		...merged,
@@ -169,6 +197,35 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 			5,
 			300,
 		),
+		jev,
+	};
+}
+
+function resolveJevConfig(globalValue: Record<string, unknown>, projectValue: Record<string, unknown>): JevConfig {
+	const globalPatterns = resolveRedactionPatterns(globalValue.redactionPatterns, "global");
+	const projectPatterns = resolveRedactionPatterns(projectValue.redactionPatterns, "project");
+	const selectedPatterns = [
+		...globalPatterns.map((source, index) => ({ source, scope: "global", index })),
+		...projectPatterns.map((source, index) => ({ source, scope: "project", index })),
+	].slice(0, 50);
+	const redactionPatterns = Object.freeze(selectedPatterns.map(({ source }) => source));
+	const invalidPatternIndex = validateRedactionPatterns(redactionPatterns);
+	if (invalidPatternIndex !== undefined) {
+		const pattern = selectedPatterns[invalidPatternIndex]!;
+		throw new Error(`Invalid ${pattern.scope} Jev redaction pattern at index ${pattern.index}.`);
+	}
+	const globalTimeout = clampInt(globalValue.requestTimeoutMs, DEFAULT_JEV_CONFIG.requestTimeoutMs, 1_000, 30_000);
+	const globalRetries = clampInt(globalValue.maxRetries, DEFAULT_JEV_CONFIG.maxRetries, 0, 2);
+	const globalViewportLines = clampInt(globalValue.maxViewportLines, DEFAULT_JEV_CONFIG.maxViewportLines, 5, 80);
+	const globalRecentChars = clampInt(globalValue.maxRecentChars, DEFAULT_JEV_CONFIG.maxRecentChars, 500, 8_000);
+	return {
+		enabled: globalValue.enabled === true,
+		model: resolveOptionalString(globalValue.model) ?? DEFAULT_JEV_CONFIG.model,
+		requestTimeoutMs: Math.min(globalTimeout, clampInt(projectValue.requestTimeoutMs, globalTimeout, 1_000, 30_000)),
+		maxRetries: Math.min(globalRetries, clampInt(projectValue.maxRetries, globalRetries, 0, 2)),
+		maxViewportLines: Math.min(globalViewportLines, clampInt(projectValue.maxViewportLines, globalViewportLines, 5, 80)),
+		maxRecentChars: Math.min(globalRecentChars, clampInt(projectValue.maxRecentChars, globalRecentChars, 500, 8_000)),
+		redactionPatterns,
 	};
 }
 
@@ -270,6 +327,15 @@ function resolveStringArray(value: unknown, fallback: string[]): string[] {
 	return value;
 }
 
+function resolveRedactionPatterns(value: unknown, scope: "global" | "project"): string[] {
+	if (value === undefined) return [];
+	if (!Array.isArray(value)) throw new Error(`Invalid ${scope} Jev redaction configuration.`);
+	for (let index = 0; index < value.length; index++) {
+		if (typeof value[index] !== "string") throw new Error(`Invalid ${scope} Jev redaction entry at index ${index}.`);
+	}
+	return value as string[];
+}
+
 function resolveBoolean(value: unknown, fallback: boolean): boolean {
 	return typeof value === "boolean" ? value : fallback;
 }
@@ -304,7 +370,7 @@ function clampPercent(value: number | undefined, fallback: number): number {
 	return Math.min(100, Math.max(10, value));
 }
 
-function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
 	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
 	const rounded = Math.trunc(value);
 	return Math.min(max, Math.max(min, rounded));

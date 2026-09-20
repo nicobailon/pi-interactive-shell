@@ -61,6 +61,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private completeCallbacks: Array<() => void> = [];
 	// Simple render throttle to reduce flicker
 	private renderTimeout: ReturnType<typeof setTimeout> | null = null;
+	private semanticLifecycleEnded = false;
 
 	constructor(
 		tui: TUI,
@@ -96,6 +97,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			},
 			onExit: () => {
 				if (this.finished) return;
+				this.endSemanticLifecycle({ exitCode: this.session.exitCode, signal: this.session.signal });
 				this.stopTimeout();
 
 				if (this.state === "hands-free" && this.sessionId) {
@@ -159,6 +161,14 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		if (options.sessionId || this.state === "hands-free") {
 			this.sessionId = options.sessionId ?? generateSessionId(options.name);
 			this.registerActiveSession();
+		}
+		try {
+			options.onSessionReady?.(this.session);
+		} catch (error) {
+			this.session.kill();
+			this.disposeTerminalSession();
+			this.unregisterActiveSession(true);
+			throw error;
 		}
 		if (this.state === "hands-free") {
 			this.startHandsFreeUpdates();
@@ -534,6 +544,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		this.stopHandsFreeUpdates();
 		this.state = "running";
 		this.userTookOver = true;
+		this.options.onAgentControlChange?.(false);
 
 		if (this.options.onHandsFreeUpdate) {
 			this.options.onHandsFreeUpdate({
@@ -561,6 +572,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		this.state = "hands-free";
 		this.userTookOver = false;
+		this.options.onAgentControlChange?.(true);
 
 		// Re-register if streaming mode previously released the session
 		if (this.sessionUnregistered) {
@@ -621,6 +633,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private finishWithExit(): void {
 		if (this.finished) return;
 		this.finished = true;
+		this.endSemanticLifecycle({ exitCode: this.session.exitCode, signal: this.session.signal });
 		this.stopCountdown();
 		this.stopTimeout();
 		this.stopHandsFreeUpdates();
@@ -696,6 +709,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private finishWithKill(completionReason: InteractiveShellResult["completionReason"] = "killed", onCommitted?: () => void): void {
 		if (this.finished) return;
 		this.finished = true;
+		this.endSemanticLifecycle();
 		this.session.kill();
 		this.stopCountdown();
 		this.stopTimeout();
@@ -733,6 +747,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 	private finishWithTransfer(): void {
 		if (this.finished) return;
+		this.endSemanticLifecycle();
 		this.session.kill();
 		this.finished = true;
 		this.stopCountdown();
@@ -773,6 +788,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	private finishWithTimeout(): void {
 		if (this.finished) return;
 		this.finished = true;
+		this.endSemanticLifecycle();
 		this.session.kill();
 		this.stopCountdown();
 		this.stopTimeout();
@@ -1097,6 +1113,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		// Safety cleanup in case dispose() is called without going through finishWith*
 		// If session hasn't completed yet, kill it to prevent orphaned processes
 		if (!this.completionResult) {
+			this.endSemanticLifecycle();
 			this.session.kill();
 			this.disposeTerminalSession();
 			this.unregisterActiveSession(true);
@@ -1106,5 +1123,11 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			this.unregisterActiveSession(true);
 		}
 		// Non-blocking mode with completion: keep registered so agent can query
+	}
+
+	private endSemanticLifecycle(result?: Pick<InteractiveShellResult, "exitCode" | "signal">): void {
+		if (this.semanticLifecycleEnded) return;
+		this.semanticLifecycleEnded = true;
+		this.options.onSessionLifecycleEnd?.(result);
 	}
 }

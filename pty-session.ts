@@ -162,6 +162,8 @@ export class PtyTerminalSession {
 	private exitHandler: ((exitCode: number, signal?: number) => void) | undefined;
 	private additionalDataListeners: Array<(data: string) => void> = [];
 	private additionalExitListeners: Array<(exitCode: number, signal?: number) => void> = [];
+	private visualChangeListeners: Array<() => void> = [];
+	private _visualGeneration = 0;
 	private forceKillTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// Trim raw output buffer if it exceeds max size
@@ -227,6 +229,7 @@ export class PtyTerminalSession {
 					await new Promise<void>((resolve) => {
 						this.xterm.write(chunk, () => resolve());
 					});
+					this.bumpVisualGeneration();
 					if (!this._disposed) this.notifyDataListeners(chunk);
 				});
 			} else {
@@ -239,6 +242,7 @@ export class PtyTerminalSession {
 							await new Promise<void>((resolve) => {
 								this.xterm.write(segment.text, () => resolve());
 							});
+							this.bumpVisualGeneration();
 							if (!this._disposed) this.notifyDataListeners(segment.text);
 						}
 						if (this._disposed) return;
@@ -258,6 +262,7 @@ export class PtyTerminalSession {
 						await new Promise<void>((resolve) => {
 							this.xterm.write(trailingText, () => resolve());
 						});
+						this.bumpVisualGeneration();
 						if (!this._disposed) this.notifyDataListeners(trailingText);
 					});
 				}
@@ -277,6 +282,7 @@ export class PtyTerminalSession {
 				await new Promise<void>((resolve) => {
 					this.xterm.write(exitMsg, () => resolve());
 				});
+				this.bumpVisualGeneration();
 			});
 
 			// Public completion follows both PTY output completion and xterm rendering.
@@ -312,6 +318,20 @@ export class PtyTerminalSession {
 			const idx = this.additionalExitListeners.indexOf(cb);
 			if (idx >= 0) this.additionalExitListeners.splice(idx, 1);
 		};
+	}
+
+	addVisualChangeListener(cb: () => void): () => void {
+		if (this._disposed) return () => {};
+		this.visualChangeListeners.push(cb);
+		return () => {
+			const idx = this.visualChangeListeners.indexOf(cb);
+			if (idx >= 0) this.visualChangeListeners.splice(idx, 1);
+		};
+	}
+
+	private bumpVisualGeneration(): void {
+		this._visualGeneration += 1;
+		for (const listener of [...this.visualChangeListeners]) listener();
 	}
 
 	private notifyDataListeners(data: string): void {
@@ -355,6 +375,9 @@ export class PtyTerminalSession {
 	get rows(): number {
 		return this.xterm.rows;
 	}
+	get visualGeneration(): number {
+		return this._visualGeneration;
+	}
 
 	write(data: string): void {
 		if (!this._disposed && !this._completing) {
@@ -362,10 +385,18 @@ export class PtyTerminalSession {
 		}
 	}
 
+	/** Atomic active-state check and write for a pre-authorized semantic action. */
+	writeIfActive(data: string): boolean {
+		if (this._disposed || this._completing || this._exited || !data) return false;
+		this.ptyProcess.write(data);
+		return true;
+	}
+
 	resize(cols: number, rows: number): void {
 		if (cols === this.xterm.cols && rows === this.xterm.rows) return;
 		if (cols < 1 || rows < 1) return;
 		this.xterm.resize(cols, rows);
+		this.bumpVisualGeneration();
 		if (!this._disposed && !this._completing) {
 			this.ptyProcess.resize(cols, rows);
 		}
@@ -590,21 +621,27 @@ export class PtyTerminalSession {
 	scrollUp(lines: number): void {
 		const buffer = this.xterm.buffer.active;
 		const maxScroll = Math.max(0, buffer.length - this.xterm.rows);
+		const previous = this.scrollOffset;
 		this.scrollOffset = Math.min(this.scrollOffset + lines, maxScroll);
 		this.followBottom = false; // User scrolled up, stop auto-following
+		if (this.scrollOffset !== previous) this.bumpVisualGeneration();
 	}
 
 	scrollDown(lines: number): void {
+		const previous = this.scrollOffset;
 		this.scrollOffset = Math.max(0, this.scrollOffset - lines);
 		// If scrolled to bottom, resume auto-following
 		if (this.scrollOffset === 0) {
 			this.followBottom = true;
 		}
+		if (this.scrollOffset !== previous) this.bumpVisualGeneration();
 	}
 
 	scrollToBottom(): void {
+		const changed = this.scrollOffset !== 0 || !this.followBottom;
 		this.scrollOffset = 0;
 		this.followBottom = true;
+		if (changed) this.bumpVisualGeneration();
 	}
 
 	isScrolledUp(): boolean {
@@ -655,6 +692,7 @@ export class PtyTerminalSession {
 		this.exitHandler = undefined;
 		this.additionalDataListeners.length = 0;
 		this.additionalExitListeners.length = 0;
+		this.visualChangeListeners.length = 0;
 		this.xterm.dispose();
 	}
 }

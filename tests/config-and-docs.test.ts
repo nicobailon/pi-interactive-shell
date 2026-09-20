@@ -100,6 +100,73 @@ describe("config + docs parity", () => {
 		}
 	});
 
+	it("requires global Jev enablement while allowing project config only to narrow observation", async () => {
+		const root = mkdtempSync(join(tmpdir(), "interactive-shell-jev-config-"));
+		const project = join(root, "project");
+		const agentDir = join(root, "agent");
+		mkdirSync(agentDir, { recursive: true });
+		mkdirSync(join(project, ".pi"), { recursive: true });
+		writeFileSync(join(project, ".pi", "interactive-shell.json"), JSON.stringify({
+			jev: { enabled: true, model: "project-model", maxRecentChars: 700, redactionPatterns: ["PROJECT_SECRET"] },
+		}));
+		const { loadConfig } = await loadConfigModule(agentDir);
+		const projectOnly = loadConfig(project);
+		expect(projectOnly.jev).toMatchObject({ enabled: false, model: "jev-1.13.0", maxRecentChars: 700 });
+
+		writeFileSync(join(agentDir, "interactive-shell.json"), JSON.stringify({
+			jev: { enabled: true, model: "jev-1.13.0", maxRecentChars: 4000, maxRetries: 1, redactionPatterns: ["GLOBAL_SECRET"] },
+		}));
+		const reloaded = await loadConfigModule(agentDir);
+		const enabled = reloaded.loadConfig(project);
+		expect(enabled.jev).toMatchObject({ enabled: true, model: "jev-1.13.0", maxRecentChars: 700, maxRetries: 1 });
+		expect(enabled.jev?.redactionPatterns).toEqual(["GLOBAL_SECRET", "PROJECT_SECRET"]);
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("validates bounded RE2 redactions privately and preserves global-first cap ordering", async () => {
+		const root = mkdtempSync(join(tmpdir(), "interactive-shell-redactions-"));
+		const project = join(root, "project"); const agentDir = join(root, "agent");
+		mkdirSync(agentDir, { recursive: true }); mkdirSync(join(project, ".pi"), { recursive: true });
+		const globalPath = join(agentDir, "interactive-shell.json");
+		const projectPath = join(project, ".pi", "interactive-shell.json");
+		const { loadConfig } = await loadConfigModule(agentDir);
+		for (const scope of ["global", "project"] as const) {
+			const target = scope === "global" ? globalPath : projectPath;
+			const other = scope === "global" ? projectPath : globalPath;
+			writeFileSync(other, JSON.stringify({}));
+			writeFileSync(target, JSON.stringify({ jev: { redactionPatterns: { private: "PRIVATE_CONFIG_SENTINEL" } } }));
+			let structuralError: unknown;
+			try { loadConfig(project); } catch (caught) { structuralError = caught; }
+			expect(structuralError).toEqual(new Error(`Invalid ${scope} Jev redaction configuration.`));
+			expect(String(structuralError)).not.toContain("PRIVATE_CONFIG_SENTINEL");
+			writeFileSync(target, JSON.stringify({ jev: { redactionPatterns: ["valid-sibling", "PRIVATE_CONFIG_SENTINEL", 7] } }));
+			let entryError: unknown;
+			try { loadConfig(project); } catch (caught) { entryError = caught; }
+			expect(entryError).toEqual(new Error(`Invalid ${scope} Jev redaction entry at index 2.`));
+			expect(String(entryError)).not.toContain("PRIVATE_CONFIG_SENTINEL");
+		}
+		writeFileSync(globalPath, JSON.stringify({ jev: { redactionPatterns: [...Array.from({ length: 51 }, (_, index) => `valid-${index}`), false] } }));
+		writeFileSync(projectPath, JSON.stringify({}));
+		expect(() => loadConfig(project)).toThrow("Invalid global Jev redaction entry at index 51.");
+		const invalid = ["", "[", "(a)\\1", "(?=secret)", "(?<=secret)", "(a+)+$", "x".repeat(513)];
+		for (const source of invalid) {
+			writeFileSync(globalPath, JSON.stringify({ jev: { redactionPatterns: ["ok", source] } }));
+			let error: unknown;
+			try { loadConfig(project); } catch (caught) { error = caught; }
+			expect(error).toEqual(new Error("Invalid global Jev redaction pattern at index 1."));
+			if (source) expect(String(error)).not.toContain(source);
+		}
+		writeFileSync(globalPath, JSON.stringify({ jev: { redactionPatterns: ["global-ok"] } }));
+		writeFileSync(projectPath, JSON.stringify({ jev: { redactionPatterns: ["project-ok", "(?=private-project-pattern)"] } }));
+		expect(() => loadConfig(project)).toThrow("Invalid project Jev redaction pattern at index 1.");
+		writeFileSync(globalPath, JSON.stringify({ jev: { redactionPatterns: Array.from({ length: 49 }, (_, index) => `global-${index}`) } }));
+		writeFileSync(projectPath, JSON.stringify({ jev: { redactionPatterns: ["project-0", "project-1", "["] } }));
+		const selected = loadConfig(project).jev!.redactionPatterns;
+		expect(selected).toHaveLength(50);
+		expect(selected.slice(47)).toEqual(["global-47", "global-48", "project-0"]);
+		rmSync(root, { recursive: true, force: true });
+	});
+
 	it("keeps README, SKILL, and tool help defaults aligned with config defaults", async () => {
 		const root = mkdtempSync(join(tmpdir(), "interactive-shell-defaults-"));
 		const { loadConfig } = await loadConfigModule(root);
@@ -172,5 +239,34 @@ describe("config + docs parity", () => {
 		expect(toolSchema).toContain(`default: ${defaults.autoExitGracePeriod}ms`);
 
 		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("packages the semantic runtime, corpus evaluator, command, and accurate key-free documentation", () => {
+		const pkg = JSON.parse(readFileSync("package.json", "utf-8")) as { files: string[]; scripts: Record<string, string>; dependencies: Record<string, string> };
+		for (const asset of ["jev-client.ts", "terminal-observation.ts", "semantic-supervisor.ts", "semantic-events.ts", "semantic-actions.ts", "semantic-corpus.ts", "semantic-evaluator.ts", "scripts/evaluate-jev.ts"]) {
+			expect(pkg.files).toContain(asset);
+		}
+		expect(pkg.scripts["eval:jev"]).toBe("node --experimental-strip-types scripts/evaluate-jev.ts");
+		expect(pkg.dependencies.re2js).toBe("2.8.6");
+		const lock = JSON.parse(readFileSync("package-lock.json", "utf-8")) as { packages: Record<string, { version?: string }> };
+		expect(lock.packages["node_modules/re2js"]?.version).toBe("2.8.6");
+		const readme = readFileSync("README.md", "utf-8");
+		const skill = readFileSync("skills/pi-interactive-shell/SKILL.md", "utf-8");
+		for (const docs of [readme, skill]) {
+			expect(docs).toMatch(/optional/i);
+			expect(docs).toContain("off by default");
+			expect(docs).toContain("TYPESAFE_API_KEY");
+			expect(docs).toContain("never");
+			expect(docs).toContain("https://docs.typesafe.ai/models");
+			expect(docs).toContain("https://docs.typesafe.ai/legal");
+			expect(docs).toContain("https://typesafe.ai/legal/privacy-policy");
+			expect(docs).toContain("npm run eval:jev");
+			expect(docs).toContain("RE2-compatible");
+			expect(docs).not.toMatch(/"(?:apiKey|TYPESAFE_API_KEY)"\s*:/);
+		}
+		expect(readme).toContain("customer requests/responses are not used to train Jev");
+		expect(readme).toContain("do not assume default zero retention");
+		expect(readme).toContain("Example global opt-in (the default is `false`):");
+		expect(skill).toContain("Enterprise ZDR is a separate");
 	});
 });

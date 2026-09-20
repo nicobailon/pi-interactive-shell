@@ -1,9 +1,11 @@
 import type { OverlayHandle } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HeadlessDispatchMonitor } from "./headless-monitor.ts";
-import type { MonitorConfig, MonitorEventPayload, MonitorSessionState, MonitorTerminalReason } from "./types.ts";
+import type { MonitorConfig, MonitorEventPayload, MonitorSessionState, MonitorTerminalReason, SemanticDecision, SemanticDecisionInput, SemanticSessionState } from "./types.ts";
 
 const MONITOR_HISTORY_LIMIT = 200;
+const SEMANTIC_HISTORY_LIMIT = 200;
+const GLOBAL_SEMANTIC_ACTION_LIMIT = 10;
 
 export interface MonitorEventsQueryResult {
 	events: MonitorEventPayload[];
@@ -12,6 +14,13 @@ export interface MonitorEventsQueryResult {
 	offset: number;
 	sinceEventId?: number;
 	triggerId?: string;
+}
+
+export interface SemanticDecisionsQueryResult {
+	decisions: SemanticDecision[];
+	total: number;
+	limit: number;
+	offset: number;
 }
 
 /** Centralizes overlay, monitor, widget, and completion-suppression state for the extension runtime. */
@@ -27,15 +36,46 @@ export class InteractiveShellCoordinator {
 	private agentHandledCompletion = new Set<string>();
 	private extensionApi: ExtensionAPI | null = null;
 	private pendingApiTasks: Array<(pi: ExtensionAPI) => void> = [];
+	private semanticHistory = new Map<string, SemanticDecision[]>();
+	private semanticCounters = new Map<string, number>();
+	private semanticState = new Map<string, SemanticSessionState>();
+	private runtimeEpoch = 0;
+	private semanticActionAttempts = 0;
 
 	bindExtensionApi(pi: ExtensionAPI): void {
+		if (this.extensionApi === pi) return;
+		this.runtimeEpoch += 1;
+		const epoch = this.runtimeEpoch;
+		for (const monitor of this.headlessMonitors.values()) {
+			monitor.rebindSemanticEpoch(() => this.runtimeEpoch === epoch);
+		}
 		this.extensionApi = pi;
 		const pending = this.pendingApiTasks.splice(0);
 		for (const task of pending) task(pi);
 	}
 
+	getRuntimeEpoch(): number { return this.runtimeEpoch; }
+	isRuntimeEpochCurrent(epoch: number): boolean { return epoch === this.runtimeEpoch; }
+
+	reserveSemanticActionAttempt(): boolean {
+		if (this.semanticActionAttempts >= GLOBAL_SEMANTIC_ACTION_LIMIT) return false;
+		this.semanticActionAttempts += 1;
+		return true;
+	}
+
+	getSemanticActionAttempts(): number { return this.semanticActionAttempts; }
+
+	ensureReloadState(): void {
+		if (!Number.isSafeInteger(this.semanticActionAttempts) || this.semanticActionAttempts < 0) this.semanticActionAttempts = 0;
+	}
+
 	unbindExtensionApi(pi: ExtensionAPI): void {
-		if (this.extensionApi === pi) this.extensionApi = null;
+		if (this.extensionApi !== pi) return;
+		this.extensionApi = null;
+		this.runtimeEpoch += 1;
+		for (const monitor of this.headlessMonitors.values()) {
+			monitor.pauseSemantic();
+		}
 	}
 
 	runWithExtensionApi(task: (pi: ExtensionAPI) => void): void {
@@ -111,7 +151,7 @@ export class InteractiveShellCoordinator {
 		const state: MonitorSessionState = {
 			sessionId,
 			strategy: monitor.strategy ?? "stream",
-			triggerIds: monitor.triggers.map((trigger) => trigger.id),
+			triggerIds: (monitor.triggers ?? []).map((trigger) => trigger.id),
 			status: "running",
 			eventCount: 0,
 			startedAt: startedAt.toISOString(),
@@ -217,6 +257,58 @@ export class InteractiveShellCoordinator {
 		this.pendingMonitorReason.delete(sessionId);
 	}
 
+	recordSemanticDecision(sessionId: string, decision: SemanticDecisionInput): SemanticDecision {
+		const decisionId = (this.semanticCounters.get(sessionId) ?? 0) + 1;
+		this.semanticCounters.set(sessionId, decisionId);
+		const metadata = { sessionId, decisionId, timestamp: new Date().toISOString() };
+		let recorded: SemanticDecision;
+		switch (decision.kind) {
+			case "observation":
+				recorded = { ...decision, ...metadata };
+				break;
+			case "evaluator-error":
+				recorded = { ...decision, ...metadata };
+				break;
+			case "skipped":
+				recorded = { ...decision, ...metadata };
+				break;
+		}
+		const history = this.semanticHistory.get(sessionId) ?? [];
+		history.push(recorded);
+		if (history.length > SEMANTIC_HISTORY_LIMIT) history.splice(0, history.length - SEMANTIC_HISTORY_LIMIT);
+		this.semanticHistory.set(sessionId, history);
+		const state = this.semanticState.get(sessionId);
+		if (state) this.semanticState.set(sessionId, { ...state, decisionCount: decisionId, lastDecisionId: decisionId, lastDecisionAt: recorded.timestamp });
+		return recorded;
+	}
+
+	registerSemanticSession(sessionId: string, startedAt: Date): SemanticSessionState {
+		const state: SemanticSessionState = { sessionId, status: "running", decisionCount: 0, startedAt: startedAt.toISOString() };
+		this.semanticState.set(sessionId, state);
+		return state;
+	}
+
+	setSemanticSessionStatus(sessionId: string, status: SemanticSessionState["status"]): void {
+		const state = this.semanticState.get(sessionId);
+		if (state) this.semanticState.set(sessionId, { ...state, status });
+	}
+
+	getSemanticSessionState(sessionId: string): SemanticSessionState | undefined { return this.semanticState.get(sessionId); }
+
+	getSemanticDecisions(sessionId: string, options?: { limit?: number; offset?: number }): SemanticDecisionsQueryResult {
+		const history = this.semanticHistory.get(sessionId) ?? [];
+		const limit = Math.max(1, Math.min(200, Math.trunc(options?.limit ?? 20)));
+		const offset = Math.max(0, Math.trunc(options?.offset ?? 0));
+		const newestFirst = [...history].reverse();
+		return { decisions: newestFirst.slice(offset, offset + limit), total: history.length, limit, offset };
+	}
+
+	clearSemanticDecisions(sessionId: string): void {
+		this.semanticHistory.delete(sessionId);
+		this.semanticCounters.delete(sessionId);
+		this.semanticState.delete(sessionId);
+	}
+
 	disposeMonitor(id: string): void {
 		const monitor = this.headlessMonitors.get(id);
 		if (!monitor) return;
@@ -229,6 +321,7 @@ export class InteractiveShellCoordinator {
 			monitor.dispose();
 		}
 		this.headlessMonitors.clear();
+		this.semanticActionAttempts = 0;
 	}
 
 	replaceBackgroundWidgetCleanup(cleanup: (() => void) | null): void {

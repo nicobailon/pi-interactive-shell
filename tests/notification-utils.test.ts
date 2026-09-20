@@ -142,6 +142,20 @@ describe("notification utilities", () => {
 		expect(text).toContain("Line: ERROR: failed to compile");
 	});
 
+	it("formats bounded semantic metadata without terminal state", () => {
+		const text = buildMonitorEventNotification({
+			sessionId: "calm-reef", eventId: 4, timestamp: "2026-04-11T14:00:00.000Z", strategy: "semantic",
+			triggerId: "semantic:watch:ready", eventType: "semantic-watch", matchedText: "watch:ready",
+			lineOrDiff: "Semantic watch matched: ready", stream: "pty",
+			semantic: { decisionId: 9, generation: 12, model: "jev-1.13.0", kind: "watch", watchId: "ready", probability: 0.8, threshold: 0.8 },
+		});
+		expect(text).toContain("Watch: ready");
+		expect(text).toContain("Decision: #9, generation 12, model jev-1.13.0");
+		expect(text).toContain("Probability: 0.8 (threshold 0.8)");
+		expect(text).not.toContain("Matched:");
+		expect(text).not.toContain("Line:");
+	});
+
 	it("formats monitor lifecycle notifications", () => {
 		const text = buildMonitorLifecycleNotification({
 			sessionId: "calm-reef",

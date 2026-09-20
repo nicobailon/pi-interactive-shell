@@ -44,13 +44,18 @@ function createSession() {
 	let onData: ((data: string) => void) | null = null;
 	let onExit: ((exitCode: number | null, signal?: number) => void) | null = null;
 	let rawOutput = "";
+	let visualGeneration = 0;
+	let visualListeners: Array<() => void> = [];
 	return {
+		get visualGeneration() { return visualGeneration; },
 		exited: false,
 		exitCode: null as number | null,
 		signal: undefined as number | undefined,
 		kill: vi.fn(),
 		getTailLines: vi.fn(() => ({ lines: ["final"], totalLinesInBuffer: 1, truncatedByChars: false })),
 		getRawStream: vi.fn(() => rawOutput),
+		getViewportLines: vi.fn(() => rawOutput.split("\n")),
+		addVisualChangeListener(fn: () => void) { visualListeners.push(fn); return () => { visualListeners = visualListeners.filter((item) => item !== fn); }; },
 		addDataListener(fn: (data: string) => void) {
 			onData = fn;
 			return () => { onData = null; };
@@ -61,6 +66,8 @@ function createSession() {
 		},
 		emitData(data: string) {
 			rawOutput += data;
+			visualGeneration += 1;
+			for (const listener of [...visualListeners]) listener();
 			onData?.(data);
 		},
 		emitExit(exitCode: number | null, signal?: number) {
@@ -73,6 +80,23 @@ function createSession() {
 }
 
 describe("HeadlessDispatchMonitor", () => {
+	it("defers completion authority until foreground ownership is transferred exactly once", async () => {
+		const session = createSession();
+		const foregroundCompletion = vi.fn();
+		const backgroundCompletion = vi.fn();
+		const monitor = new HeadlessDispatchMonitor(session, config, {
+			autoExitOnQuiet: false, quietThreshold: 100, gracePeriod: 10, deferLifecycle: true,
+		}, foregroundCompletion);
+		session.emitExit(0);
+		expect(foregroundCompletion).not.toHaveBeenCalled();
+		monitor.activateBackgroundLifecycle({ autoExitOnQuiet: false, onComplete: backgroundCompletion });
+		monitor.activateBackgroundLifecycle({ autoExitOnQuiet: false, onComplete: vi.fn() });
+		await Promise.resolve();
+		expect(backgroundCompletion).toHaveBeenCalledTimes(1);
+		expect(foregroundCompletion).not.toHaveBeenCalled();
+		expect(monitor.disposed).toBe(true);
+	});
+
 	beforeEach(() => {
 		vi.useFakeTimers();
 	});
@@ -99,6 +123,71 @@ describe("HeadlessDispatchMonitor", () => {
 			autoClosedOnQuiet: true,
 			completionReason: "auto-close-quiet",
 		}));
+	});
+
+	it("aborts observe-only semantics on kill without writing semantic input or emitting monitor events", async () => {
+		const session = createSession();
+		let signal: AbortSignal | undefined;
+		const never = new Promise<unknown>(() => {});
+		const onMonitorEvent = vi.fn();
+		const monitor = new HeadlessDispatchMonitor(session, config, {
+			autoExitOnQuiet: false, quietThreshold: 1000, onMonitorEvent,
+			semantic: {
+				sessionId: "s", mode: "dispatch", config: { minIntervalMs: 250 }, model: "jev-1.13.0", requestTimeoutMs: 1000,
+				client: { evaluate: vi.fn((_request, options) => { signal = options.signal; return never; }) },
+				bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] }, isEpochCurrent: () => true, onDecision: vi.fn(),
+			},
+		}, vi.fn());
+		session.emitData("working");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(signal?.aborted).toBe(false);
+		monitor.kill();
+		expect(signal?.aborted).toBe(true);
+		expect(onMonitorEvent).not.toHaveBeenCalled();
+		expect(session.kill).toHaveBeenCalledTimes(1);
+	});
+
+	it("aborts semantics for exit, disposal, external completion, and timeout", async () => {
+		for (const lifecycle of ["exit", "dispose", "external", "timeout"] as const) {
+			const session = createSession(); let signal: AbortSignal | undefined; let resolve!: (value: unknown) => void;
+			const work = new Promise<unknown>((done) => { resolve = done; });
+			const decisions = vi.fn();
+			const monitor = new HeadlessDispatchMonitor(session, config, {
+				autoExitOnQuiet: false, quietThreshold: 1000, timeout: lifecycle === "timeout" ? 10 : undefined,
+				semantic: {
+					sessionId: "s", mode: "dispatch", config: { minIntervalMs: 250 }, model: "jev-1.13.0", requestTimeoutMs: 1000,
+					client: { evaluate: vi.fn((_request, options) => { signal = options.signal; return work; }) },
+					bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] }, isEpochCurrent: () => true, onDecision: decisions,
+				},
+			}, vi.fn());
+			session.emitData("working"); await vi.advanceTimersByTimeAsync(0);
+			if (lifecycle === "exit") session.emitExit(0);
+			if (lifecycle === "dispose") monitor.dispose();
+			if (lifecycle === "external") monitor.handleExternalCompletion(0);
+			if (lifecycle === "timeout") await vi.advanceTimersByTimeAsync(10);
+			expect(signal?.aborted, lifecycle).toBe(true);
+			resolve({}); await Promise.resolve(); await Promise.resolve();
+			expect(decisions, lifecycle).not.toHaveBeenCalled();
+		}
+	});
+
+	it("applies existing semantic candidate dedupe and per-trigger cooldown independently", () => {
+		const session = createSession(); const events: unknown[] = [];
+		const monitor = new HeadlessDispatchMonitor(session, config, {
+			autoExitOnQuiet: false, quietThreshold: 1000,
+			monitor: { strategy: "semantic", triggers: [], pollIntervalMs: 1000, dedupeExactLine: true, cooldownMs: 100 },
+			onMonitorEvent: (event) => { events.push(event); },
+		}, vi.fn());
+		const first = { strategy: "semantic" as const, triggerId: "semantic:watch:first", eventType: "semantic-watch", matchedText: "watch:first", lineOrDiff: "Semantic watch matched: first", stream: "pty" as const };
+		const second = { ...first, triggerId: "semantic:watch:second", matchedText: "watch:second", lineOrDiff: "Semantic watch matched: second" };
+		expect(monitor.submitMonitorCandidate(first, "1:semantic:watch:first")).toBe(true);
+		expect(monitor.submitMonitorCandidate(first, "1:semantic:watch:first")).toBe(false);
+		expect(monitor.submitMonitorCandidate(second, "1:semantic:watch:second")).toBe(true);
+		expect(events).toHaveLength(2);
+		expect(monitor.submitMonitorCandidate(first, "2:semantic:watch:first")).toBe(false);
+		vi.advanceTimersByTime(100);
+		expect(monitor.submitMonitorCandidate(first, "3:semantic:watch:first")).toBe(true);
+		monitor.dispose();
 	});
 
 	it("respects startup grace period and preserves explicit startedAt", () => {
