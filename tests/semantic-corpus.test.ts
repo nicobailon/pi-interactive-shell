@@ -80,4 +80,15 @@ describe("repository semantic corpus", () => {
 		expect(JSON.stringify(report)).not.toContain("must-not-leak");
 		expect((client.evaluate as any).mock.calls.every((callArgs: any[]) => callArgs[1].timeoutMs === 30_000)).toBe(true);
 	});
+
+	it("gates on the user-visible outcome while retaining atomic accuracy as a diagnostic", async () => {
+		const fixture = SEMANTIC_CORPUS.find((item) => item.id === "yes-no-confirmation")!;
+		const raw = response(fixture);
+		raw.answers.requests_input = { type: "noul", noul: 0.95 };
+		const client: JevClient = { evaluate: vi.fn(async () => raw) };
+		const report = await evaluateSemanticCorpus({ client, model: "jev-1.13.0", requestTimeoutMs: 10_000, fixtures: [fixture] });
+		expect(report).toMatchObject({ correctCount: 1, accuracy: 1, atomicCorrectCount: 0, atomicAccuracy: 0 });
+		expect(report.predictions[0]).toMatchObject({ correct: true, atomicCorrect: false, route: "notify" });
+		expect(isCorpusEvaluationPassing(report)).toBe(true);
+	});
 });

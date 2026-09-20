@@ -469,6 +469,8 @@ Per-session `monitor.semantic` supports: `goal` (optional task context, sent bou
 
 Bounded viewport/recent terminal text is sent to TypeSafe AI. ANSI/control text is stripped and built-in plus configured redaction runs first, but redaction is defense in depth—not a promise to identify every secret. Custom patterns use linear-time RE2-compatible syntax (no backreferences, lookaround, or nested repetition), are validated at config load, and replace every case-insensitive match with literal `[REDACTED]`. Invalid selected patterns reject configuration rather than being skipped. Full scrollback, request bodies, exact action input/bytes, and the API key are not stored in semantic history. Provider failures, uncertainty, stale responses, or a visible result never imply process completion or permission to act; PTY exit remains deterministic authority.
 
+Built-in attention notifications use the model's confident, mutually exclusive primary state. Confident `working` continues silently, confident `other` remains uncertain, and confident input, approval, result, or blocked states emit their corresponding bounded event. The same attention event is suppressed until the primary state changes; independent watches and action-control events retain their own delivery semantics. Independent Noul answers remain inspectable metadata and drive watches or action readiness where configured; they do not duplicate-veto the primary attention event. This routing never grants terminal-action authority.
+
 Observe a hands-free or dispatch session without authorizing input:
 
 ```typescript
@@ -525,7 +527,7 @@ Troubleshooting:
 - **Missing credential:** start Pi from an environment containing `TYPESAFE_API_KEY`; do not put it in tool or project configuration.
 - **Timeout/rate limit/provider failure:** the decision fails closed with a bounded diagnostic; increase only the global timeout within its bound or retry after provider recovery.
 - **Uncertain result:** default behavior is continue silently; set `uncertain: "notify"` to emit a bounded event. Uncertainty never authorizes input.
-- **Model change:** run the repository corpus explicitly with `npm run eval:jev` before relying on the new globally configured model. This command reads only packaged fixtures, requires the same global enablement and environment credential, and never runs in normal tests/CI.
+- **Model change:** run the repository corpus explicitly with `npm run eval:jev` before relying on the new globally configured model. This command reads only packaged fixtures, requires the same global enablement and environment credential, and never runs in normal tests/CI. Its pass gate measures the expected attention state and default user-visible event outcome; `atomicAccuracy` separately reports agreement with every secondary Noul.
 
 TypeSafe states that customer requests/responses are not used to train Jev; see [Models](https://docs.typesafe.ai/models) and [Legal](https://docs.typesafe.ai/legal). Its [public privacy policy](https://typesafe.ai/legal/privacy-policy) says personal data is retained as reasonably necessary, so do not assume default zero retention. Enterprise zero-data-retention is a separate arrangement described by TypeSafe and is not enabled by this direct SDK integration.
 

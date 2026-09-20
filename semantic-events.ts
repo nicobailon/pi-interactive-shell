@@ -1,13 +1,13 @@
-import type { MonitorEventPayload, SemanticAnswers, SemanticConfig, SemanticDecision, SemanticAttentionState } from "./types.ts";
+import type { MonitorEventPayload, SemanticConfig, SemanticDecision, SemanticAttentionState } from "./types.ts";
 import { SEMANTIC_THRESHOLDS } from "./semantic-policy.ts";
 
 export type SemanticMonitorCandidate = Omit<MonitorEventPayload, "sessionId" | "eventId" | "timestamp">;
 
-const ATTENTION_EVENTS: Partial<Record<SemanticAttentionState, { eventType: string; condition: keyof SemanticAnswers }>> = {
-	waiting_input: { eventType: "input-required", condition: "requestsInput" },
-	waiting_approval: { eventType: "approval-required", condition: "requestsApproval" },
-	presenting_result: { eventType: "result-ready", condition: "presentsResult" },
-	blocked: { eventType: "intervention-required", condition: "requiresIntervention" },
+const ATTENTION_EVENTS: Partial<Record<SemanticAttentionState, string>> = {
+	waiting_input: "input-required",
+	waiting_approval: "approval-required",
+	presenting_result: "result-ready",
+	blocked: "intervention-required",
 };
 
 /** Pure classification of already-recorded semantic metadata into bounded monitor candidates. */
@@ -57,19 +57,18 @@ export function classifySemanticEvents(decision: SemanticDecision, config: Seman
 
 	const selectedProbability = decision.answers.attention.probabilities[decision.answers.attention.value];
 	if (config.attention === true) {
-		const selected = ATTENTION_EVENTS[decision.answers.attention.value];
-		if (selected) {
-			const conditionProbability = decision.answers[selected.condition] as number;
-			if (decision.answers.attention.confidence >= SEMANTIC_THRESHOLDS.choice && selectedProbability >= SEMANTIC_THRESHOLDS.choice && conditionProbability >= SEMANTIC_THRESHOLDS.noul) {
+		const eventType = ATTENTION_EVENTS[decision.answers.attention.value];
+		if (eventType) {
+			if (decision.answers.attention.confidence >= SEMANTIC_THRESHOLDS.choice && selectedProbability >= SEMANTIC_THRESHOLDS.choice) {
 				candidates.push({
 					...base,
-					triggerId: `semantic:attention:${selected.eventType}`,
-					eventType: selected.eventType,
-					matchedText: selected.eventType,
-					lineOrDiff: `Semantic attention: ${selected.eventType}`,
+					triggerId: `semantic:attention:${eventType}`,
+					eventType,
+					matchedText: eventType,
+					lineOrDiff: `Semantic attention: ${eventType}`,
 					semantic: {
 						...metadata(decision, "attention"), attentionState: decision.answers.attention.value,
-						probability: conditionProbability, threshold: SEMANTIC_THRESHOLDS.noul, confidence: decision.answers.attention.confidence,
+						probability: selectedProbability, threshold: SEMANTIC_THRESHOLDS.choice, confidence: decision.answers.attention.confidence,
 					},
 				});
 			}

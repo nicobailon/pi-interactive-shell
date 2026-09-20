@@ -13,6 +13,7 @@ export interface CorpusPrediction {
 	attention?: SemanticAttentionState;
 	route?: "continue" | "notify" | "uncertain";
 	correct: boolean;
+	atomicCorrect: boolean;
 	latencyMs: number;
 	inputTokens?: number;
 	error?: typeof CORPUS_EVALUATION_ERROR;
@@ -24,6 +25,8 @@ export interface CorpusEvaluationReport {
 	evaluatedCount: number;
 	correctCount: number;
 	accuracy: number;
+	atomicCorrectCount: number;
+	atomicAccuracy: number;
 	uncertaintyCount: number;
 	errorCount: number;
 	secretSkippedCount: number;
@@ -34,7 +37,8 @@ export interface CorpusEvaluationReport {
 }
 
 export function isCorpusEvaluationPassing(report: CorpusEvaluationReport): boolean {
-	return report.errorCount === 0 && report.evaluatedCount > 0 && report.correctCount === report.evaluatedCount;
+	return report.errorCount === 0 && report.evaluatedCount > 0 && report.correctCount === report.evaluatedCount
+		&& report.predictions.every((item) => item.status !== "secret-skipped" || item.correct);
 }
 
 export async function evaluateSemanticCorpus(options: {
@@ -49,7 +53,8 @@ export async function evaluateSemanticCorpus(options: {
 	const confusion: Record<string, number> = {};
 	for (const fixture of fixtures) {
 		if (containsSecretPrompt(fixture.observation)) {
-			predictions.push({ fixtureId: fixture.id, status: "secret-skipped", correct: fixture.expected.secretPrompt === true, latencyMs: 0 });
+			const correct = fixture.expected.secretPrompt === true;
+			predictions.push({ fixtureId: fixture.id, status: "secret-skipped", correct, atomicCorrect: correct, latencyMs: 0 });
 			continue;
 		}
 		const started = Date.now();
@@ -59,12 +64,13 @@ export async function evaluateSemanticCorpus(options: {
 			});
 			const parsed = parseSemanticResult(raw, {}, options.model);
 			const route = routeSemanticAnswers(parsed.answers, {});
-			const correct = matchesExpected(parsed.answers, route, fixture.expected);
+			const correct = matchesOperationalOutcome(parsed.answers, route, fixture.expected);
+			const atomicCorrect = matchesAtomicExpected(parsed.answers, route, fixture.expected);
 			const key = `${fixture.expected.attention}->${parsed.answers.attention.value}`;
 			confusion[key] = (confusion[key] ?? 0) + 1;
-			predictions.push({ fixtureId: fixture.id, status: "evaluated", attention: parsed.answers.attention.value, route, correct, latencyMs: Date.now() - started, inputTokens: parsed.inputTokens });
+			predictions.push({ fixtureId: fixture.id, status: "evaluated", attention: parsed.answers.attention.value, route, correct, atomicCorrect, latencyMs: Date.now() - started, inputTokens: parsed.inputTokens });
 		} catch {
-			predictions.push({ fixtureId: fixture.id, status: "error", correct: false, latencyMs: Date.now() - started, error: CORPUS_EVALUATION_ERROR });
+			predictions.push({ fixtureId: fixture.id, status: "error", correct: false, atomicCorrect: false, latencyMs: Date.now() - started, error: CORPUS_EVALUATION_ERROR });
 		}
 	}
 	const evaluated = predictions.filter((item) => item.status === "evaluated");
@@ -76,6 +82,8 @@ export async function evaluateSemanticCorpus(options: {
 		model: options.model, fixtureCount: fixtures.length, evaluatedCount: evaluated.length,
 		correctCount: evaluated.filter((item) => item.correct).length,
 		accuracy: evaluated.length ? evaluated.filter((item) => item.correct).length / evaluated.length : 0,
+		atomicCorrectCount: evaluated.filter((item) => item.atomicCorrect).length,
+		atomicAccuracy: evaluated.length ? evaluated.filter((item) => item.atomicCorrect).length / evaluated.length : 0,
 		uncertaintyCount: evaluated.filter((item) => item.route === "uncertain").length,
 		errorCount: predictions.filter((item) => item.status === "error").length,
 		secretSkippedCount: predictions.filter((item) => item.status === "secret-skipped").length,
@@ -85,7 +93,14 @@ export async function evaluateSemanticCorpus(options: {
 	};
 }
 
-function matchesExpected(answers: SemanticAnswers, route: "continue" | "notify" | "uncertain", expected: SemanticCorpusExpected): boolean {
+function matchesOperationalOutcome(answers: SemanticAnswers, route: "continue" | "notify" | "uncertain", expected: SemanticCorpusExpected): boolean {
+	if (answers.attention.value !== expected.attention) return false;
+	if (expected.route === "notify") return route === "notify";
+	if (expected.route === "uncertain") return route === "uncertain";
+	return route !== "notify";
+}
+
+function matchesAtomicExpected(answers: SemanticAnswers, route: "continue" | "notify" | "uncertain", expected: SemanticCorpusExpected): boolean {
 	return answers.attention.value === expected.attention && route === expected.route
 		&& (answers.requestsInput >= SEMANTIC_THRESHOLDS.noul) === expected.requestsInput
 		&& (answers.requestsApproval >= SEMANTIC_THRESHOLDS.noul) === expected.requestsApproval

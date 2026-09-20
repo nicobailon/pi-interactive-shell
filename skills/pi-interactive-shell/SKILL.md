@@ -207,9 +207,11 @@ Actions must be predeclared exact text or strict named keys. Model confidence is
 
 Query decisions with `{ semanticDecisions: true, semanticSessionId }`; query delivered events with `{ monitorEvents: true, monitorSessionId }`; query monitor state with `{ monitorStatus: true, monitorSessionId }`. Provider failure, uncertainty, staleness, or a visible final answer never means completion or permission.
 
+Built-in notifications use a confident mutually exclusive attention state: `working` continues, `other` stays uncertain, and input, approval, result, or blocked states emit their matching bounded event. Repeated attention events are suppressed until the primary state changes; watches and action-control events keep their separate delivery semantics. Independent Noul answers remain metadata and support watches/action readiness; they do not authorize input or veto a confident primary attention event.
+
 Configuration defaults/bounds: model `jev-1.13.0`; timeout 10,000 ms (1,000–30,000); retries 1 (0–2); viewport 40 lines (5–80); recent output 4,000 chars (500–8,000); up to 50 global-first/project-added RE2-compatible redaction patterns of 1–512 characters each. Backreferences, lookaround, nested repetition, and invalid syntax reject config; matches are case-insensitive and replaced literally. Full scrollback, request bodies, action bytes, and keys are not stored in semantic history. Redaction is defense in depth.
 
-Evaluate model changes with explicit `npm run eval:jev`; it reads only the packaged corpus and never runs in normal tests.
+Evaluate model changes with explicit `npm run eval:jev`; it reads only the packaged corpus and never runs in normal tests. The pass gate checks attention plus the default user-visible event outcome, while `atomicAccuracy` reports every secondary Noul as a diagnostic.
 
 Data handling: TypeSafe says customer requests/responses are not used to train Jev ([models](https://docs.typesafe.ai/models), [legal](https://docs.typesafe.ai/legal)), while its [privacy policy](https://typesafe.ai/legal/privacy-policy) retains personal data as reasonably necessary. Do not assume default zero retention. Enterprise ZDR is a separate TypeSafe arrangement, not enabled by this SDK integration.
 

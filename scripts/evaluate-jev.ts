@@ -16,7 +16,7 @@ async function main(): Promise<void> {
 	}
 	console.log(JSON.stringify({
 		model: report.model, fixtures: report.fixtureCount, evaluated: report.evaluatedCount,
-		accuracy: report.accuracy, confusion: report.confusion, uncertainty: report.uncertaintyCount,
+		accuracy: report.accuracy, atomicAccuracy: report.atomicAccuracy, confusion: report.confusion, uncertainty: report.uncertaintyCount,
 		errors: report.errorCount, secretSkipped: report.secretSkippedCount,
 		latency: report.latency, inputTokens: report.inputTokens,
 	}, null, 2));

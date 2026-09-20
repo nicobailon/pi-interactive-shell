@@ -38,10 +38,10 @@ describe("semantic event classification", () => {
 		["waiting_approval", "requestsApproval", "approval-required"],
 		["presenting_result", "presentsResult", "result-ready"],
 		["blocked", "requiresIntervention", "intervention-required"],
-	] as const)("emits enabled paired attention %s", (attention, condition, eventType) => {
-		const event = classifySemanticEvents(observation({ attention, conditions: { [condition]: 0.8 } }), { attention: true });
+	] as const)("emits confident attention %s without requiring a duplicate Noul", (attention, condition, eventType) => {
+		const event = classifySemanticEvents(observation({ attention, conditions: { [condition]: 0.05 } }), { attention: true });
 		expect(event).toHaveLength(1);
-		expect(event[0]).toMatchObject({ triggerId: `semantic:attention:${eventType}`, eventType, semantic: { kind: "attention", attentionState: attention, probability: 0.8, threshold: 0.8, confidence: 0.9 } });
+		expect(event[0]).toMatchObject({ triggerId: `semantic:attention:${eventType}`, eventType, semantic: { kind: "attention", attentionState: attention, probability: 0.9, threshold: 0.7, confidence: 0.9 } });
 		expect(JSON.stringify(event[0])).not.toContain("must-not-leak");
 	});
 
