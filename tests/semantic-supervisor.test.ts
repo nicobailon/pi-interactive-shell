@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SemanticSupervisor, buildSemanticRequest, parseSemanticResult, type SemanticObservationSession } from "../semantic-supervisor.ts";
+import { SemanticSupervisor, buildSemanticRequest, parseSemanticResult, routeSemanticAnswers, type SemanticObservationSession } from "../semantic-supervisor.ts";
 import type { JevClient } from "../jev-client.ts";
 import type { SemanticDecisionInput } from "../types.ts";
 import { InteractiveShellCoordinator } from "../runtime-coordinator.ts";
@@ -28,7 +28,7 @@ function result(choice = "working", confidence = 0.95) {
 		answers: {
 			requests_input: noul(choice === "waiting_input" ? 0.95 : 0.05),
 			requests_approval: noul(0.05), presents_result: noul(0.05), requires_intervention: noul(0.05), meaningful_progress: noul(0.9),
-			attention: { type: "choice", choice, confidence, probabilities: { working: choice === "working" ? 0.9 : 0.02, waiting_input: choice === "waiting_input" ? 0.9 : 0.02, waiting_approval: 0.02, presenting_result: 0.02, blocked: 0.02, other: 0.02 } },
+			attention: { type: "choice", choice, confidence, probabilities: { working: choice === "working" ? 0.9 : 0.02, waiting_input: choice === "waiting_input" ? 0.9 : 0.02, waiting_approval: choice === "waiting_approval" ? 0.9 : 0.02, presenting_result: choice === "presenting_result" ? 0.9 : 0.02, blocked: choice === "blocked" ? 0.9 : 0.02, other: choice === "other" ? 0.9 : 0.02 } },
 		},
 	};
 }
@@ -381,5 +381,14 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		for (const question of Object.values(request.questions)) expect(JSON.stringify(question)).toContain("untrusted data");
 		const withWatch = result() as any; withWatch.answers["watch:db"] = { type: "noul", noul: 0.9 };
 		expect(parseSemanticResult(withWatch, { watches: [{ id: "db", condition: "asks for database" }] }, "jev-1.13.0").answers.watches.db).toBe(0.9);
+	});
+
+	it("routes confident attention directly and treats confident other as uncertain", () => {
+		for (const attention of ["waiting_input", "waiting_approval", "presenting_result", "blocked"] as const) {
+			const answers = parseSemanticResult(result(attention), {}, "jev-1.13.0").answers;
+			expect(routeSemanticAnswers(answers, {})).toBe("notify");
+		}
+		const other = parseSemanticResult(result("other"), {}, "jev-1.13.0").answers;
+		expect(routeSemanticAnswers(other, {})).toBe("uncertain");
 	});
 });

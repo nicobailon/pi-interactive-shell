@@ -190,6 +190,7 @@ function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatc
 	try {
 		const client = createJevClient({ enabled: jev.enabled, model: jev.model, maxRetries: jev.maxRetries });
 		const epoch = coordinator.getRuntimeEpoch();
+		let lastAttentionTriggerId: string | undefined;
 		return {
 			ok: true as const,
 			runtime: {
@@ -200,7 +201,12 @@ function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatc
 					const recorded = coordinator.recordSemanticDecision(sessionId, decision);
 					const candidates = classifySemanticEvents(recorded, semantic);
 					for (const candidate of candidates) {
+						if ((candidate.semantic?.kind === "attention" || candidate.semantic?.kind === "uncertain")
+							&& candidate.triggerId === lastAttentionTriggerId) continue;
 						coordinator.getMonitor(sessionId)?.submitMonitorCandidate(candidate, `${recorded.generation}:${candidate.triggerId}`);
+					}
+					if (recorded.kind === "observation") {
+						lastAttentionTriggerId = candidates.find((candidate) => candidate.semantic?.kind === "attention" || candidate.semantic?.kind === "uncertain")?.triggerId;
 					}
 				},
 				actionRegistry,

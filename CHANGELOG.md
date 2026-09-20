@@ -8,6 +8,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 - Add optional, globally gated Jev semantic supervision with bounded/redacted observations, typed attention/watch events, narrowly authorized exact-input actions, inspectable audit history, and a repository corpus evaluator (#61).
 
 ### Fixed
+- Calibrate Jev's built-in attention questions, route confident attention states directly, suppress duplicate attention events until the state changes, and separate operational corpus gates from atomic diagnostics (#63).
 - Validate custom semantic redactions as bounded RE2-compatible patterns and apply them with linear-time matching instead of arbitrary JavaScript regular expressions (#61).
 - Start semantic supervision while hands-free/dispatch overlays are foregrounded, preserve one supervisor across background transfer, and enforce a reload-safe ten-attempt global action budget (#61).
 - Preserve running background sessions and monitors across `/reload` instead of cancelling them during extension teardown.

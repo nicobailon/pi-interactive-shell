@@ -385,6 +385,30 @@ describe("monitor mode", () => {
 		expect(eventsEmit).toHaveBeenCalledTimes(2);
 	});
 
+	it("delivers one confident result event without a duplicate Noul and keeps confident ambiguity quiet", async () => {
+		const { toolDef, getMonitorOptions, waitForMonitorNotification, setActiveSession, sendMessage } = await setupHarness();
+		setActiveSession({ kill: vi.fn() });
+		await toolDef.execute("semantic-attention-sequence", {
+			command: "agent", mode: "monitor", monitor: { strategy: "semantic", semantic: { attention: true } },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		const onDecision = getMonitorOptions()?.semantic?.onDecision;
+		const resultDecision = {
+			kind: "observation" as const, route: "notify" as const, model: "jev-1.13.0", observationHash: "private", generation: 1, latencyMs: 1,
+			answers: { requestsInput: 0, requestsApproval: 0, presentsResult: 0.05, requiresIntervention: 0, meaningfulProgress: 0, watches: {}, attention: { value: "presenting_result" as const, confidence: 0.9, probabilities: { working: 0.02, waiting_input: 0.02, waiting_approval: 0.02, presenting_result: 0.9, blocked: 0.02, other: 0.02 } } },
+		};
+		onDecision?.(resultDecision);
+		await waitForMonitorNotification();
+		onDecision?.({ ...resultDecision, generation: 2 });
+		await new Promise((resolve) => setImmediate(resolve));
+		onDecision?.({ ...resultDecision, generation: 3, route: "uncertain", answers: { ...resultDecision.answers, attention: { value: "other", confidence: 0.9, probabilities: { working: 0.02, waiting_input: 0.02, waiting_approval: 0.02, presenting_result: 0.02, blocked: 0.02, other: 0.9 } } } });
+		await new Promise((resolve) => setImmediate(resolve));
+		onDecision?.({ ...resultDecision, generation: 4 });
+		await new Promise((resolve) => setImmediate(resolve));
+		expect(sendMessage).toHaveBeenCalledTimes(2);
+		expect(sendMessage.mock.calls[0]?.[0].content).toContain("result-ready");
+		expect(sendMessage.mock.calls[1]?.[0].content).toContain("result-ready");
+	});
+
 	it("wires compiled monitor config and callback for monitor mode", async () => {
 		const harness = await setupHarness();
 		const result = await harness.toolDef.execute("call-1", {
