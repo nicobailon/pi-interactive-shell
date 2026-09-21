@@ -1,5 +1,7 @@
 /** A small, fail-closed extractor for options which are explicitly visible in a terminal viewport. */
 
+import type { SemanticPermissionOperation } from "./semantic-permissions.ts";
+
 export const MAX_SEMANTIC_OPTIONS = 10;
 export const MAX_SEMANTIC_OPTION_LINES = 40;
 export const MAX_SEMANTIC_OPTION_LABEL = 160;
@@ -12,6 +14,7 @@ export type SemanticOption = Readonly<{
 	id: string;
 	label: string;
 	input: SemanticOptionInput;
+	operation: Extract<SemanticPermissionOperation, { kind: "dynamic-terminal-choice" | "dynamic-terminal-confirmation" }>;
 }>;
 
 const EMPTY_OPTIONS: readonly SemanticOption[] = Object.freeze([]);
@@ -21,8 +24,11 @@ const FORBIDDEN_TEXT = /\b(?:password|passphrase|credential|secret|token|api[ _-
 const FREE_FORM_PROMPT = /(?:\b(?:enter|type|provide|input|paste|write)\b[^\n]*[:?]\s*$|\b(?:name|email|message|value|text|response)\s*[:?]\s*$)/im;
 const SHELL_SYNTAX = /(?:&&|\|\||[;`$<>]|\$\(|\b(?:sudo|sh|bash|zsh|fish|powershell|cmd\.exe)\b)/i;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\p{Cf}]/u;
+const CHOICE_OPERATION = Object.freeze({ kind: "dynamic-terminal-choice" as const });
+const CONFIRMATION_OPERATION = Object.freeze({ kind: "dynamic-terminal-confirmation" as const });
 
 type ParsedOption = { selector: string; label: string };
+type ExtractedSemanticOption = Omit<SemanticOption, "operation">;
 
 /**
  * Extracts only conventional, directly evidenced menus. Any ambiguity or unsafe
@@ -97,7 +103,7 @@ function extractSelected(lines: readonly string[]): readonly SemanticOption[] | 
 	while (end + 1 < lines.length && optionAt(end + 1) !== undefined) end++;
 	const count = end - start + 1;
 	if (!validCount(count)) return EMPTY_OPTIONS;
-	const options: SemanticOption[] = [];
+	const options: ExtractedSemanticOption[] = [];
 	for (let index = start; index <= end; index++) {
 		const label = optionAt(index);
 		if (label === undefined) return EMPTY_OPTIONS;
@@ -113,7 +119,7 @@ function extractSelected(lines: readonly string[]): readonly SemanticOption[] | 
 	return finish(options);
 }
 
-function finish(options: readonly SemanticOption[]): readonly SemanticOption[] {
+function finish(options: readonly ExtractedSemanticOption[]): readonly SemanticOption[] {
 	const labels = new Set<string>();
 	const inputs = new Set<string>();
 	for (const option of options) {
@@ -124,7 +130,10 @@ function finish(options: readonly SemanticOption[]): readonly SemanticOption[] {
 		labels.add(normalized);
 		inputs.add(option.input.bytes);
 	}
-	return Object.freeze([...options]);
+	const operation = labels.size === 2 && labels.has("yes") && labels.has("no")
+		? CONFIRMATION_OPERATION
+		: CHOICE_OPERATION;
+	return Object.freeze(options.map((option) => Object.freeze({ ...option, operation })));
 }
 
 function validCount(count: number): boolean {
