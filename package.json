@@ -33,7 +33,10 @@
     "semantic-corpus.ts",
     "semantic-evaluator.ts",
     "semantic-diagnostics.ts",
+    "selector-corpus.ts",
+    "selector-evaluator.ts",
     "scripts/evaluate-jev.ts",
+    "scripts/evaluate-jev-selector.ts",
     "skills/**/*",
     "examples/",
     "banner.png",
@@ -67,7 +70,8 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
-    "eval:jev": "node --experimental-strip-types scripts/evaluate-jev.ts"
+    "eval:jev": "node --experimental-strip-types scripts/evaluate-jev.ts",
+    "eval:jev:selector": "node --experimental-strip-types scripts/evaluate-jev-selector.ts"
   },
   "keywords": [
     "pi-package",
