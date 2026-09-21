@@ -182,7 +182,11 @@ export function buildTerminalObservation(options: {
 		actions: options.actions.map((action) => ({ id: action.id, description: action.description.slice(0, 500) })),
 		recentActionIds: options.recentActionIds.slice(-10),
 	};
-	const hash = createHash("sha256").update(JSON.stringify(observation)).digest("hex").slice(0, 24);
+	const approvalIdentity = {
+		...observation,
+		session: { mode: observation.session.mode, lifecycle: observation.session.lifecycle },
+	};
+	const hash = createHash("sha256").update(JSON.stringify(approvalIdentity)).digest("hex").slice(0, 24);
 	return { observation, hash, secretPrompt };
 }
 

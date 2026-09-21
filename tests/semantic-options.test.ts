@@ -5,8 +5,8 @@ describe("semantic option extraction", () => {
 	it("binds sequential numbered and lettered choices to their exact visible selector", () => {
 		const numbered = extractSemanticOptions(["Choose a color:", "1. Red", "2. Blue"]);
 		expect(numbered).toEqual([
-			{ id: "number_1", label: "Red", input: { kind: "text", text: "1", submit: true, bytes: "1\r" } },
-			{ id: "number_2", label: "Blue", input: { kind: "text", text: "2", submit: true, bytes: "2\r" } },
+			{ id: "number_1", label: "Red", input: { kind: "text", text: "1", submit: true, bytes: "1\r" }, operation: { kind: "dynamic-terminal-choice" } },
+			{ id: "number_2", label: "Blue", input: { kind: "text", text: "2", submit: true, bytes: "2\r" }, operation: { kind: "dynamic-terminal-choice" } },
 		]);
 		const letters = extractSemanticOptions(["[A] Alpha", "[B] Beta"]);
 		expect(letters.map(({ id, input }) => ({ id, input }))).toEqual([
@@ -18,14 +18,30 @@ describe("semantic option extraction", () => {
 	it("maps a single visibly selected menu to bounded navigation keys and bytes", () => {
 		const options = extractSemanticOptions(["Choose:", "    First", "  ❯ Second", "    Third", "↑/↓ move • enter to select"]);
 		expect(options).toEqual([
-			{ id: "menu_1", label: "First", input: { kind: "keys", keys: ["up", "enter"], bytes: "\x1b[A\r" } },
-			{ id: "menu_2", label: "Second", input: { kind: "keys", keys: ["enter"], bytes: "\r" } },
-			{ id: "menu_3", label: "Third", input: { kind: "keys", keys: ["down", "enter"], bytes: "\x1b[B\r" } },
+			{ id: "menu_1", label: "First", input: { kind: "keys", keys: ["up", "enter"], bytes: "\x1b[A\r" }, operation: { kind: "dynamic-terminal-choice" } },
+			{ id: "menu_2", label: "Second", input: { kind: "keys", keys: ["enter"], bytes: "\r" }, operation: { kind: "dynamic-terminal-choice" } },
+			{ id: "menu_3", label: "Third", input: { kind: "keys", keys: ["down", "enter"], bytes: "\x1b[B\r" }, operation: { kind: "dynamic-terminal-choice" } },
 		]);
 		expect(Object.isFrozen(options)).toBe(true);
 		expect(Object.isFrozen(options[0])).toBe(true);
 		expect(Object.isFrozen(options[0]!.input)).toBe(true);
 		expect(Object.isFrozen(options[0]!.input.kind === "keys" ? options[0]!.input.keys : [])).toBe(true);
+	});
+
+	it.each([
+		["exact", "Yes", "No"],
+		["comma-qualified", "Yes, proceed", "No, go back"],
+	])("classifies %s visible Yes/No labels as confirmation without changing selector bindings", (_name, yes, no) => {
+		expect(extractSemanticOptions(["Delete production database?", `1. ${yes}`, `2. ${no}`])).toEqual([
+			{ id: "number_1", label: yes, input: { kind: "text", text: "1", submit: true, bytes: "1\r" }, operation: { kind: "dynamic-terminal-confirmation" } },
+			{ id: "number_2", label: no, input: { kind: "text", text: "2", submit: true, bytes: "2\r" }, operation: { kind: "dynamic-terminal-confirmation" } },
+		]);
+	});
+
+	it("keeps an ordinary binary selection classified as a choice", () => {
+		expect(extractSemanticOptions(["Choose a database:", "1. PostgreSQL", "2. SQLite"]).map((option) => option.operation)).toEqual([
+			{ kind: "dynamic-terminal-choice" }, { kind: "dynamic-terminal-choice" },
+		]);
 	});
 
 	it.each([
@@ -38,6 +54,7 @@ describe("semantic option extraction", () => {
 		["free-form prompt", ["Enter a value:", "1. One", "2. Two"]],
 		["secret choice", ["1. Use password", "2. Skip"]],
 		["lifecycle choice", ["a) Continue", "b) Exit process"]],
+		["ambiguous confirmation labels", ["1. Yes please", "2. No thanks"]],
 		["shell syntax", ["1. Build", "2. sudo deploy"]],
 		["terminal controls", ["1. Safe", "2. Bad\u001b[31m"]],
 		["invisible formatting", ["1. Safe", "2. Con\u202etinue"]],

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { SemanticSupervisor, type SemanticObservationSession } from "../semantic-supervisor.ts";
-import { createSemanticChoiceAuthorization } from "../semantic-choice-authorization.ts";
+import { createSemanticChoiceAuthorization, type SemanticChoiceAuthorization } from "../semantic-choice-authorization.ts";
 import { compileSemanticPermissions } from "../semantic-permissions.ts";
 import type { JevClient } from "../jev-client.ts";
 import type { SemanticDecisionInput } from "../types.ts";
@@ -26,7 +26,9 @@ const answers = (choice: string) => ({
 		action: { type: "choice", choice, confidence: 0.99, probabilities: {
 			"dynamic:number_1": choice === "dynamic:number_1" ? 0.99 : 0,
 			"dynamic:number_2": choice === "dynamic:number_2" ? 0.99 : 0,
-			observe_again: 0, notify_pi: 0, stop_automation: 0,
+			observe_again: choice === "observe_again" ? 0.99 : 0,
+			notify_pi: choice === "notify_pi" ? 0.99 : 0,
+			stop_automation: choice === "stop_automation" ? 0.99 : 0,
 		} },
 	},
 });
@@ -44,7 +46,7 @@ async function flush() { for (let index = 0; index < 8; index++) await Promise.r
 function createSupervisor(options: {
 	session: ChoiceSession;
 	client: JevClient;
-	authorization: { request: (binding: any, label: string, complete: (approved: boolean) => void) => void; dispose(): void };
+	authorization: SemanticChoiceAuthorization;
 	interactive?: boolean;
 	decisions?: SemanticDecisionInput[];
 }) {
@@ -62,6 +64,14 @@ describe("goal-driven dynamic visible choices", () => {
 	it("lets Jev select only an opaque fresh option id and resolves it to extractor-owned bytes", async () => {
 		vi.useFakeTimers();
 		const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
+		const confirm = vi.fn(async () => true);
+		const authorization = createSemanticChoiceAuthorization({
+			permissions: compileSemanticPermissions([
+				{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } },
+				{ decision: "deny", operation: { kind: "dynamic-terminal-confirmation" } },
+			]),
+			ui: { confirm }, isAvailable: () => true,
+		});
 		const client: JevClient = { evaluate: vi.fn(async (request) => {
 			const serialized = JSON.stringify(request);
 			expect(serialized).toContain("Choose the best release channel");
@@ -69,16 +79,34 @@ describe("goal-driven dynamic visible choices", () => {
 			expect(serialized).toContain("dynamic:number_2");
 			expect(serialized).toContain("Beta");
 			expect(serialized).not.toContain('"bytes"');
+			expect(serialized).not.toContain("dynamic-terminal-choice");
 			return answers("dynamic:number_2");
 		}) };
-		const supervisor = createSupervisor({ session, client, decisions, authorization: { request: (_binding, _label, done) => done(true), dispose() {} } });
+		const supervisor = createSupervisor({ session, client, decisions, authorization });
 		session.show(["Preparing release channels"]); supervisor.handleOutput("working");
 		await vi.advanceTimersByTimeAsync(0); await flush();
 		expect(session.writes).toEqual([]);
 		session.show(["Select a release channel", "1. Alpha", "2. Beta"]); supervisor.handleOutput("new menu");
 		await vi.advanceTimersByTimeAsync(250); await flush();
 		expect(session.writes).toEqual(["2\r"]);
+		expect(confirm).not.toHaveBeenCalled();
 		expect(decisions[1]?.action).toMatchObject({ actionId: "dynamic:number_2", outcome: "executed" });
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it("blocks a qualified Yes/No confirmation when confirmation policy denies it", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const confirm = vi.fn(async () => true);
+		const authorization = createSemanticChoiceAuthorization({
+			permissions: compileSemanticPermissions([
+				{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } },
+				{ decision: "deny", operation: { kind: "dynamic-terminal-confirmation" } },
+			]), ui: { confirm }, isAvailable: () => true,
+		});
+		const supervisor = createSupervisor({ session, client: { evaluate: vi.fn(async () => answers("dynamic:number_1")) }, authorization });
+		session.show(["Delete production database?", "1. Yes, proceed", "2. No, go back"]); supervisor.handleOutput("confirmation");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(session.writes).toEqual([]);
+		expect(confirm).not.toHaveBeenCalled();
 		supervisor.dispose(); vi.useRealTimers();
 	});
 
@@ -97,11 +125,73 @@ describe("goal-driven dynamic visible choices", () => {
 
 	it("rechecks freshness after asynchronous approval and refuses a stale choice", async () => {
 		vi.useFakeTimers(); const session = new ChoiceSession(); let approve!: (approved: boolean) => void;
-		const supervisor = createSupervisor({ session, client: { evaluate: vi.fn(async () => answers("dynamic:number_1")) }, authorization: { request: (_binding, _label, done) => { approve = done; }, dispose() {} } });
+		const authorization = createSemanticChoiceAuthorization({ permissions: compileSemanticPermissions([]),
+			ui: { confirm: () => new Promise<boolean>((resolve) => { approve = resolve; }) }, isAvailable: () => true });
+		const supervisor = createSupervisor({ session, client: { evaluate: vi.fn(async () => answers("dynamic:number_1")) }, authorization });
 		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("new menu");
 		await vi.advanceTimersByTimeAsync(0); await flush(); expect(session.writes).toEqual([]);
 		session.show(["Changed", "1. Gamma", "2. Delta"]); approve(true); await flush();
 		expect(session.writes).toEqual([]);
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it("executes delayed approval when only elapsed and quiet buckets drift", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); let approve!: (approved: boolean) => void;
+		const authorization = createSemanticChoiceAuthorization({ permissions: compileSemanticPermissions([]),
+			ui: { confirm: () => new Promise<boolean>((resolve) => { approve = resolve; }) }, isAvailable: () => true });
+		const supervisor = createSupervisor({ session, client: { evaluate: vi.fn(async () => answers("dynamic:number_1")) }, authorization });
+		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("new menu");
+		await vi.advanceTimersByTimeAsync(0); await flush(); expect(session.writes).toEqual([]);
+		await vi.advanceTimersByTimeAsync(5_000); approve(true); await flush();
+		expect(session.writes).toEqual(["1\r"]);
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it("stops offering goal-driven choices after stop_automation", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
+		const requests: unknown[] = [];
+		const client: JevClient = { evaluate: vi.fn(async (request) => {
+			requests.push(request);
+			const action = (request.questions as Record<string, unknown>).action;
+			if (session.visualGeneration === 1) {
+				expect(action).toBeDefined();
+				return answers("stop_automation");
+			}
+			expect(action).toBeUndefined();
+			expect(JSON.stringify(request)).not.toContain("dynamic:number_");
+			return observationAnswers();
+		}) };
+		const authorization = { request: vi.fn(), dispose() {} };
+		const supervisor = createSupervisor({ session, client, decisions, authorization });
+		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("first menu");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(decisions[0]?.action).toMatchObject({ choice: "stop_automation", outcome: "stopped" });
+		session.show(["Select", "1. Stable", "2. Canary"]); supervisor.handleOutput("fresh menu");
+		await vi.advanceTimersByTimeAsync(250); await flush();
+		expect(client.evaluate).toHaveBeenCalledTimes(2);
+		expect(((requests[1] as { questions: Record<string, unknown> }).questions).action).toBeUndefined();
+		expect(JSON.stringify(requests[1])).not.toContain("dynamic:number_");
+		expect(authorization.request).not.toHaveBeenCalled();
+		expect(session.writes).toEqual([]);
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it("rechecks stop state before a pending approved dynamic choice executes", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = []; let approve!: (approved: boolean) => void;
+		const client: JevClient = { evaluate: vi.fn(async () => session.visualGeneration === 1
+			? answers("dynamic:number_1")
+			: answers("stop_automation")) };
+		const supervisor = createSupervisor({ session, client, decisions, authorization: { request: (_binding, _option, done) => { approve = done; }, dispose() {} } });
+		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("first menu");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		session.show(["Select", "1. Alpha", "2. Beta", "Confirm selection"]); supervisor.handleOutput("changed menu");
+		await vi.advanceTimersByTimeAsync(250); await flush();
+		approve(true); await flush();
+		expect(session.writes).toEqual([]);
+		expect(decisions.map((decision) => decision.action)).toEqual(expect.arrayContaining([
+			expect.objectContaining({ choice: "stop_automation", outcome: "stopped" }),
+			expect.objectContaining({ actionId: "dynamic:number_1", outcome: "blocked", reason: "session-actions-disabled" }),
+		]));
 		supervisor.dispose(); vi.useRealTimers();
 	});
 });
@@ -114,7 +204,7 @@ describe("trusted permission and human approval bridge", () => {
 			{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } },
 			{ decision: "deny", operation: { kind: "dynamic-terminal-choice" } },
 		]), ui: { confirm }, isAvailable: () => true });
-		authorization.request(binding, "Alpha", (approved) => { result = approved; }); await flush();
+		authorization.request(binding, { operation: { kind: "dynamic-terminal-choice" }, label: "Alpha" }, (approved) => { result = approved; }); await flush();
 		expect(result).toBe(false); expect(confirm).not.toHaveBeenCalled(); authorization.dispose();
 	});
 
@@ -122,7 +212,7 @@ describe("trusted permission and human approval bridge", () => {
 		let resolve!: (approved: boolean) => void; let result: boolean | undefined;
 		const confirm = vi.fn(() => new Promise<boolean>((done) => { resolve = done; }));
 		const authorization = createSemanticChoiceAuthorization({ permissions: compileSemanticPermissions([]), ui: { confirm }, isAvailable: () => true });
-		authorization.request(binding, "Alpha", (approved) => { result = approved; });
+		authorization.request(binding, { operation: { kind: "dynamic-terminal-choice" }, label: "Alpha" }, (approved) => { result = approved; });
 		expect(confirm).toHaveBeenCalledOnce(); expect(result).toBeUndefined();
 		// An unrelated boolean or terminal/model "yes" has no ingress into approval state.
 		await Promise.resolve(true); expect(result).toBeUndefined();
@@ -133,9 +223,9 @@ describe("trusted permission and human approval bridge", () => {
 		const confirm = vi.fn(async () => true); const results: boolean[] = [];
 		const permissions = compileSemanticPermissions([{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } }]);
 		const allowed = createSemanticChoiceAuthorization({ permissions, ui: { confirm }, isAvailable: () => true });
-		allowed.request(binding, "Alpha", (value) => results.push(value)); await flush();
+		allowed.request(binding, { operation: { kind: "dynamic-terminal-choice" }, label: "Alpha" }, (value) => results.push(value)); await flush();
 		const unavailable = createSemanticChoiceAuthorization({ permissions, ui: { confirm }, isAvailable: () => false });
-		unavailable.request(binding, "Alpha", (value) => results.push(value)); await flush();
+		unavailable.request(binding, { operation: { kind: "dynamic-terminal-choice" }, label: "Alpha" }, (value) => results.push(value)); await flush();
 		expect(results).toEqual([true, true]); expect(confirm).not.toHaveBeenCalled(); allowed.dispose(); unavailable.dispose();
 	});
 });
