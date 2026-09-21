@@ -522,8 +522,7 @@ Per-session `monitor.semantic` supports: `goal` (optional task context, sent bou
     "semanticPermissions": [
       { "decision": "allow", "operation": { "kind": "launch-command", "command": "npm test" } },
       { "decision": "deny", "operation": { "kind": "launch-command", "command": "deploy --production" } },
-      { "decision": "ask", "operation": { "kind": "dynamic-terminal-choice" } },
-      { "decision": "deny", "operation": { "kind": "dynamic-terminal-confirmation" } }
+      { "decision": "ask", "operation": { "kind": "dynamic-terminal-choice" } }
     ]
   }
 }

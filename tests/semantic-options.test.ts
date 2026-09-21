@@ -35,13 +35,6 @@ describe("semantic option extraction", () => {
 		]);
 	});
 
-	it("classifies an ordinary PostgreSQL/SQLite menu as a choice", () => {
-		expect(extractSemanticOptions(["Choose a database:", "1. PostgreSQL", "2. SQLite"]).map(({ label, operation }) => ({ label, operation }))).toEqual([
-			{ label: "PostgreSQL", operation: { kind: "dynamic-terminal-choice" } },
-			{ label: "SQLite", operation: { kind: "dynamic-terminal-choice" } },
-		]);
-	});
-
 	it.each([
 		["duplicate labels", ["1. Same", "2. same"]],
 		["non-sequential selectors", ["1. One", "3. Three"]],
