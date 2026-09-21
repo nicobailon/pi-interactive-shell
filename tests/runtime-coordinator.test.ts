@@ -2,6 +2,33 @@ import { describe, expect, it, vi } from "vitest";
 import { InteractiveShellCoordinator } from "../runtime-coordinator.ts";
 
 describe("InteractiveShellCoordinator monitor state", () => {
+	it("deduplicates and caches validated output selection work", async () => {
+		const coordinator = new InteractiveShellCoordinator();
+		const result = { status: "unchanged", reason: "short-output" } as any;
+		let resolve!: (value: any) => void;
+		const pending = new Promise<any>((done) => { resolve = done; });
+		const work = vi.fn(() => pending);
+		const first = coordinator.runOutputSelection("source-policy", work);
+		const second = coordinator.runOutputSelection("source-policy", work);
+		expect(work).toHaveBeenCalledTimes(1);
+		resolve(result);
+		expect(await first).toBe(result);
+		expect(await second).toBe(result);
+		expect(await coordinator.runOutputSelection("source-policy", work)).toBe(result);
+		expect(work).toHaveBeenCalledTimes(1);
+	});
+
+	it("aborts in-flight output selection when the runtime epoch ends", async () => {
+		const coordinator = new InteractiveShellCoordinator();
+		const api = {} as any;
+		coordinator.bindExtensionApi(api);
+		const task = coordinator.runOutputSelection("source-policy", (signal) => new Promise((_resolve, reject) => {
+			signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+		}));
+		coordinator.unbindExtensionApi(api);
+		await expect(task).rejects.toThrow("aborted");
+	});
+
 	it("tracks monitor session lifecycle and filtered event queries", () => {
 		const coordinator = new InteractiveShellCoordinator();
 		coordinator.registerMonitorSession("calm-reef", {

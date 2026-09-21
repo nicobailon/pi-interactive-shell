@@ -47,6 +47,8 @@ import { InteractiveShellCoordinator } from "./runtime-coordinator.ts";
 import { spawn as spawnChildProcess } from "node:child_process";
 import { resolvePiShell, type ResolvedShellConfig } from "./shell-resolution.ts";
 import { createJevClient } from "./jev-client.ts";
+import type { JevClient } from "./jev-client.ts";
+import { runOutputSelection, OUTPUT_SELECTOR_POLICY } from "./output-selection-runtime.ts";
 import type { SemanticConfig } from "./types.ts";
 import { classifySemanticEvents } from "./semantic-events.ts";
 import { SEMANTIC_SAFE_ID, SEMANTIC_THRESHOLDS } from "./semantic-policy.ts";
@@ -88,6 +90,7 @@ function makeMonitorCompletionCallback(
 	startTime: number,
 ): (info: HeadlessCompletionInfo) => void {
 	return (info) => {
+		sessionManager.recordOutputCompletion(id, info);
 		coordinator.setSemanticSessionStatus(id, "stopped");
 		if (coordinator.getMonitorSessionState(id)) {
 			coordinator.finalizeMonitorSession(id, { exitCode: info.exitCode, signal: info.signal }, resolveMonitorTerminalReason(info, coordinator.consumePendingMonitorReason(id)));
@@ -1103,7 +1106,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			const semanticCompiled = semanticDelivery?.ok ? semanticDelivery.compiled : undefined;
 			const semanticRuntime = compileSemanticRuntime(id, "dispatch", semanticCompiled?.semanticConfig, config);
 			if (!semanticRuntime.ok) return { content: [{ type: "text", text: semanticRuntime.error }], isError: true };
-			const source = captureGoal ? sessionManager.beginOutputCapture(id, captureGoal) : undefined;
+			const source = captureGoal ? sessionManager.beginOutputCapture(id, captureGoal, launchCommand) : undefined;
 			let session: PtyTerminalSession;
 			try {
 				session = new PtyTerminalSession(
@@ -1751,6 +1754,53 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				if (!resolvedSourceId) return { content: [{ type: "text", text: "outputView requires sourceId or sessionId." }], isError: true };
 				const status = sessionManager.outputSourceStatus(resolvedSourceId);
 				if (outputView === "status") return { content: [{ type: "text", text: `Output source ${resolvedSourceId}: ${status.state} (${status.length} characters).` }], details: { outputView, ...status } };
+				if (outputView === "selected") {
+					if (sourceOffset !== undefined || sourceLimit !== undefined) return { content: [{ type: "text", text: "sourceOffset/sourceLimit are only valid with outputView='raw'." }], isError: true };
+					const metadata = sessionManager.getOutputSelectionMetadata(resolvedSourceId);
+					const unavailable = (reason: string) => ({
+						content: [{ type: "text" as const, text: metadata?.fallback ?? "" }],
+						details: { outputView, selectionStatus: "unavailable", reason, sourceId: resolvedSourceId, representation: status.ref?.representation, state: status.state, length: status.length, rawRecovery: { outputView: "raw", sourceId: resolvedSourceId } },
+					});
+					if (!metadata) return unavailable("selection-metadata-unavailable");
+					if (status.state !== "complete") return unavailable(`source-${status.state}`);
+					let read;
+					try { read = await sessionManager.readOutputSource(resolvedSourceId, 0, status.length); }
+					catch { return unavailable("source-read-failed"); }
+					if (read.state !== "complete" || read.range.end !== read.length) return unavailable(`source-${read.state}`);
+					const config = loadRuntimeConfig(ctx.cwd);
+					const selectionJev = config.jev;
+					const redactionPatterns = selectionJev?.redactionPatterns ?? [];
+					let client: JevClient | undefined;
+					let activationFailure: "jev-disabled" | "credential-unavailable" | undefined;
+					const lazyClient: JevClient = {
+						evaluate: (request, options) => {
+							if (selectionJev?.enabled !== true) { activationFailure = "jev-disabled"; throw new Error("selection-provider-disabled"); }
+							if (!process.env.TYPESAFE_API_KEY?.trim()) { activationFailure = "credential-unavailable"; throw new Error("selection-provider-credential-unavailable"); }
+							client ??= createJevClient({ enabled: selectionJev?.enabled === true, model: OUTPUT_SELECTOR_POLICY.model, maxRetries: OUTPUT_SELECTOR_POLICY.maxSdkRetries });
+							return client.evaluate(request, options);
+						},
+					};
+					const key = `${resolvedSourceId}\u0000${metadata.goal}\u0000${JSON.stringify(redactionPatterns)}\u0000${OUTPUT_SELECTOR_POLICY.model}`;
+					try {
+						const selected = await coordinator.runOutputSelection(key, (signal) => runOutputSelection({
+							sourceId: resolvedSourceId!, raw: read.text, metadata, redactionPatterns, client: lazyClient, signal,
+						}));
+						const providerUnavailable = selected.status === "unavailable";
+						return {
+							content: [{ type: "text", text: providerUnavailable ? metadata.fallback ?? "" : selected.text }],
+							details: {
+								outputView, selectionStatus: selected.status, reason: activationFailure ?? ("reason" in selected ? selected.reason : undefined),
+								sourceId: resolvedSourceId, rawRepresentation: read.ref?.representation, displayRepresentation: "safe-normalized-terminal-text-v1",
+								excerpts: selected.excerpts.map((excerpt) => ({ rawRange: excerpt.range, displayText: excerpt.text, displayRepresentation: "safe-normalized-terminal-text-v1" })), rawRanges: selected.rawSourceReference.ranges,
+								semanticOmissionRanges: selected.audit.semanticOmissionRanges, semanticOmissionCount: selected.audit.semanticOmissionCount,
+								physicalRecoveryRanges: selected.status === "pagination-required" ? selected.recoveryRanges : selected.audit.physicalTruncationRanges,
+								completeCoverage: selected.audit.completeCoverage,
+								audit: { logicalCalls: selected.audit.logicalCalls, maxLogicalCalls: selected.audit.maxLogicalCalls, possiblePhysicalAttempts: selected.audit.possiblePhysicalAttempts, requests: selected.audit.requests.map(({ window, ranges, status: requestStatus, reason, payloadBytes, stateAndLongestQuestionBytes, stateAndAllQuestionsBytes, inputTokens, outputTokens, latencyMs }) => ({ window, ranges, status: requestStatus, reason, payloadBytes, stateAndLongestQuestionBytes, stateAndAllQuestionsBytes, inputTokens, outputTokens, latencyMs })) },
+								rawRecovery: { outputView: "raw", sourceId: resolvedSourceId },
+							},
+						};
+					} catch { return unavailable("selection-aborted-or-stale"); }
+				}
 				const start = sourceOffset ?? 0;
 				const limit = sourceLimit ?? 5120;
 				if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 51200) {

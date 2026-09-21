@@ -74,6 +74,7 @@ export const toolParameters = Type.Object({
 	outputView: Type.Optional(Type.Union([
 		Type.Literal("status"),
 		Type.Literal("raw"),
+		Type.Literal("selected"),
 	], { description: "Explicitly inspect a recoverable output source without changing ordinary output cursors." })),
 	sourceId: Type.Optional(Type.String({ description: "Stable output source ID returned by an opted-in dispatch launch." })),
 	sourceOffset: Type.Optional(Type.Integer({ minimum: 0, description: "UTF-16 offset for raw source pagination (default 0)." })),

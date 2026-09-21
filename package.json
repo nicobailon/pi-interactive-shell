@@ -37,6 +37,7 @@
     "selector-evaluator.ts",
     "output-source-store.ts",
     "output-selector.ts",
+    "output-selection-runtime.ts",
     "scripts/evaluate-jev.ts",
     "scripts/evaluate-jev-selector.ts",
     "skills/**/*",

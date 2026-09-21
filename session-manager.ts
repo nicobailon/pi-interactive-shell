@@ -151,10 +151,10 @@ export class ShellSessionManager {
 	private activeSessions = new Map<string, ActiveSession>();
 	private changeListeners = new Set<() => void>();
 	private outputStore: OutputSourceStore | undefined;
-	private outputLaunches = new Map<string, { goal: string; sourceId?: string; available: boolean }>();
+	private outputLaunches = new Map<string, { goal: string; command: string; sourceId?: string; available: boolean; status?: string; fallback?: string }>();
 	private static readonly MAX_OUTPUT_LAUNCHES = 1024;
 
-	private rememberOutputLaunch(sessionId: string, launch: { goal: string; sourceId?: string; available: boolean }): void {
+	private rememberOutputLaunch(sessionId: string, launch: { goal: string; command: string; sourceId?: string; available: boolean; status?: string; fallback?: string }): void {
 		this.outputLaunches.delete(sessionId);
 		this.outputLaunches.set(sessionId, launch);
 		while (this.outputLaunches.size > ShellSessionManager.MAX_OUTPUT_LAUNCHES) {
@@ -164,14 +164,14 @@ export class ShellSessionManager {
 		}
 	}
 
-	beginOutputCapture(sessionId: string, goal: string): { capture?: OutputCapture; sourceId?: string; available: boolean } {
+	beginOutputCapture(sessionId: string, goal: string, command: string): { capture?: OutputCapture; sourceId?: string; available: boolean } {
 		try {
 			this.outputStore ??= new OutputSourceStore({ root: join(getAgentDir(), "cache", "interactive-shell", "output-sources") });
 			const capture = this.outputStore.begin(sessionId);
-			this.rememberOutputLaunch(sessionId, { goal, sourceId: capture.ref.sourceId, available: true });
+			this.rememberOutputLaunch(sessionId, { goal, command: command.slice(0, 1000), sourceId: capture.ref.sourceId, available: true });
 			return { capture, sourceId: capture.ref.sourceId, available: true };
 		} catch {
-			this.rememberOutputLaunch(sessionId, { goal, available: false });
+			this.rememberOutputLaunch(sessionId, { goal, command: command.slice(0, 1000), available: false });
 			return { available: false };
 		}
 	}
@@ -179,6 +179,20 @@ export class ShellSessionManager {
 	getOutputSourceForSession(sessionId: string): { sourceId?: string; available: boolean } | undefined {
 		const launch = this.outputLaunches.get(sessionId);
 		return launch && { sourceId: launch.sourceId, available: launch.available };
+	}
+
+	getOutputSelectionMetadata(sourceId: string): { goal: string; command: string; status?: string; fallback?: string } | undefined {
+		for (const launch of this.outputLaunches.values()) {
+			if (launch.sourceId === sourceId && launch.available) return { goal: launch.goal, command: launch.command, status: launch.status, fallback: launch.fallback };
+		}
+		return undefined;
+	}
+
+	recordOutputCompletion(sessionId: string, completion: { exitCode: number | null; signal?: number; completionReason: string; completionOutput?: { lines: string[] } }): void {
+		const launch = this.outputLaunches.get(sessionId);
+		if (!launch) return;
+		launch.status = `completion=${completion.completionReason}; exitCode=${completion.exitCode === null ? "unknown" : completion.exitCode}${completion.signal === undefined ? "" : `; signal=${completion.signal}`}`;
+		launch.fallback = completion.completionOutput?.lines.join("\n").slice(-5120) ?? "";
 	}
 
 	outputSourceStatus(sourceId: string): OutputSourceStatus {

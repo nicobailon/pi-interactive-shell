@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-async function setupHarness(options: { headlessConstructionError?: string; monitorInstallError?: string; generatedSessionId?: string; onMonitorDispose?: () => void } = {}) {
+async function setupHarness(options: { headlessConstructionError?: string; monitorInstallError?: string; generatedSessionId?: string; onMonitorDispose?: () => void; sourceText?: string; jevEnabled?: boolean; providerEvaluate?: (request: any) => unknown } = {}) {
 	Reflect.deleteProperty(globalThis, "__piInteractiveShellCoordinatorV1");
 	const unregisterActive = vi.fn();
 	let backgroundSession: any;
@@ -17,11 +17,13 @@ async function setupHarness(options: { headlessConstructionError?: string; monit
 	let constructedMonitor: any;
 	let semanticState: any;
 	let monitorState: any;
+	let selectionMetadata: any = { goal: "summarize", command: "job", status: "completion=exited; exitCode=0", fallback: "fallback" };
 	let semanticHistory: any[] = [];
 	let monitorHistory: any[] = [];
 	let headlessConstructCount = 0;
-	const createJevClient = vi.fn(() => ({ evaluate: vi.fn() }));
+	const createJevClient = vi.fn(() => ({ evaluate: vi.fn(async (request) => options.providerEvaluate?.(request)) }));
 	const sendMessage = vi.fn();
+	const sourceText = options.sourceText ?? "abcdef";
 
 	vi.resetModules();
 	vi.doMock("@earendil-works/pi-coding-agent", () => ({
@@ -72,7 +74,7 @@ async function setupHarness(options: { headlessConstructionError?: string; monit
 				handsFreeUpdateMaxChars: 1500,
 				handsFreeMaxTotalChars: 100000,
 				minQueryIntervalSeconds: 60,
-				jev: { enabled: true, model: "jev-1.13.0", requestTimeoutMs: 1000, maxRetries: 0, maxViewportLines: 20, maxRecentChars: 1000, redactionPatterns: [] },
+				jev: { enabled: options.jevEnabled ?? true, model: "jev-1.13.0", requestTimeoutMs: 1000, maxRetries: 0, maxViewportLines: 20, maxRecentChars: 1000, redactionPatterns: [] },
 			})),
 		};
 	});
@@ -132,8 +134,10 @@ async function setupHarness(options: { headlessConstructionError?: string; monit
 			setActiveQuietThreshold: vi.fn(() => false),
 			writeToActive: vi.fn(() => false),
 			getOutputSourceForSession: vi.fn(() => undefined),
-			outputSourceStatus: vi.fn((sourceId) => ({ sourceId, state: "complete", length: 6, ref: { sourceId, sessionId: "old", representation: "normalized-merged-pty-text-v1" } })),
-			readOutputSource: vi.fn(async (sourceId, start, end) => ({ sourceId, state: "complete", length: 6, ref: { sourceId, sessionId: "old", representation: "normalized-merged-pty-text-v1" }, text: "abcdef".slice(start, end), range: { start, end } })),
+			outputSourceStatus: vi.fn((sourceId) => ({ sourceId, state: "complete", length: sourceText.length, ref: { sourceId, sessionId: "old", representation: "normalized-merged-pty-text-v1" } })),
+			readOutputSource: vi.fn(async (sourceId, start, end) => ({ sourceId, state: "complete", length: sourceText.length, ref: { sourceId, sessionId: "old", representation: "normalized-merged-pty-text-v1" }, text: sourceText.slice(start, end), range: { start, end } })),
+			getOutputSelectionMetadata: vi.fn(() => selectionMetadata),
+			recordOutputCompletion: vi.fn(),
 		},
 		generateSessionId: vi.fn(() => options.generatedSessionId ?? "start-session"),
 	}));
@@ -150,6 +154,7 @@ async function setupHarness(options: { headlessConstructionError?: string; monit
 			getRuntimeEpoch = vi.fn(() => 1);
 			isRuntimeEpochCurrent = vi.fn(() => true);
 			reserveSemanticActionAttempt = vi.fn(() => true);
+			runOutputSelection = vi.fn((_key, task) => task(new AbortController().signal));
 			registerSemanticSession = vi.fn((sessionId) => { semanticState = { sessionId, status: "running" }; });
 			registerMonitorSession = vi.fn((sessionId) => { monitorState = { sessionId, status: "running" }; });
 			setSemanticSessionStatus = vi.fn((_id, status) => { if (semanticState) semanticState.status = status; });
@@ -202,7 +207,8 @@ async function setupHarness(options: { headlessConstructionError?: string; monit
 	return { toolDef, unregisterActive, get, disposeMonitor, deleteMonitor, coordinatorInstance, createJevClient, sendMessage,
 		setBackgroundSession: (value: any) => { backgroundSession = value; }, setExistingMonitor: (value: any) => { existingMonitor = value; },
 		getExistingMonitor: () => existingMonitor, getHeadlessOptions: () => headlessOptions, getOverlayOptions: () => overlayOptions,
-		getForegroundSession: () => foregroundSession, getConstructedMonitor: () => constructedMonitor, getHeadlessConstructCount: () => headlessConstructCount };
+		getForegroundSession: () => foregroundSession, getConstructedMonitor: () => constructedMonitor, getHeadlessConstructCount: () => headlessConstructCount,
+		setSelectionMetadata: (value: any) => { selectionMetadata = value; } };
 }
 
 describe("dispatch background recovery", () => {
@@ -239,6 +245,101 @@ describe("dispatch background recovery", () => {
 		}, undefined, undefined, { cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined }, ui: {} } as any);
 		expect(result.content[0].text).toBe("cde");
 		expect(result.details).toMatchObject({ state: "complete", requestedRange: { offset: 2, limit: 3 }, nextOffset: 5 });
+	});
+
+	it("returns deterministic short selected output without constructing a provider", async () => {
+		const { toolDef, createJevClient } = await setupHarness();
+		const result = await toolDef.execute("source-selected", {
+			sourceId: "00000000-0000-4000-8000-000000000000", outputView: "selected",
+		}, undefined, undefined, { cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined }, ui: {} } as any);
+		expect(createJevClient).not.toHaveBeenCalled();
+		expect(result.content[0].text).toBe("abcdef");
+		expect(result.details).toMatchObject({ selectionStatus: "unchanged", rawRecovery: { outputView: "raw" } });
+	});
+
+	it("returns CR-overwritten safe display while raw view preserves the exact source", async () => {
+		const raw = "\x1b[33mprogress 99%\x1b[0m\rprogress 100%";
+		const { toolDef, createJevClient } = await setupHarness({ sourceText: raw });
+		const context = { cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined }, ui: {} } as any;
+		const selected = await toolDef.execute("source-selected-cr", {
+			sourceId: "00000000-0000-4000-8000-000000000000", outputView: "selected",
+		}, undefined, undefined, context);
+		const recovered = await toolDef.execute("source-raw-cr", {
+			sourceId: "00000000-0000-4000-8000-000000000000", outputView: "raw", sourceLimit: raw.length,
+		}, undefined, undefined, context);
+		expect(createJevClient).not.toHaveBeenCalled();
+		expect(selected.content[0].text).toBe("progress 100%");
+		expect(selected.content[0].text).not.toContain("progress 99%");
+		expect(recovered.content[0].text).toBe(raw);
+		expect(selected.details.rawRanges).toEqual([{ start: 0, end: raw.length }]);
+	});
+
+	it("keeps raw recovery but reports selected unavailable after metadata loss", async () => {
+		const { toolDef, setSelectionMetadata, createJevClient } = await setupHarness();
+		setSelectionMetadata(undefined);
+		const result = await toolDef.execute("source-selected-restart", {
+			sourceId: "00000000-0000-4000-8000-000000000000", outputView: "selected",
+		}, undefined, undefined, { cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined }, ui: {} } as any);
+		expect(createJevClient).not.toHaveBeenCalled();
+		expect(result.details).toMatchObject({ selectionStatus: "unavailable", reason: "selection-metadata-unavailable", rawRecovery: { outputView: "raw" } });
+	});
+
+	it("does not construct a provider for eligible output when the process credential is absent", async () => {
+		const previous = process.env.TYPESAFE_API_KEY;
+		delete process.env.TYPESAFE_API_KEY;
+		try {
+			const sourceText = Array.from({ length: 24 }, (_, index) => `routine ${index} ${"x".repeat(240)}\n`).join("");
+			const { toolDef, createJevClient } = await setupHarness({ sourceText });
+			const result = await toolDef.execute("source-selected-no-key", {
+				sourceId: "00000000-0000-4000-8000-000000000000", outputView: "selected",
+			}, undefined, undefined, { cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined }, ui: {} } as any);
+			expect(createJevClient).not.toHaveBeenCalled();
+			expect(result.content[0].text).toBe("fallback");
+			expect(result.details).toMatchObject({ selectionStatus: "unavailable", reason: "credential-unavailable", rawRecovery: { outputView: "raw" } });
+		} finally {
+			if (previous === undefined) delete process.env.TYPESAFE_API_KEY;
+			else process.env.TYPESAFE_API_KEY = previous;
+		}
+	});
+
+	it("does not construct a provider when global Jev enablement is disabled", async () => {
+		const previous = process.env.TYPESAFE_API_KEY;
+		process.env.TYPESAFE_API_KEY = "test-only-key";
+		try {
+			const sourceText = Array.from({ length: 24 }, (_, index) => `routine ${index} ${"x".repeat(240)}\n`).join("");
+			const { toolDef, createJevClient } = await setupHarness({ sourceText, jevEnabled: false });
+			const result = await toolDef.execute("source-selected-disabled", {
+				sourceId: "00000000-0000-4000-8000-000000000000", outputView: "selected",
+			}, undefined, undefined, { cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined }, ui: {} } as any);
+			expect(createJevClient).not.toHaveBeenCalled();
+			expect(result.details).toMatchObject({ selectionStatus: "unavailable", reason: "jev-disabled" });
+		} finally {
+			if (previous === undefined) delete process.env.TYPESAFE_API_KEY;
+			else process.env.TYPESAFE_API_KEY = previous;
+		}
+	});
+
+	it("lazily constructs the pinned selector client for eligible complete output", async () => {
+		const previous = process.env.TYPESAFE_API_KEY;
+		process.env.TYPESAFE_API_KEY = "test-only-key";
+		try {
+			const sourceText = Array.from({ length: 24 }, (_, index) => `routine ${index} ${"x".repeat(240)}\n`).join("");
+			const providerEvaluate = (request: any) => {
+				const answers: Record<string, unknown> = {};
+				for (const key of Object.keys(request.questions)) answers[key] = { type: "noul", noul: key.endsWith("routine_progress") ? 1 : 0 };
+				return { answers, model: "jev-1.13.0", usage: { input_tokens: 1, output_tokens: 1 } };
+			};
+			const { toolDef, createJevClient } = await setupHarness({ sourceText, providerEvaluate });
+			const result = await toolDef.execute("source-selected-eligible", {
+				sourceId: "00000000-0000-4000-8000-000000000000", outputView: "selected",
+			}, undefined, undefined, { cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined }, ui: {} } as any);
+			expect(createJevClient).toHaveBeenCalledTimes(1);
+			expect(createJevClient).toHaveBeenCalledWith({ enabled: true, model: "jev-1.13.0", maxRetries: 1 });
+			expect(result.details).toMatchObject({ selectionStatus: "selected", displayRepresentation: "safe-normalized-terminal-text-v1", rawRecovery: { outputView: "raw" } });
+		} finally {
+			if (previous === undefined) delete process.env.TYPESAFE_API_KEY;
+			else process.env.TYPESAFE_API_KEY = previous;
+		}
 	});
 
 	it("releases the source session and disposes monitor when background session lookup fails", async () => {
