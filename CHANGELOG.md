@@ -4,8 +4,10 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-09-21
+
 ### Fixed
-- Remove unsupported regex lookaround from the provider-facing tool schema so OpenAI requests are accepted again. Thanks to [@rainysteven1](https://github.com/rainysteven1) for #69.
+- OpenAI requests no longer fail when `interactive_shell` is installed. The tool schema now avoids unsupported regex lookaround while preserving input validation. Thanks to [@rainysteven1](https://github.com/rainysteven1) for [#69](https://github.com/nicobailon/pi-interactive-shell/issues/69).
 
 ## [0.16.0] - 2026-09-21
 
