@@ -22,6 +22,7 @@ import type { InteractiveShellConfig } from "./config.ts";
 import { isEmptySpawnPlaceholder, normalizeSpawnRequest, parseSpawnArgs, resolveSpawn, type SpawnRequest } from "./spawn.ts";
 import { translateInput, type InputSpec } from "./key-encoding.ts";
 import { compileSemanticActions } from "./semantic-actions.ts";
+import { createSemanticChoiceAuthorization } from "./semantic-choice-authorization.ts";
 import {
 	ENABLE_TOOL_DESCRIPTION,
 	ENABLE_TOOL_LABEL,
@@ -206,11 +207,16 @@ function validateSemanticIncident(incident: NonNullable<ToolParams["semanticInci
 	}
 }
 
-function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatch" | "monitor", semantic: SemanticConfig | undefined, config: InteractiveShellConfig) {
+function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatch" | "monitor", semantic: SemanticConfig | undefined, config: InteractiveShellConfig, ui?: Pick<ExtensionUIContext, "confirm">) {
 	if (!semantic) return { ok: true as const, runtime: undefined };
 	let actionRegistry;
 	try { actionRegistry = compileSemanticActions(semantic.actions); }
 	catch (error) { return { ok: false as const, error: error instanceof Error ? error.message : "Invalid semantic actions." }; }
+	const dynamic = semantic.dynamicChoices;
+	if (dynamic) {
+		if (!semantic.goal?.trim()) return { ok: false as const, error: "Semantic dynamicChoices require a non-empty semantic goal." };
+		if (dynamic.enabled !== true) return { ok: false as const, error: "Semantic dynamicChoices require explicit enabled: true." };
+	}
 	const watchIds = new Set<string>();
 	for (const watch of semantic.watches ?? []) {
 		if (!SEMANTIC_SAFE_ID.test(watch.id) || !watch.condition.trim()) return { ok: false as const, error: "Semantic watches require a non-empty safe id and condition." };
@@ -253,12 +259,38 @@ function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatc
 				},
 				onDiagnostic: (outcome: "stale-response" | "cancelled-response") => diagnostics?.recordRequest(outcome),
 				actionRegistry,
+				dynamicChoices: dynamic && ui ? {
+					sessionId,
+					authorization: createSemanticChoiceAuthorization({ permissions: jev.semanticPermissions, ui, isAvailable: () => coordinator.isRuntimeEpochCurrent(epoch) }),
+				} : undefined,
 				isOwner: (monitor: HeadlessDispatchMonitor) => coordinator.getMonitor(sessionId) === monitor,
 				reserveGlobalAction: () => coordinator.reserveSemanticActionAttempt(),
 			},
 		};
 	} catch (error) {
 		return { ok: false as const, error: error instanceof Error ? error.message : "Unable to start Jev semantic supervision." };
+	}
+}
+
+async function authorizeLaunchCommand(
+	config: InteractiveShellConfig,
+	command: string,
+	ctx: Pick<ExtensionContext, "ui"> & { hasUI?: boolean },
+): Promise<{ allowed: true } | { allowed: false; reason: "denied" | "ui-unavailable" | "rejected" }> {
+	const jev = config.jev;
+	if (!jev?.launchPermissionsEnabled) return { allowed: true };
+	const decision = jev.semanticPermissions.evaluate({ kind: "launch-command", command });
+	if (decision === "allow") return { allowed: true };
+	if (decision === "deny") return { allowed: false, reason: "denied" };
+	if (ctx.hasUI === false || typeof ctx.ui.confirm !== "function") return { allowed: false, reason: "ui-unavailable" };
+	try {
+		const approved = await ctx.ui.confirm(
+			"Allow interactive shell launch?",
+			`Launch this exact command once?\n\n${JSON.stringify(command)}`,
+		);
+		return approved ? { allowed: true } : { allowed: false, reason: "rejected" };
+	} catch {
+		return { allowed: false, reason: "ui-unavailable" };
 	}
 }
 
@@ -905,6 +937,16 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			ctx.ui.notify(describeShellResolutionError(error), "error");
 			return;
 		}
+		const preview = resolveSpawn(config, ctx.cwd, request, () => ctx.sessionManager.getSessionFile(), { createWorktree: false });
+		if (!preview.ok) {
+			ctx.ui.notify(preview.error, "error");
+			return;
+		}
+		const authorization = await authorizeLaunchCommand(config, preview.spawn.command, ctx);
+		if (!authorization.allowed) {
+			ctx.ui.notify("Launch blocked by the global interactive-shell command policy.", "error");
+			return;
+		}
 		const spawn = resolveSpawn(config, ctx.cwd, request, () => ctx.sessionManager.getSessionFile());
 		if (!spawn.ok) {
 			ctx.ui.notify(spawn.error, "error");
@@ -953,8 +995,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		onUpdate?: (update: { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }) => void;
 	}): Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown; isError?: boolean }> => {
 		const { ctx, command, spawn, cwd, name, reason, mode, background, handsFree, handoffPreview, handoffSnapshot, timeout, monitor, outputSelection, onUpdate } = params;
+		const hasCommand = command !== undefined;
+		const hasSpawn = spawn !== undefined;
 		const allowsGeneratedCommand = mode === "monitor" && monitor?.strategy === "file-watch";
-		if (!command && !spawn && !allowsGeneratedCommand) {
+		if (!hasCommand && !hasSpawn && !allowsGeneratedCommand) {
 			return {
 				content: [{ type: "text", text: "One of 'command' or 'spawn' is required." }],
 				isError: true,
@@ -981,6 +1025,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		if (background && effectiveMode !== "dispatch" && effectiveMode !== "monitor") {
 			return {
 				content: [{ type: "text", text: "background: true requires mode='dispatch' or mode='monitor' for new sessions." }],
+				isError: true,
+			};
+		}
+		if (isMonitorMode && monitor?.strategy === "file-watch" && (hasCommand || hasSpawn)) {
+			return {
+				content: [{ type: "text", text: "file-watch monitor generates its own command and cannot be combined with command or spawn." }],
 				isError: true,
 			};
 		}
@@ -1017,7 +1067,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		let spawnAgent: string | undefined;
 		let spawnMode: string | undefined;
 		if (spawn) {
-			const resolvedSpawn = resolveSpawn(config, effectiveCwd, spawn, () => ctx.sessionManager.getSessionFile());
+			const resolvedSpawn = resolveSpawn(config, effectiveCwd, spawn, () => ctx.sessionManager.getSessionFile(), { createWorktree: false });
 			if (!resolvedSpawn.ok) {
 				return {
 					content: [{ type: "text", text: resolvedSpawn.error }],
@@ -1025,10 +1075,23 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				};
 			}
 			effectiveCommand = resolvedSpawn.spawn.command;
+		}
+		let launchAuthorized = false;
+		if (effectiveCommand) {
+			const authorization = await authorizeLaunchCommand(config, effectiveCommand, ctx);
+			if (!authorization.allowed) return {
+				content: [{ type: "text", text: "Launch blocked by the global interactive-shell command policy." }],
+				isError: true,
+				details: { error: "launch_not_authorized", reason: authorization.reason },
+			};
+			launchAuthorized = true;
+		}
+		if (spawn) {
+			const resolvedSpawn = resolveSpawn(config, effectiveCwd, spawn, () => ctx.sessionManager.getSessionFile());
+			if (!resolvedSpawn.ok) return { content: [{ type: "text", text: resolvedSpawn.error }], isError: true };
+			effectiveCommand = resolvedSpawn.spawn.command;
 			effectiveCwd = resolvedSpawn.spawn.cwd;
-			effectiveReason = effectiveReason
-				? `${effectiveReason} • ${resolvedSpawn.spawn.reason}`
-				: resolvedSpawn.spawn.reason;
+			effectiveReason = effectiveReason ? `${effectiveReason} • ${resolvedSpawn.spawn.reason}` : resolvedSpawn.spawn.reason;
 			spawnWorktreePath = resolvedSpawn.spawn.worktreePath;
 			spawnAgent = resolvedSpawn.spawn.agent;
 			spawnMode = resolvedSpawn.spawn.mode;
@@ -1058,6 +1121,13 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				monitorCommand = compiled.strategy === "poll-diff"
 					? buildPollDiffLoopCommand(effectiveCommand, compiled.runtime.pollIntervalMs)
 					: effectiveCommand;
+			}
+			if (!launchAuthorized) {
+				const authorization = await authorizeLaunchCommand(config, monitorCommand, ctx);
+				if (!authorization.allowed) return {
+					content: [{ type: "text", text: "Launch blocked by the global interactive-shell command policy." }], isError: true,
+					details: { error: "launch_not_authorized", reason: authorization.reason },
+				};
 			}
 
 			const id = generateSessionId(name);
@@ -1147,7 +1217,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				: undefined;
 			if (foregroundSemanticDelivery && !foregroundSemanticDelivery.ok) return { content: [{ type: "text", text: foregroundSemanticDelivery.error }], isError: true };
 			const foregroundSemanticCompiled = foregroundSemanticDelivery?.ok ? foregroundSemanticDelivery.compiled : undefined;
-			const foregroundSemanticRuntime = compileSemanticRuntime(generatedSessionId, effectiveMode === "hands-free" ? "hands-free" : "dispatch", foregroundSemanticCompiled?.semanticConfig, config);
+			const foregroundSemanticRuntime = compileSemanticRuntime(generatedSessionId, effectiveMode === "hands-free" ? "hands-free" : "dispatch", foregroundSemanticCompiled?.semanticConfig, config, ctx.ui);
 			if (!foregroundSemanticRuntime.ok) return { content: [{ type: "text", text: foregroundSemanticRuntime.error }], isError: true };
 			if (!coordinator.beginOverlay()) {
 				return {

@@ -294,6 +294,8 @@ interactive_shell({
 })
 ```
 
+`file-watch` generates and authorizes its own watcher command. Do not combine it with top-level `command` or `spawn`; mixed requests are rejected before spawn resolution or worktree creation.
+
 Monitor mode emits structured payloads (`sessionId`, `eventId`, `timestamp`, `strategy`, `triggerId`, `matchedText`, `lineOrDiff`, `stream`) and now also emits lifecycle notifications when a monitor stops (stream ended, script failed, stopped, or timed out). `monitorFilter` was removed in favor of the structured `monitor` object.
 
 ```typescript
@@ -505,11 +507,28 @@ Example global opt-in (the default is `false`):
 | `maxViewportLines` | `40` | 5–80; project may only lower the global value |
 | `maxRecentChars` | `4000` | 500–8,000; project may only lower the global value |
 | `redactionPatterns` | `[]` | Up to 50 global-first, project-added RE2-compatible patterns; each source is 1–512 characters |
+| `semanticPermissions` | omitted | Global config only; enables launch policy when present. Exact rules use `allow`, `ask`, or `deny`, with `deny > ask > allow`; unmatched operations ask |
 | `diagnostics.enabled` | `false` | Global config only; records local structured metadata without another model call |
 | `diagnostics.retentionDays` | `14` | 1–90 days; global config only |
 | `diagnostics.maxBytes` | `20000000` | 1–100 MB per process across its retained journals; global config only |
 
-Per-session `monitor.semantic` supports: `goal` (optional task context, sent bounded to 1,000 characters), `attention` (built-in events, default `false`), `watches` (safe unique IDs, nonempty conditions, optional threshold 0–1 with default `0.8`), `minIntervalMs` (default `1000`, clamped 250–60,000), `uncertain` (`"continue"` by default or `"notify"`), and optional `actions`. Actions require literal `enabled: true`, 1–10 items, session `maxActions` default 1/max 10, safe unique IDs, descriptions up to 500 characters, exactly one text input (1–2,000 characters, optional `submit`) or strict key array (1–32 keys), encoded bytes up to 4,096, cooldown 0–86,400,000 ms, and per-action executions 1–10. A code-owned process-wide cap permits at most 10 semantic action attempts across all sessions; refused or throwing writes consume an attempt, and the cap is not caller-configurable.
+Per-session `monitor.semantic` supports: `goal` (optional task context, sent bounded to 1,000 characters), `attention` (built-in events, default `false`), `watches` (safe unique IDs, nonempty conditions, optional threshold 0–1 with default `0.8`), `minIntervalMs` (default `1000`, clamped 250–60,000), `uncertain` (`"continue"` by default or `"notify"`), optional configured `actions`, and optional `dynamicChoices`. Dynamic choices require literal `enabled: true` and a nonblank `goal`; they are unavailable in headless/background supervision and can execute at most once per session. Actions require literal `enabled: true`, 1–10 items, session `maxActions` default 1/max 10, safe unique IDs, descriptions up to 500 characters, exactly one text input (1–2,000 characters, optional `submit`) or strict key array (1–32 keys), encoded bytes up to 4,096, cooldown 0–86,400,000 ms, and per-action executions 1–10. A code-owned process-wide cap permits at most 10 semantic action attempts across all sessions; refused or throwing writes consume an attempt, and the cap is not caller-configurable.
+
+`semanticPermissions` is also the explicit opt-in boundary for commands launched through `interactive_shell`. Omitting the field preserves existing launch behavior. Once present, each raw command or resolved structured-spawn command is matched exactly before PTY, session, process, or worktree creation. `deny` blocks, `ask` requires Pi's confirmation dialog, and `allow` proceeds; an empty array asks for every launch. Unavailable UI, rejection, or dialog failure blocks an `ask`. Query, input, attach, and lifecycle calls for existing sessions are unaffected. This is an `interactive_shell` launch policy, not a shell, Bash, Pi, or operating-system sandbox.
+
+```json
+{
+  "jev": {
+    "semanticPermissions": [
+      { "decision": "allow", "operation": { "kind": "launch-command", "command": "npm test" } },
+      { "decision": "deny", "operation": { "kind": "launch-command", "command": "deploy --production" } },
+      { "decision": "ask", "operation": { "kind": "dynamic-terminal-choice" } }
+    ]
+  }
+}
+```
+
+Launch policy is local and does not require `jev.enabled`, an API key, or a model call. Structured spawn rules match the final resolved command, including configured default arguments and prompt.
 
 Bounded viewport/recent terminal text is sent to TypeSafe AI. ANSI/control text is stripped and built-in plus configured redaction runs first, but redaction is defense in depth—not a promise to identify every secret. Custom patterns use linear-time RE2-compatible syntax (no backreferences, lookaround, or nested repetition), are validated at config load, and replace every case-insensitive match with literal `[REDACTED]`. Invalid selected patterns reject configuration rather than being skipped. Full scrollback, request bodies, exact action input/bytes, and the API key are not stored in semantic history. Provider failures, uncertainty, stale responses, or a visible result never imply process completion or permission to act; PTY exit remains deterministic authority.
 
@@ -563,6 +582,20 @@ interactive_shell({
 ```
 
 Actions are predeclared immutable `input` (+ optional `submit`) or strict `inputKeys`, never generated text, hex, paste, credentials, secret/payment entry, or lifecycle commands. Confidence is one required safety gate, not authorization. User takeover pauses supervision; returning control requires fresh rendered output before evaluation/action resumes. Semantic events never mark a process exited.
+
+Goal-driven choices are a separate opt-in for foreground hands-free/dispatch overlays:
+
+```typescript
+interactive_shell({
+  command: "release-tool", mode: "hands-free",
+  monitor: { semantic: {
+    goal: "Select the stable release channel",
+    dynamicChoices: { enabled: true }
+  } }
+})
+```
+
+The extension conservatively extracts a fresh numbered, lettered, or explicitly keyboard-navigable menu from the visible viewport. Jev chooses only among code-owned opaque IDs plus `observe_again`, `notify_pi`, and `stop_automation`; it never supplies terminal input. Code resolves the chosen ID to the exact extracted bytes. Global `jev.semanticPermissions` rules for `dynamic-terminal-choice` are the trusted policy source; project/tool configuration cannot add or weaken them. `deny` always blocks; `ask` opens Pi's confirmation dialog and grants one request bound to the session, operation, generation, and observation hash; `allow` skips the dialog. The extension relies on Pi to deliver that dialog to the user; it does not independently attest who responds. Missing UI, background transfer, rejection, reload, takeover, exit, expiry, stale output, provider failure, ambiguity, secrets, lifecycle-like content, or unsupported menus result in no dynamic input. Existing configured fixed actions are unchanged and retain their ownership, freshness, secret, cooldown, dedupe, and budget gates.
 
 Inspect semantic decisions with `interactive_shell({ semanticDecisions: true, semanticSessionId: sessionId })`. Inspect delivered events with `interactive_shell({ monitorEvents: true, monitorSessionId: sessionId })`; `monitorStatus: true` returns monitor lifecycle state.
 

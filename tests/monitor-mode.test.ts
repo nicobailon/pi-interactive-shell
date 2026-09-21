@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { compileSemanticPermissions, type SemanticPermissionRule } from "../semantic-permissions.ts";
 
 type MonitorOptionsCapture = {
 	monitor?: {
@@ -23,13 +24,14 @@ type DetectorLaunchCapture = {
 	stdin: string;
 } | null;
 
-async function setupHarness(options: { detectorStdout?: string; diagnostics?: boolean; agentDir?: string } = {}) {
+async function setupHarness(options: { detectorStdout?: string; diagnostics?: boolean; agentDir?: string; launchRules?: readonly SemanticPermissionRule[] } = {}) {
 	let toolDef: any;
 	let monitorOptions: MonitorOptionsCapture = null;
 	let detectorLaunch: DetectorLaunchCapture = null;
 	let launchedCommand: string | undefined;
 	let monitorCompleteCallback: ((info: unknown) => void) | undefined;
 	let activeSession: unknown;
+	const spawnResolutionOptions: unknown[] = [];
 	let resolveMonitorNotification!: () => void;
 	const monitorNotification = new Promise<void>((resolve) => { resolveMonitorNotification = resolve; });
 	const sendMessage = vi.fn((message: { customType?: string; content?: string }) => {
@@ -114,8 +116,18 @@ async function setupHarness(options: { detectorStdout?: string; diagnostics?: bo
 				handsFreeUpdateMaxChars: 1500,
 				handsFreeMaxTotalChars: 100000,
 				minQueryIntervalSeconds: 60,
-				jev: { enabled: true, model: "jev-1.13.0", requestTimeoutMs: 1000, maxRetries: 0, maxViewportLines: 20, maxRecentChars: 1000, redactionPatterns: [], diagnostics: { enabled: options.diagnostics === true, retentionDays: 14, maxBytes: 1_000_000 } },
+				jev: { enabled: true, model: "jev-1.13.0", requestTimeoutMs: 1000, maxRetries: 0, maxViewportLines: 20, maxRecentChars: 1000, redactionPatterns: [], diagnostics: { enabled: options.diagnostics === true, retentionDays: 14, maxBytes: 1_000_000 }, semanticPermissions: compileSemanticPermissions(options.launchRules ?? []), launchPermissionsEnabled: options.launchRules !== undefined },
 			})),
+		};
+	});
+	vi.doMock("../spawn.ts", async () => {
+		const actual = await vi.importActual<typeof import("../spawn.ts")>("../spawn.ts");
+		return {
+			...actual,
+			resolveSpawn: (...args: Parameters<typeof actual.resolveSpawn>) => {
+				spawnResolutionOptions.push(args[4]);
+				return actual.resolveSpawn(...args);
+			},
 		};
 	});
 	vi.doMock("../jev-client.ts", () => ({ createJevClient: vi.fn(() => ({ evaluate: vi.fn() })) }));
@@ -205,6 +217,7 @@ async function setupHarness(options: { detectorStdout?: string; diagnostics?: bo
 		getMonitorOptions: () => monitorOptions,
 		getDetectorLaunch: () => detectorLaunch,
 		getLaunchedCommand: () => launchedCommand,
+		getSpawnResolutionOptions: () => spawnResolutionOptions,
 		getMonitorCompleteCallback: () => monitorCompleteCallback,
 		waitForMonitorNotification: () => monitorNotification,
 		setActiveSession: (session: unknown) => { activeSession = session; },
@@ -225,6 +238,7 @@ describe("monitor mode", () => {
 		vi.doUnmock("../headless-monitor.ts");
 		vi.doUnmock("../session-manager.ts");
 		vi.doUnmock("../jev-client.ts");
+		vi.doUnmock("../spawn.ts");
 	});
 
 	it("requires monitor object when mode is monitor", async () => {
@@ -241,6 +255,85 @@ describe("monitor mode", () => {
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toBe("mode='monitor' requires monitor configuration.");
+	});
+
+	it("blocks denied launch commands before constructing a terminal session", async () => {
+		const { toolDef, getLaunchedCommand } = await setupHarness({ launchRules: [
+			{ decision: "deny", operation: { kind: "launch-command", command: "npm test" } },
+		] });
+		const confirm = vi.fn(async () => true);
+		const result = await toolDef.execute("denied-launch", {
+			command: "npm test", mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "done", literal: "done" }] },
+			semanticPermissions: [{ decision: "allow" }],
+		}, undefined, undefined, { hasUI: true, cwd: "/tmp/project", ui: { confirm }, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result).toMatchObject({ isError: true, details: { error: "launch_not_authorized", reason: "denied" } });
+		expect(getLaunchedCommand()).toBeUndefined();
+		expect(confirm).not.toHaveBeenCalled();
+	});
+
+	it("requires an explicit Pi confirmation for ask and binds it to the exact command", async () => {
+		const rules: SemanticPermissionRule[] = [
+			{ decision: "allow", operation: { kind: "launch-command", command: "npm test" } },
+			{ decision: "ask", operation: { kind: "launch-command", command: "npm test -- --runInBand" } },
+		];
+		const allowed = await setupHarness({ launchRules: rules });
+		const allowedResult = await allowed.toolDef.execute("exact-allow", {
+			command: "npm test", mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "done", literal: "done" }] },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(allowedResult.isError).toBeUndefined();
+		expect(allowed.getLaunchedCommand()).toBe("npm test");
+
+		const asked = await setupHarness({ launchRules: rules });
+		const confirm = vi.fn(async (_title: string, message: string) => {
+			expect(message).toContain(JSON.stringify("npm test -- --runInBand"));
+			return true;
+		});
+		const askedResult = await asked.toolDef.execute("exact-ask", {
+			command: "npm test -- --runInBand", mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "done", literal: "done" }] },
+		}, undefined, undefined, { hasUI: true, cwd: "/tmp/project", ui: { confirm }, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(askedResult.isError).toBeUndefined();
+		expect(asked.getLaunchedCommand()).toBe("npm test -- --runInBand");
+		expect(confirm).toHaveBeenCalledOnce();
+	});
+
+	it.each([
+		["rejection", true, async (): Promise<boolean> => false, "rejected"],
+		["dialog error", true, async (): Promise<boolean> => { throw new Error("ui failed"); }, "ui-unavailable"],
+		["headless", false, undefined, "ui-unavailable"],
+	] as const)("fails ask closed on %s", async (_label, hasUI, confirm, reason) => {
+		const harness = await setupHarness({ launchRules: [{ decision: "ask", operation: { kind: "launch-command", command: "npm test" } }] });
+		const result = await harness.toolDef.execute("ask-failure", {
+			command: "npm test", mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "done", literal: "done" }] },
+		}, undefined, undefined, { hasUI, cwd: "/tmp/project", ui: confirm ? { confirm: vi.fn(confirm) } : {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result).toMatchObject({ isError: true, details: { error: "launch_not_authorized", reason } });
+		expect(harness.getLaunchedCommand()).toBeUndefined();
+	});
+
+	it("applies launch policy to the exact resolved structured spawn command", async () => {
+		const denied = await setupHarness({ launchRules: [{ decision: "deny", operation: { kind: "launch-command", command: "codex" } }] });
+		const deniedResult = await denied.toolDef.execute("spawn-deny", {
+			spawn: { agent: "codex", worktree: true }, mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "done", literal: "done" }] },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(deniedResult.isError).toBe(true);
+		expect(denied.getLaunchedCommand()).toBeUndefined();
+		expect(denied.getSpawnResolutionOptions()).toEqual([{ createWorktree: false }]);
+
+		const allowed = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "codex" } }] });
+		const allowedResult = await allowed.toolDef.execute("spawn-allow", {
+			spawn: { agent: "codex" }, mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "done", literal: "done" }] },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(allowedResult.isError).toBeUndefined();
+		expect(allowed.getLaunchedCommand()).toBe("codex");
+	});
+
+	it("does not apply launch policy to ordinary query and control calls", async () => {
+		const { toolDef, getLaunchedCommand } = await setupHarness({ launchRules: [] });
+		const confirm = vi.fn(async () => true);
+		const result = await toolDef.execute("query", { monitorStatus: true, monitorSessionId: "missing" }, undefined, undefined,
+			{ hasUI: true, cwd: "/tmp/project", ui: { confirm }, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBeUndefined();
+		expect(confirm).not.toHaveBeenCalled();
+		expect(getLaunchedCommand()).toBeUndefined();
 	});
 
 	it("launches semantic monitor and routes watch events through the existing wake sink", async () => {
@@ -353,6 +446,16 @@ describe("monitor mode", () => {
 		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
 		expect(rejected.isError).toBe(true);
 		expect(rejected.content[0].text).toContain("exactly one input form");
+	});
+
+	it("rejects dynamic choices without an explicit semantic goal", async () => {
+		const { toolDef } = await setupHarness();
+		const result = await toolDef.execute("dynamic-without-goal", {
+			command: "agent", mode: "monitor",
+			monitor: { strategy: "semantic", semantic: { dynamicChoices: { enabled: true } } },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("require a non-empty semantic goal");
 	});
 
 	it("routes semantic-enabled background dispatch through structured history and persistence", async () => {
@@ -627,6 +730,66 @@ describe("monitor mode", () => {
 		expect(harness.getMonitorOptions()?.monitor?.strategy).toBe("file-watch");
 		expect(harness.getLaunchedCommand()).toContain("-e");
 		expect(harness.getLaunchedCommand()).toContain("uploads");
+	});
+
+	it("authorizes the generated file-watch command itself", async () => {
+		const harness = await setupHarness({ launchRules: [] });
+		const confirm = vi.fn(async (_title: string, message: string) => {
+			expect(message).toContain("-e");
+			expect(message).toContain("uploads");
+			return true;
+		});
+		const result = await harness.toolDef.execute("file-watch-policy", {
+			mode: "monitor",
+			monitor: {
+				strategy: "file-watch",
+				fileWatch: { path: "./uploads", events: ["rename"] },
+				triggers: [{ id: "pdf", regex: "/\\.pdf$/i" }],
+			},
+		}, undefined, undefined, { hasUI: true, cwd: "/tmp/project", ui: { confirm }, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBeUndefined();
+		expect(confirm).toHaveBeenCalledOnce();
+		expect(harness.getLaunchedCommand()).toContain("uploads");
+	});
+
+	it("rejects raw command mixed with file-watch before authorizing an unused identity", async () => {
+		const harness = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "npm test" } }] });
+		const confirm = vi.fn(async () => true);
+		const result = await harness.toolDef.execute("mixed-file-watch-command", {
+			command: "npm test", mode: "monitor",
+			monitor: { strategy: "file-watch", fileWatch: { path: "./uploads" }, triggers: [{ id: "changed", literal: "CHANGE" }] },
+		}, undefined, undefined, { hasUI: true, cwd: "/tmp/project", ui: { confirm }, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("cannot be combined with command or spawn");
+		expect(confirm).not.toHaveBeenCalled();
+		expect(harness.getLaunchedCommand()).toBeUndefined();
+		expect(harness.getSpawnResolutionOptions()).toEqual([]);
+	});
+
+	it("rejects a present empty command mixed with file-watch before authorization or construction", async () => {
+		const harness = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "other" } }] });
+		const confirm = vi.fn(async () => true);
+		const result = await harness.toolDef.execute("mixed-file-watch-empty-command", {
+			command: "", mode: "monitor",
+			monitor: { strategy: "file-watch", fileWatch: { path: "./uploads" }, triggers: [{ id: "changed", literal: "CHANGE" }] },
+		}, undefined, undefined, { hasUI: true, cwd: "/tmp/project", ui: { confirm }, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("cannot be combined with command or spawn");
+		expect(confirm).not.toHaveBeenCalled();
+		expect(harness.getLaunchedCommand()).toBeUndefined();
+		expect(harness.getSpawnResolutionOptions()).toEqual([]);
+	});
+
+	it("rejects structured spawn mixed with file-watch before worktree resolution", async () => {
+		const harness = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "codex" } }] });
+		const result = await harness.toolDef.execute("mixed-file-watch-spawn", {
+			spawn: { agent: "codex", worktree: true }, mode: "monitor",
+			monitor: { strategy: "file-watch", fileWatch: { path: "./uploads" }, triggers: [{ id: "changed", literal: "CHANGE" }] },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("cannot be combined with command or spawn");
+		expect(harness.getLaunchedCommand()).toBeUndefined();
+		expect(harness.getSpawnResolutionOptions()).toEqual([]);
 	});
 
 	it("quotes Bash-sensitive file-watch paths literally", async () => {

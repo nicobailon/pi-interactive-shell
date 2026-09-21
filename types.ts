@@ -85,6 +85,9 @@ export interface SemanticConfig {
 	minIntervalMs?: number;
 	uncertain?: "continue" | "notify";
 	actions?: SemanticActionsConfig;
+	dynamicChoices?: {
+		enabled: true;
+	};
 }
 
 export type SemanticAttentionState = "working" | "waiting_input" | "waiting_approval" | "presenting_result" | "blocked" | "other";

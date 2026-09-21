@@ -186,9 +186,13 @@ interactive_shell({
 
 Use monitor mode for log watchers and long-running checks where polling would be noisy or expensive.
 
+`strategy: "file-watch"` generates its own watcher command. Omit top-level `command` and `spawn`; mixed requests are rejected before spawn resolution or worktree creation.
+
 ### Optional Jev semantic supervision
 
 Jev is off by default. It sends bounded terminal viewport/recent text to TypeSafe AI only when (1) global `~/.pi/agent/interactive-shell.json` has `jev.enabled: true`, (2) `TYPESAFE_API_KEY` is present in Pi's startup environment, and (3) this session supplies `monitor.semantic`. Never put the key in a tool call or project config. Project config cannot enable Jev or change the model; it can only narrow timeout/retry/text limits and add redactions.
+
+Global `jev.semanticPermissions` separately opts launches through `interactive_shell` into exact-command policy; it needs no Jev API call. When the field is omitted, existing launches are unchanged. When present, matching `deny` blocks before PTY/process/session/worktree creation, `ask` requires Pi's confirmation dialog, and `allow` proceeds; unmatched commands ask. Raw commands and resolved structured spawns are covered. Existing-session queries and controls are not. Project/tool data cannot weaken this policy, and it is not a system-wide shell sandbox.
 
 Observe without authorizing terminal input:
 
@@ -225,6 +229,8 @@ interactive_shell({
 ```
 
 Actions must be predeclared exact text or strict named keys. Model confidence is not authorization. Secret/credential/payment and process-lifecycle actions are forbidden; process exit remains PTY-owned. User takeover pauses semantics and fresh rendered output is required after control returns. In addition to per-action/session limits, a non-configurable process-wide cap allows 10 semantic action attempts across sessions; refused and throwing writes consume it.
+
+For a foreground hands-free/dispatch overlay, `semantic: { goal: "Select the stable release channel", dynamicChoices: { enabled: true } }` opts into one choice discovered later in fresh visible output. The extension—not Jev—extracts conservative numbered/lettered or explicitly keyboard-navigable menus and binds opaque IDs to exact bytes. Jev chooses only an ID or a fixed control and never generates input. Global `jev.semanticPermissions` rules for `{ kind: "dynamic-terminal-choice" }` use `allow`, `ask`, or `deny`; deny wins, unmatched asks, and project/tool config cannot weaken policy. Ask uses Pi's one-time confirmation dialog bound to the exact session/operation/generation/hash; Pi owns delivery of that dialog. Headless transfer, missing UI, rejection, reload, takeover, exit, expiry, stale output, evaluator failure, ambiguity, secrets, lifecycle content, or unsupported menus means no dynamic input. Configured fixed actions are unchanged and retain all existing gates.
 
 Query decisions with `{ semanticDecisions: true, semanticSessionId }`; query delivered events with `{ monitorEvents: true, monitorSessionId }`; query monitor state with `{ monitorStatus: true, monitorSessionId }`. Provider failure, uncertainty, staleness, or a visible final answer never means completion or permission.
 
