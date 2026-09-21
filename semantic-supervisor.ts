@@ -250,7 +250,7 @@ export class SemanticSupervisor {
 
 	private activeDynamicOptions(viewport: readonly string[]): readonly RuntimeSemanticOption[] {
 		const dynamic = this.options.dynamicChoices;
-		if (!dynamic || !this.options.config.goal?.trim() || !dynamic.isInteractive()
+		if (this.actionsStopped || !dynamic || !this.options.config.goal?.trim() || !dynamic.isInteractive()
 			|| this.dynamicActionUsed || this.actionCount >= 10) return [];
 		return extractSemanticOptions(viewport).map((option) => Object.freeze({
 			id: `dynamic:${option.id}`,
@@ -278,6 +278,7 @@ export class SemanticSupervisor {
 		const dynamic = this.options.dynamicChoices;
 		if (answer.confidence < SEMANTIC_THRESHOLDS.actionChoice || answer.probability < SEMANTIC_THRESHOLDS.actionChoice) return this.blockDynamic(answer, "choice-threshold");
 		if (answer.readiness === undefined || answer.readiness < SEMANTIC_THRESHOLDS.actionReady) return this.blockDynamic(answer, "readiness-threshold");
+		if (this.actionsStopped) return this.blockDynamic(answer, "session-actions-disabled");
 		if (!dynamic || !dynamic.isInteractive()) return this.blockDynamic(answer, "ui-unavailable");
 		if (this.disposed || this.paused || this.options.session.exited || !this.options.isEpochCurrent()) return this.blockDynamic(answer, "inactive");
 		if (this.actionInFlight || this.awaitingVisualGeneration === generation) return this.blockDynamic(answer, "in-flight-or-awaiting-change");
