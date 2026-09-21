@@ -8,7 +8,7 @@ export const ENABLE_TOOL_LABEL = "Enable Interactive Shell";
 export const ENABLE_TOOL_DESCRIPTION = "Enable the interactive_shell tool for interactive CLI coding agents, overlay supervision, background dispatch, and event-driven monitoring. Call this when interactive_shell is not available; it becomes callable on the next turn.";
 export const enableToolParameters = Type.Object({});
 
-const SEMANTIC_NONCONTROL_PATTERN = "^(?=.*\\S)[^\\u0000-\\u001F\\u007F]+$";
+const SEMANTIC_NONCONTROL_PATTERN = "^[^\\u0000-\\u001F\\u007F\\u2028\\u2029]*[^\\s\\u0000-\\u001F\\u007F][^\\u0000-\\u001F\\u007F]*$";
 const SEMANTIC_TEXT_PATTERN = "^[^\\u0000-\\u001F\\u007F;&|`$<>]+$";
 
 export const TOOL_DESCRIPTION = `Run an interactive CLI in an overlay or managed background session.

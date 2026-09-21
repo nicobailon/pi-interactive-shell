@@ -4,6 +4,9 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+- Remove unsupported regex lookaround from the provider-facing tool schema so OpenAI requests are accepted again. Thanks to [@rainysteven1](https://github.com/rainysteven1) for #69.
+
 ## [0.16.0] - 2026-09-21
 
 ### Highlights
