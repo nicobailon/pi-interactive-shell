@@ -5,7 +5,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 ## [Unreleased]
 
 ### Added
-- Add opt-in goal-driven selection among conservative choices discovered in fresh visible CLI output, with code-owned exact inputs, trusted global allow/ask/deny policy, and one-time human confirmation for `ask` (#71).
+- Add opt-in goal-driven selection among conservative choices discovered in fresh visible CLI output, with code-owned exact inputs, trusted global allow/ask/deny policy, and a one-time Pi confirmation prompt for `ask` (#71).
 
 ### Security
 - Fail dynamic terminal choices closed on headless/background operation, unavailable UI, rejection, stale state, reload/takeover/exit, secret or lifecycle content, ambiguity, and evaluator failure. Project and tool configuration cannot weaken the global user policy (#71).

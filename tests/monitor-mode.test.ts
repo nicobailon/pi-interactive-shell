@@ -355,6 +355,16 @@ describe("monitor mode", () => {
 		expect(rejected.content[0].text).toContain("exactly one input form");
 	});
 
+	it("rejects dynamic choices without an explicit semantic goal", async () => {
+		const { toolDef } = await setupHarness();
+		const result = await toolDef.execute("dynamic-without-goal", {
+			command: "agent", mode: "monitor",
+			monitor: { strategy: "semantic", semantic: { dynamicChoices: { enabled: true } } },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("require a non-empty semantic goal");
+	});
+
 	it("routes semantic-enabled background dispatch through structured history and persistence", async () => {
 		const { toolDef, getMonitorOptions, waitForMonitorNotification, setActiveSession, sendMessage } = await setupHarness();
 		const active = { kill: vi.fn() };

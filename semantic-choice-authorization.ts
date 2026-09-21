@@ -7,11 +7,6 @@ export interface SemanticChoiceAuthorization {
 	dispose(): void;
 }
 
-/**
- * Bridges the pure permission and approval components to Pi's real confirmation UI.
- * The private listener is reachable only from the resolved UI promise; neither Jev
- * nor terminal/tool data can manufacture an approval transition.
- */
 export function createSemanticChoiceAuthorization(options: {
 	permissions: CompiledSemanticPermissions;
 	ui: Pick<ExtensionUIContext, "confirm">;

@@ -114,7 +114,7 @@ export class HeadlessDispatchMonitor {
 				isEpochCurrent: options.semantic.isEpochCurrent, onDecision: options.semantic.onDecision,
 				actionRegistry: options.semantic.actionRegistry, isActionOwner: () => options.semantic?.isOwner?.(this) === true,
 				reserveGlobalAction: options.semantic.reserveGlobalAction,
-				dynamicChoices: options.semantic.dynamicChoices ? { ...options.semantic.dynamicChoices, isInteractive: () => this.options.deferLifecycle === true, maxActions: 1, cooldownMs: 0 } : undefined,
+				dynamicChoices: options.semantic.dynamicChoices ? { ...options.semantic.dynamicChoices, isInteractive: () => this.options.deferLifecycle === true } : undefined,
 			});
 		}
 		this.subscribe();

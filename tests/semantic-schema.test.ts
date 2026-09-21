@@ -35,6 +35,7 @@ describe("semantic tool schema bounds", () => {
 		["interval low", params({ minIntervalMs: 249 })], ["interval integer", params({ minIntervalMs: 250.5 })],
 		["session budget", actionParams(validText, { maxActions: 11 })], ["session budget integer", actionParams(validText, { maxActions: 1.5 })],
 		["action id", actionParams({ ...validText, id: "bad id" })], ["description blank", actionParams({ ...validText, description: "" })],
+		["reserved dynamic id namespace", actionParams({ ...validText, id: "dynamic:number_1" })],
 		["description whitespace", actionParams({ ...validText, description: "   " })],
 		["description length", actionParams({ ...validText, description: "x".repeat(501) })], ["description control", actionParams({ ...validText, description: "bad\ntext" })],
 		["description null", actionParams({ ...validText, description: "\u0000" })],

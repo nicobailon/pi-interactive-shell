@@ -4,7 +4,7 @@ import { buildTerminalObservation, classifyTerminalSecretPrompt, createTerminalR
 import type { SemanticAnswers, SemanticAttentionState, SemanticConfig, SemanticDecisionInput } from "./types.ts";
 import type { SemanticActionRegistry } from "./semantic-actions.ts";
 import { SEMANTIC_THRESHOLDS } from "./semantic-policy.ts";
-import { extractSemanticOptions, type SemanticOption } from "./semantic-options.ts";
+import { extractSemanticOptions } from "./semantic-options.ts";
 import type { SemanticChoiceAuthorization } from "./semantic-choice-authorization.ts";
 
 const ATTENTION_STATES = ["working", "waiting_input", "waiting_approval", "presenting_result", "blocked", "other"] as const;
@@ -44,8 +44,6 @@ export interface SemanticSupervisorOptions {
 		sessionId: string;
 		authorization: SemanticChoiceAuthorization;
 		isInteractive: () => boolean;
-		maxActions: number;
-		cooldownMs: number;
 	};
 }
 
@@ -68,7 +66,7 @@ export class SemanticSupervisor {
 	private actionInFlight = false;
 	private actionsStopped = false;
 	private actionCount = 0;
-	private dynamicActionCount = 0;
+	private dynamicActionUsed = false;
 	private readonly actionCounts = new Map<string, number>();
 	private readonly actionLastAt = new Map<string, number>();
 	private readonly consumedActionHashes = new Set<string>();
@@ -253,12 +251,11 @@ export class SemanticSupervisor {
 	private activeDynamicOptions(viewport: readonly string[]): readonly RuntimeSemanticOption[] {
 		const dynamic = this.options.dynamicChoices;
 		if (!dynamic || !this.options.config.goal?.trim() || !dynamic.isInteractive()
-			|| this.dynamicActionCount >= dynamic.maxActions || this.actionCount + this.dynamicActionCount >= 10) return [];
+			|| this.dynamicActionUsed || this.actionCount >= 10) return [];
 		return extractSemanticOptions(viewport).map((option) => Object.freeze({
-			id: `visible_${option.id}`,
+			id: `dynamic:${option.id}`,
 			label: option.label,
 			bytes: option.input.bytes,
-			source: option,
 		}));
 	}
 
@@ -288,9 +285,7 @@ export class SemanticSupervisor {
 		if (this.options.session.visualGeneration !== generation || this.currentObservationHash !== hash) return this.blockDynamic(answer, "stale");
 		const current = this.buildObservation(true);
 		if (!current.observation.terminal.changed || current.hash !== hash || current.secretPrompt) return this.blockDynamic(answer, "changed-hash-or-secret");
-		if (Date.now() - (this.actionLastAt.get("dynamic-choice") ?? -Infinity) < dynamic.cooldownMs) return this.blockDynamic(answer, "cooldown");
-		if (this.consumedActionHashes.has(`dynamic-choice\0${hash}`)) return this.blockDynamic(answer, "observation-dedupe");
-		if (this.dynamicActionCount >= dynamic.maxActions || this.actionCount + this.dynamicActionCount >= 10) return this.blockDynamic(answer, "session-budget");
+		if (this.dynamicActionUsed || this.actionCount >= 10) return this.blockDynamic(answer, "session-budget");
 		if (!answer.option?.bytes || Buffer.byteLength(answer.option.bytes) > 64 || !this.options.session.writeIfActive) return this.blockDynamic(answer, "invalid-bytes-or-session");
 		return undefined;
 	}
@@ -298,21 +293,29 @@ export class SemanticSupervisor {
 	private writeDynamicAction(answer: ParsedActionAnswer, generation: number, hash: string): NonNullable<SemanticDecisionInput["action"]> {
 		if (this.options.reserveGlobalAction?.() !== true) return this.blockDynamic(answer, "global-budget");
 		this.actionInFlight = true;
-		let outcome: "executed" | "refused" | "error"; let reason: string;
-		try { const written = this.options.session.writeIfActive!(answer.option!.bytes); outcome = written ? "executed" : "refused"; reason = written ? "written-once" : "inactive-session"; }
-		catch { outcome = "error"; reason = "write-failed"; }
+		let outcome: "executed" | "refused" | "error";
+		let reason: string;
+		try {
+			const written = this.options.session.writeIfActive!(answer.option!.bytes);
+			outcome = written ? "executed" : "refused";
+			reason = written ? "written-once" : "inactive-session";
+		} catch {
+			outcome = "error";
+			reason = "write-failed";
+		}
 		finally {
-			this.dynamicActionCount++; this.actionLastAt.set("dynamic-choice", Date.now());
-			this.consumedActionHashes.add(`dynamic-choice\0${hash}`); this.awaitingVisualGeneration = generation;
-			this.lastActionGeneration = generation; this.actionInFlight = false;
+			this.dynamicActionUsed = true;
+			this.awaitingVisualGeneration = generation;
+			this.lastActionGeneration = generation;
+			this.actionInFlight = false;
 		}
 		return { choice: answer.choice, actionId: answer.choice, confidence: answer.confidence, probability: answer.probability,
-			readiness: answer.readiness, outcome, reason, budgetCount: this.dynamicActionCount };
+			readiness: answer.readiness, outcome, reason, budgetCount: 1 };
 	}
 
 	private blockDynamic(answer: ParsedActionAnswer, reason: string): NonNullable<SemanticDecisionInput["action"]> {
 		return { choice: answer.choice, actionId: answer.choice, confidence: answer.confidence, probability: answer.probability,
-			readiness: answer.readiness, outcome: "blocked", reason, budgetCount: this.dynamicActionCount };
+			readiness: answer.readiness, outcome: "blocked", reason, budgetCount: this.dynamicActionUsed ? 1 : 0 };
 	}
 
 	private applyAction(answer: ParsedActionAnswer, generation: number, hash: string): NonNullable<SemanticDecisionInput["action"]> {
@@ -406,7 +409,7 @@ export class SemanticSupervisor {
 }
 
 const ACTION_CONTROLS = ["observe_again", "notify_pi", "stop_automation"] as const;
-type RuntimeSemanticOption = { id: string; label: string; bytes: string; source: SemanticOption };
+type RuntimeSemanticOption = { id: string; label: string; bytes: string };
 type ParsedActionAnswer = { choice: string; confidence: number; probability: number; readiness?: number; option?: RuntimeSemanticOption };
 
 export function buildSemanticRequest(observation: TerminalObservation, config: SemanticConfig, model: string, registry?: SemanticActionRegistry, dynamicOptions: readonly RuntimeSemanticOption[] = []): JevEvaluationRequest {
