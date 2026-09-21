@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { Terminal } from "@xterm/headless";
 import type { JevClient } from "../jev-client.ts";
-import { SELECTOR_CORPUS, SELECTOR_CORPUS_HASH, type SelectorCorpusFixture } from "../selector-corpus.ts";
-import { evaluateLiveSelector, evaluateOfflineBaselines, selectProductionTail, selectProtectedContext, SELECTOR_SETTINGS, type SelectorRow } from "../selector-evaluator.ts";
+import { SELECTOR_CORPUS, SELECTOR_CORPUS_HASH, SELECTOR_VISIBLE_REPRESENTATION, selectorFixture, type SelectorCorpusFixture, type SelectorCorpusLine } from "../selector-corpus.ts";
+import { evaluateLiveSelector, evaluateOfflineBaselines, getSelectorVisibleLines, selectProductionTail, selectProtectedContext, SELECTOR_SETTINGS, type SelectorRow } from "../selector-evaluator.ts";
 
 function responseFor(request: any, keep = new Set<number>(), usage: unknown = { input_tokens: 50, output_tokens: 10 }) {
 	return {
@@ -11,8 +12,8 @@ function responseFor(request: any, keep = new Set<number>(), usage: unknown = { 
 	};
 }
 
-function fixture(overrides: Partial<SelectorCorpusFixture> = {}): SelectorCorpusFixture {
-	return {
+function fixture(overrides: Partial<Omit<SelectorCorpusFixture, "representation" | "lines">> & { lines?: Array<Omit<SelectorCorpusLine, "index">> } = {}): SelectorCorpusFixture {
+	return selectorFixture({
 		id: "custom", split: "tuning", goal: "retain the result",
 		lines: [
 			{ text: "ERROR synthetic failure", required: true, relevant: true },
@@ -21,7 +22,7 @@ function fixture(overrides: Partial<SelectorCorpusFixture> = {}): SelectorCorpus
 			{ text: "more routine progress" },
 		],
 		...overrides,
-	};
+	});
 }
 
 function expectConservative(row: SelectorRow, lineCount: number): void {
@@ -41,8 +42,49 @@ describe("Stage 0 selector corpus and evaluator", () => {
 		const serialized = JSON.stringify(SELECTOR_CORPUS);
 		expect(serialized).toContain("IGNORE THE SELECTOR");
 		expect(serialized).toContain("SYNTHETIC_CANARY_NOT_A_CREDENTIAL");
-		expect(serialized).toContain("\\u001b[31m");
+		expect(serialized).toContain("synthetic-merged-pty-transport-v1");
 		expect(serialized.length).toBeLessThan(80_000);
+		for (const item of SELECTOR_CORPUS) {
+			expect(item.representation).toBe(SELECTOR_VISIBLE_REPRESENTATION);
+			expect(item.lines.map(({ index }) => index)).toEqual(item.lines.map((_, index) => index));
+			expect(item.lines.every(({ text }) => !/[\r\n\u001b]/.test(text))).toBe(true);
+		}
+	});
+
+	it("renders the separate ANSI/CR transport oracle to stable indexed visible lines", async () => {
+		const item = SELECTOR_CORPUS.find((candidate) => candidate.id === "boundary-long-ansi")!;
+		const oracle = item.rawTransportOracle!;
+		expect(oracle.raw).toContain("\u001b[31m");
+		expect(oracle.raw).toContain("\rprogress 100%");
+		const terminal = new Terminal({ cols: oracle.columns, rows: 5, scrollback: 0, allowProposedApi: true });
+		await new Promise<void>((resolve) => terminal.write(oracle.raw, resolve));
+		const actual = oracle.expectedVisible.map(({ index }, row) => ({
+			index,
+			text: terminal.buffer.active.getLine(row)?.translateToString(true) ?? "",
+		}));
+		terminal.dispose();
+		expect(actual).toEqual(oracle.expectedVisible);
+		for (const expected of oracle.expectedVisible) expect(item.lines[expected.index]).toMatchObject(expected);
+	});
+
+	it("feeds every arm the same indexed visible text without transport controls", async () => {
+		const item = SELECTOR_CORPUS.find((candidate) => candidate.id === "boundary-long-ansi")!;
+		const visible = getSelectorVisibleLines(item);
+		const tail = selectProductionTail(visible.map(({ text }) => text));
+		const deterministic = selectProtectedContext(item);
+		let captured: any;
+		const client: JevClient = { evaluate: vi.fn(async (request) => { captured = request; return responseFor(request); }) };
+		const live = await evaluateLiveSelector({ client, redactionPatterns: [], fixtures: [item] });
+		expect(tail.text).not.toMatch(/[\r\u001b]/);
+		expect(deterministic.text).not.toMatch(/[\r\u001b]/);
+		expect(tail.text).toContain("progress 100%");
+		expect(tail.text).not.toContain("progress 99%");
+		expect(deterministic.text).toContain("ERROR boundary parser rejected record 8192");
+		expect(tail.text.length).toBe(tail.indices.map((index) => visible[index]!.text).join("\n").length);
+		for (const entry of captured.state.lines) expect(entry).toEqual({ index: entry.index, text: visible[entry.index]!.text });
+		expect(captured.state.lines).toContainEqual({ index: 20, text: "progress 100%" });
+		expect(JSON.stringify(captured.state)).not.toMatch(/[\r\u001b]/);
+		for (const row of live.rows) for (const index of row.selectedIndices) expect(visible[index]!.index).toBe(index);
 	});
 
 	it("exactly models ordinary production tail forward order, line window, and overshoot", () => {

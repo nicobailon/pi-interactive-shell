@@ -1,10 +1,11 @@
 import type { Questions } from "@typesafe-ai/sdk";
 import type { JevClient, JevEvaluationRequest } from "./jev-client.ts";
 import { createTerminalRedactor, sanitizeTerminalTextBuiltIn, type TerminalRedactor } from "./terminal-observation.ts";
-import { SELECTOR_CORPUS, type SelectorCorpusFixture, type SelectorSplit } from "./selector-corpus.ts";
+import { SELECTOR_CORPUS, SELECTOR_VISIBLE_REPRESENTATION, type SelectorCorpusFixture, type SelectorCorpusLine, type SelectorSplit } from "./selector-corpus.ts";
 
 export const SELECTOR_SETTINGS = Object.freeze({
 	model: "jev-1.13.0",
+	representation: SELECTOR_VISIBLE_REPRESENTATION,
 	ordinaryQueryLines: 20,
 	ordinaryQueryMaxChars: 5 * 1024,
 	completionCaptureLines: 50,
@@ -82,8 +83,20 @@ export interface LiveSelectorReport {
 
 const PROTECTED = /\b(?:error|fail(?:ed|ure)?|warning|expected|received|tests?|build (?:failed|complete)|report|output|revision|url|next action|approved|consequence)\b/i;
 const omissionMarker = (omitted: number) => `[omitted:${omitted}; recovery:source]`;
-const allIndices = (fixture: SelectorCorpusFixture): number[] => fixture.lines.map((_, index) => index);
 const unique = (indices: readonly number[]): number[] => [...new Set(indices)];
+
+/** Validates the sole indexed, agent-visible representation consumed by every arm. */
+export function getSelectorVisibleLines(fixture: SelectorCorpusFixture): readonly SelectorCorpusLine[] {
+	if (fixture.representation !== SELECTOR_VISIBLE_REPRESENTATION) throw new Error("invalid selector representation");
+	for (let position = 0; position < fixture.lines.length; position++) {
+		const item = fixture.lines[position]!;
+		if (item.index !== position || /[\r\n\u001b]/.test(item.text)) throw new Error("invalid indexed visible line");
+	}
+	return fixture.lines;
+}
+
+const allIndices = (fixture: SelectorCorpusFixture): number[] => getSelectorVisibleLines(fixture).map(({ index }) => index);
+const visibleText = (fixture: SelectorCorpusFixture): string[] => getSelectorVisibleLines(fixture).map(({ text }) => text);
 
 /** Pure equivalent of PtyTerminalSession.getTailLines for non-ANSI line text. Newline joins are not charged by production. */
 export function selectProductionTail(lines: readonly string[], options: { lineLimit?: number; maxChars?: number } = {}): ProductionTailResult {
@@ -150,7 +163,7 @@ function packSelection(
 
 function protectedContextCore(fixture: SelectorCorpusFixture): number[] {
 	const selected = new Set<number>();
-	fixture.lines.forEach(({ text }, index) => {
+	getSelectorVisibleLines(fixture).forEach(({ index, text }) => {
 		if (!PROTECTED.test(sanitizeTerminalTextBuiltIn(text))) return;
 		for (let offset = -SELECTOR_SETTINGS.contextRadius; offset <= SELECTOR_SETTINGS.contextRadius; offset++) {
 			if (index + offset >= 0 && index + offset < fixture.lines.length) selected.add(index + offset);
@@ -160,7 +173,7 @@ function protectedContextCore(fixture: SelectorCorpusFixture): number[] {
 }
 
 export function selectProtectedContext(fixture: SelectorCorpusFixture): SelectionOutcome {
-	const lines = fixture.lines.map(({ text }) => text);
+	const lines = visibleText(fixture);
 	if (fixture.bypass) return packSelection(lines, allIndices(fixture), [], SELECTOR_SETTINGS.selectorVisibleChars, "bypass-overflow");
 	const protectedIndices = protectedContextCore(fixture);
 	return packSelection(lines, protectedIndices, allIndices(fixture).reverse(), SELECTOR_SETTINGS.selectorVisibleChars, "protected-overflow");
@@ -177,12 +190,13 @@ function rowFromSelection(fixture: SelectorCorpusFixture, arm: Exclude<SelectorA
 }
 
 function metricRow(fixture: SelectorCorpusFixture, arm: SelectorArm, selectedIndices: number[], base: Omit<SelectorRow, "fixtureId" | "split" | "arm" | "selectedIndices" | "requiredRetained" | "requiredTotal" | "relevantRetained" | "relevantSelected" | "requiredRecall" | "relevantPrecision" | "relevantRecall" | "bypass">): SelectorRow {
+	const lines = getSelectorVisibleLines(fixture);
 	const selected = new Set(selectedIndices);
-	const required = fixture.lines.flatMap((item, index) => item.required ? [index] : []);
-	const relevant = fixture.lines.flatMap((item, index) => item.relevant ? [index] : []);
+	const required = lines.flatMap((item) => item.required ? [item.index] : []);
+	const relevant = lines.flatMap((item) => item.relevant ? [item.index] : []);
 	const requiredRetained = required.filter((index) => selected.has(index)).length;
 	const relevantRetained = relevant.filter((index) => selected.has(index)).length;
-	const relevantSelected = selectedIndices.filter((index) => fixture.lines[index]?.relevant).length;
+	const relevantSelected = selectedIndices.filter((index) => lines[index]?.relevant).length;
 	return {
 		fixtureId: fixture.id, split: fixture.split, arm, selectedIndices, ...base,
 		requiredRetained, requiredTotal: required.length, relevantRetained, relevantSelected,
@@ -194,7 +208,7 @@ function metricRow(fixture: SelectorCorpusFixture, arm: SelectorArm, selectedInd
 }
 
 function tailRow(fixture: SelectorCorpusFixture): SelectorRow {
-	const tail = selectProductionTail(fixture.lines.map(({ text }) => text));
+	const tail = selectProductionTail(visibleText(fixture));
 	return metricRow(fixture, "tail", tail.indices, {
 		outcomeStatus: "production-tail", recoveryIndices: [], recoveryRanges: [], visibleChars: tail.text.length, markerChars: 0,
 		matchedBudget: tail.budgetOvershootChars === 0, budgetOvershootChars: tail.budgetOvershootChars,
@@ -207,9 +221,10 @@ export function evaluateOfflineBaselines(fixtures: readonly SelectorCorpusFixtur
 }
 
 function buildRequest(fixture: SelectorCorpusFixture, redact: TerminalRedactor): { request: JevEvaluationRequest; candidates: number[]; chars: number } {
+	const lines = getSelectorVisibleLines(fixture);
 	const protectedIndices = new Set(protectedContextCore(fixture));
 	const candidates = allIndices(fixture).filter((index) => !protectedIndices.has(index));
-	const stateLines = candidates.map((index) => ({ index, text: redact(fixture.lines[index]!.text) }));
+	const stateLines = candidates.map((index) => ({ index, text: redact(lines[index]!.text) }));
 	const state = { goal: redact(fixture.goal), lines: stateLines };
 	const questions: Questions = Object.fromEntries(candidates.map((index, position) => [`line_${index}`, {
 		type: "noul",
@@ -245,7 +260,7 @@ function parseSelection(raw: unknown, candidates: readonly number[]): { selected
 }
 
 function retainUnscored(fixture: SelectorCorpusFixture): SelectionOutcome {
-	const lines = fixture.lines.map(({ text }) => text);
+	const lines = visibleText(fixture);
 	return packSelection(lines, allIndices(fixture), [], SELECTOR_SETTINGS.selectorVisibleChars, "unscored-overflow");
 }
 
@@ -294,7 +309,7 @@ export async function evaluateLiveSelector(options: {
 			if (signal.aborted) throw new Error("selection aborted");
 			const parsed = parseSelection(raw, built.candidates);
 			inputTokens += parsed.inputTokens; outputTokens += parsed.outputTokens;
-			const lines = fixture.lines.map(({ text }) => text);
+			const lines = visibleText(fixture);
 			const mandatory = [...protectedContextCore(fixture), ...parsed.selected];
 			const outcome = packSelection(lines, mandatory, allIndices(fixture).reverse(), SELECTOR_SETTINGS.selectorVisibleChars, "protected-overflow");
 			rows.push(rowFromSelection(fixture, "jev", outcome));
