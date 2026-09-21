@@ -66,7 +66,10 @@ describe("goal-driven dynamic visible choices", () => {
 		const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
 		const confirm = vi.fn(async () => true);
 		const authorization = createSemanticChoiceAuthorization({
-			permissions: compileSemanticPermissions([{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } }]),
+			permissions: compileSemanticPermissions([
+				{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } },
+				{ decision: "deny", operation: { kind: "dynamic-terminal-confirmation" } },
+			]),
 			ui: { confirm }, isAvailable: () => true,
 		});
 		const client: JevClient = { evaluate: vi.fn(async (request) => {
@@ -91,7 +94,7 @@ describe("goal-driven dynamic visible choices", () => {
 		supervisor.dispose(); vi.useRealTimers();
 	});
 
-	it("blocks an extracted Yes/No confirmation when confirmation policy denies it", async () => {
+	it("blocks a qualified Yes/No confirmation when confirmation policy denies it", async () => {
 		vi.useFakeTimers(); const session = new ChoiceSession(); const confirm = vi.fn(async () => true);
 		const authorization = createSemanticChoiceAuthorization({
 			permissions: compileSemanticPermissions([
@@ -100,7 +103,7 @@ describe("goal-driven dynamic visible choices", () => {
 			]), ui: { confirm }, isAvailable: () => true,
 		});
 		const supervisor = createSupervisor({ session, client: { evaluate: vi.fn(async () => answers("dynamic:number_1")) }, authorization });
-		session.show(["Delete production database?", "1. Yes", "2. No"]); supervisor.handleOutput("confirmation");
+		session.show(["Delete production database?", "1. Yes, proceed", "2. No, go back"]); supervisor.handleOutput("confirmation");
 		await vi.advanceTimersByTimeAsync(0); await flush();
 		expect(session.writes).toEqual([]);
 		expect(confirm).not.toHaveBeenCalled();

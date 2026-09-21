@@ -28,10 +28,19 @@ describe("semantic option extraction", () => {
 		expect(Object.isFrozen(options[0]!.input.kind === "keys" ? options[0]!.input.keys : [])).toBe(true);
 	});
 
-	it("classifies a visible Yes/No menu as a confirmation without changing selector bindings", () => {
-		expect(extractSemanticOptions(["Delete production database?", "1. Yes", "2. No"])).toEqual([
-			{ id: "number_1", label: "Yes", input: { kind: "text", text: "1", submit: true, bytes: "1\r" }, operation: { kind: "dynamic-terminal-confirmation" } },
-			{ id: "number_2", label: "No", input: { kind: "text", text: "2", submit: true, bytes: "2\r" }, operation: { kind: "dynamic-terminal-confirmation" } },
+	it.each([
+		["exact", "Yes", "No"],
+		["comma-qualified", "Yes, proceed", "No, go back"],
+	])("classifies %s visible Yes/No labels as confirmation without changing selector bindings", (_name, yes, no) => {
+		expect(extractSemanticOptions(["Delete production database?", `1. ${yes}`, `2. ${no}`])).toEqual([
+			{ id: "number_1", label: yes, input: { kind: "text", text: "1", submit: true, bytes: "1\r" }, operation: { kind: "dynamic-terminal-confirmation" } },
+			{ id: "number_2", label: no, input: { kind: "text", text: "2", submit: true, bytes: "2\r" }, operation: { kind: "dynamic-terminal-confirmation" } },
+		]);
+	});
+
+	it("keeps an ordinary binary selection classified as a choice", () => {
+		expect(extractSemanticOptions(["Choose a database:", "1. PostgreSQL", "2. SQLite"]).map((option) => option.operation)).toEqual([
+			{ kind: "dynamic-terminal-choice" }, { kind: "dynamic-terminal-choice" },
 		]);
 	});
 
@@ -45,6 +54,7 @@ describe("semantic option extraction", () => {
 		["free-form prompt", ["Enter a value:", "1. One", "2. Two"]],
 		["secret choice", ["1. Use password", "2. Skip"]],
 		["lifecycle choice", ["a) Continue", "b) Exit process"]],
+		["ambiguous confirmation labels", ["1. Yes please", "2. No thanks"]],
 		["shell syntax", ["1. Build", "2. sudo deploy"]],
 		["terminal controls", ["1. Safe", "2. Bad\u001b[31m"]],
 		["invisible formatting", ["1. Safe", "2. Con\u202etinue"]],

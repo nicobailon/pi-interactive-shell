@@ -130,7 +130,12 @@ function finish(options: readonly ExtractedSemanticOption[]): readonly SemanticO
 		labels.add(normalized);
 		inputs.add(option.input.bytes);
 	}
-	const operation = labels.size === 2 && labels.has("yes") && labels.has("no")
+	const confirmationLabels = [...labels];
+	const confirmation = confirmationLabels.length === 2
+		&& confirmationLabels.some((label) => /^yes(?:,\s+\S.*)?$/.test(label))
+		&& confirmationLabels.some((label) => /^no(?:,\s+\S.*)?$/.test(label));
+	if (!confirmation && confirmationLabels.some((label) => /^(?:yes|no)\b/.test(label))) return EMPTY_OPTIONS;
+	const operation = confirmation
 		? CONFIRMATION_OPERATION
 		: CHOICE_OPERATION;
 	return Object.freeze(options.map((option) => Object.freeze({ ...option, operation })));
