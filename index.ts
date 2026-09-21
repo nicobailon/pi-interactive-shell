@@ -1026,6 +1026,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				isError: true,
 			};
 		}
+		if (isMonitorMode && monitor?.strategy === "file-watch" && (command || spawn)) {
+			return {
+				content: [{ type: "text", text: "file-watch monitor generates its own command and cannot be combined with command or spawn." }],
+				isError: true,
+			};
+		}
 		if (!isMonitorMode && !(effectiveMode === "dispatch" && background)) {
 			if (!hasUI) {
 				return {

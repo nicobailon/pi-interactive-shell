@@ -294,6 +294,8 @@ interactive_shell({
 })
 ```
 
+`file-watch` generates and authorizes its own watcher command. Do not combine it with top-level `command` or `spawn`; mixed requests are rejected before spawn resolution or worktree creation.
+
 Monitor mode emits structured payloads (`sessionId`, `eventId`, `timestamp`, `strategy`, `triggerId`, `matchedText`, `lineOrDiff`, `stream`) and now also emits lifecycle notifications when a monitor stops (stream ended, script failed, stopped, or timed out). `monitorFilter` was removed in favor of the structured `monitor` object.
 
 ```typescript

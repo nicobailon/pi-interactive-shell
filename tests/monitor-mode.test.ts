@@ -732,6 +732,52 @@ describe("monitor mode", () => {
 		expect(harness.getLaunchedCommand()).toContain("uploads");
 	});
 
+	it("authorizes the generated file-watch command itself", async () => {
+		const harness = await setupHarness({ launchRules: [] });
+		const confirm = vi.fn(async (_title: string, message: string) => {
+			expect(message).toContain("-e");
+			expect(message).toContain("uploads");
+			return true;
+		});
+		const result = await harness.toolDef.execute("file-watch-policy", {
+			mode: "monitor",
+			monitor: {
+				strategy: "file-watch",
+				fileWatch: { path: "./uploads", events: ["rename"] },
+				triggers: [{ id: "pdf", regex: "/\\.pdf$/i" }],
+			},
+		}, undefined, undefined, { hasUI: true, cwd: "/tmp/project", ui: { confirm }, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBeUndefined();
+		expect(confirm).toHaveBeenCalledOnce();
+		expect(harness.getLaunchedCommand()).toContain("uploads");
+	});
+
+	it("rejects raw command mixed with file-watch before authorizing an unused identity", async () => {
+		const harness = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "npm test" } }] });
+		const confirm = vi.fn(async () => true);
+		const result = await harness.toolDef.execute("mixed-file-watch-command", {
+			command: "npm test", mode: "monitor",
+			monitor: { strategy: "file-watch", fileWatch: { path: "./uploads" }, triggers: [{ id: "changed", literal: "CHANGE" }] },
+		}, undefined, undefined, { hasUI: true, cwd: "/tmp/project", ui: { confirm }, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("cannot be combined with command or spawn");
+		expect(confirm).not.toHaveBeenCalled();
+		expect(harness.getLaunchedCommand()).toBeUndefined();
+		expect(harness.getSpawnResolutionOptions()).toEqual([]);
+	});
+
+	it("rejects structured spawn mixed with file-watch before worktree resolution", async () => {
+		const harness = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "codex" } }] });
+		const result = await harness.toolDef.execute("mixed-file-watch-spawn", {
+			spawn: { agent: "codex", worktree: true }, mode: "monitor",
+			monitor: { strategy: "file-watch", fileWatch: { path: "./uploads" }, triggers: [{ id: "changed", literal: "CHANGE" }] },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("cannot be combined with command or spawn");
+		expect(harness.getLaunchedCommand()).toBeUndefined();
+		expect(harness.getSpawnResolutionOptions()).toEqual([]);
+	});
+
 	it("quotes Bash-sensitive file-watch paths literally", async () => {
 		const harness = await setupHarness();
 		const watchPath = "$HOME/it's `pwd`";

@@ -22,7 +22,7 @@ Detailed mode, query, input, spawn, attach, and monitor recipes live in the bund
 export const toolParameters = Type.Object({
 	command: Type.Optional(
 		Type.String({
-			description: "The raw CLI command to run (e.g., 'pi \"Fix the bug\"'). Use this for arbitrary CLIs. Mutually exclusive with 'spawn'. A globally enabled interactive-shell launch policy matches this exact string.",
+			description: "The raw CLI command to run (e.g., 'pi \"Fix the bug\"'). Use this for arbitrary CLIs. Mutually exclusive with 'spawn' and unavailable for file-watch monitors, which generate their own command. A globally enabled interactive-shell launch policy matches this exact string.",
 		}),
 	),
 	spawn: Type.Optional(
@@ -43,7 +43,7 @@ export const toolParameters = Type.Object({
 				description: "Optional startup prompt, appended as the CLI's final argument. Uses each CLI's native prompt-bearing startup form.",
 			})),
 		}, {
-			description: "Structured spawn request for any configured spawn agent. Use this instead of building the command string manually when you want the extension's spawn defaults, Pi-only fork behavior, worktree support, or native startup prompts. Global launch policy applies to the resolved command before worktree creation.",
+			description: "Structured spawn request for any configured spawn agent. Unavailable for file-watch monitors, which generate their own command. Use this for spawn defaults, Pi-only fork behavior, worktree support, or native startup prompts. Global launch policy applies to the resolved command before worktree creation.",
 		}),
 	),
 	sessionId: Type.Optional(
@@ -213,7 +213,7 @@ export const toolParameters = Type.Object({
 				}, { additionalProperties: false, description: "Visible choices are code-extracted; Jev receives opaque IDs and labels and never generates terminal input. Ask permission requires a one-time Pi confirmation prompt." })),
 			}, { additionalProperties: false, description: "Optional per-session Jev supervision. Bounded terminal text is sent to TypeSafe AI only with global jev.enabled and TYPESAFE_API_KEY in Pi's environment. Attention/watches notify; actions require a separate explicit immutable allowlist." })),
 			fileWatch: Type.Optional(Type.Object({
-				path: Type.String({ description: "Path to watch for strategy='file-watch'. Relative paths resolve from cwd." }),
+				path: Type.String({ description: "Path to watch for strategy='file-watch'. Relative paths resolve from cwd. File-watch generates its own command, so top-level command and spawn must be omitted." }),
 				recursive: Type.Optional(Type.Boolean({ description: "Watch subdirectories recursively (platform-dependent support)." })),
 				events: Type.Optional(Type.Array(Type.Union([
 					Type.Literal("rename"),

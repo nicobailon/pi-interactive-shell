@@ -186,6 +186,8 @@ interactive_shell({
 
 Use monitor mode for log watchers and long-running checks where polling would be noisy or expensive.
 
+`strategy: "file-watch"` generates its own watcher command. Omit top-level `command` and `spawn`; mixed requests are rejected before spawn resolution or worktree creation.
+
 ### Optional Jev semantic supervision
 
 Jev is off by default. It sends bounded terminal viewport/recent text to TypeSafe AI only when (1) global `~/.pi/agent/interactive-shell.json` has `jev.enabled: true`, (2) `TYPESAFE_API_KEY` is present in Pi's startup environment, and (3) this session supplies `monitor.semantic`. Never put the key in a tool call or project config. Project config cannot enable Jev or change the model; it can only narrow timeout/retry/text limits and add redactions.

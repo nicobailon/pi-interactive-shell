@@ -10,6 +10,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ### Security
 - Fail dynamic terminal choices closed on headless/background operation, unavailable UI, rejection, stale state, reload/takeover/exit, secret or lifecycle content, ambiguity, and evaluator failure. Project and tool configuration cannot weaken the global user policy (#71).
+- Reject file-watch requests that also supply a raw command or structured spawn, so only the generated watcher command can satisfy launch authorization and no unused spawn can create a worktree (#71).
 
 ## [0.16.1] - 2026-09-21
 
