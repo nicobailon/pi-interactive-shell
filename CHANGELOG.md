@@ -4,20 +4,31 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-21
+
+### Highlights
+- Let agents recognize when a terminal session needs input, approval, or attention with optional Jev supervision.
+- Recover useful evidence from completed build, test, and install logs without losing access to the full local output.
+- Keep running background sessions and monitors alive through `/reload`, with more reliable control and completion output.
+- Inspect Jev behavior through private diagnostics that never record terminal content, commands, paths, or credentials.
+
 ### Added
-- Add explicit recoverable output capture for opted-in command-based background dispatches, with local status/raw pagination and conservative on-demand Jev-selected excerpts. Selection is globally/user gated, redacted, bounded, raw-range recoverable, and fails closed to ordinary completion output; the frozen corpus/manual evaluator remains as calibration evidence (#67).
-- Add optional, globally gated Jev semantic supervision with bounded/redacted observations, typed attention/watch events, narrowly authorized exact-input actions, inspectable audit history, and a repository corpus evaluator (#61).
-- Add an opt-in, content-free local Jev diagnostic journal with bounded summaries and structured agent-reported incidents (#65).
+- Add optional Jev supervision for hands-free, dispatch, and monitor sessions. It can recognize requests for input or approval, completion, blockers, and custom watch conditions. Optional actions are limited to exact inputs that the user approved in advance (#61).
+- Add selected output for explicitly opted-in background commands. Agents can request useful excerpts from completed build, test, and install logs, page through the full local output, and recover every excerpt by its original source range (#67).
+- Add an optional local Jev diagnostic journal with bounded summaries and structured incident reports. Diagnostic records contain no terminal content, commands, paths, session IDs, goals, or credentials (#65).
+- Add automated TypeScript and test checks on macOS and Ubuntu for pull requests and `main` (#57).
+
+### Changed
+- Improve Jev attention decisions, route confident states directly, and suppress duplicate attention notifications until the terminal state changes (#63).
+- Keep the background-session widget compact on short and mobile terminals by hiding completed sessions and collapsing overflow.
+- Clarify that cancellation sends best-effort termination signals but does not confirm that every subprocess exited.
 
 ### Fixed
-- Calibrate Jev's built-in attention questions, route confident attention states directly, suppress duplicate attention events until the state changes, and separate operational corpus gates from atomic diagnostics (#63).
-- Validate custom semantic redactions as bounded RE2-compatible patterns and apply them with linear-time matching instead of arbitrary JavaScript regular expressions (#61).
-- Start semantic supervision while hands-free/dispatch overlays are foregrounded, preserve one supervisor across background transfer, and enforce a reload-safe ten-attempt global action budget (#61).
+- Validate custom Jev redaction patterns before use and apply them with bounded RE2-compatible matching (#61).
+- Start Jev supervision while hands-free and dispatch overlays are still visible, preserve it when sessions move to the background, and keep action limits intact across `/reload` (#61).
 - Preserve running background sessions and monitors across `/reload` instead of cancelling them during extension teardown.
-- Keep the background-session widget compact on short and mobile terminals by hiding completed sessions and collapsing running-session overflow.
 - Keep hands-free sessions under agent control when Ctrl+B moves them to the background (#54).
 - Preserve final PTY output before reporting process completion on Linux (#58).
-- Clarify that cancellation uses best-effort termination signaling and does not confirm every subprocess exited.
 
 ## [0.15.2] - 2026-09-04
 
