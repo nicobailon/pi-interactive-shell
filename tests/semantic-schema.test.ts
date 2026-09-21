@@ -11,7 +11,12 @@ describe("semantic tool schema bounds", () => {
 	it("validates current text and key action shapes", () => {
 		expect(Value.Check(toolParameters, actionParams(validText))).toBe(true);
 		expect(Value.Check(toolParameters, actionParams(validKeys))).toBe(true);
+		expect(Value.Check(toolParameters, actionParams({ ...validText, description: "visible\u2028" }))).toBe(true);
 		expect(Value.Check(toolParameters, params({ goal: "observe", minIntervalMs: 250, watches: [{ id: "build.ready", condition: "build is visibly ready", threshold: 0.8 }] }))).toBe(true);
+	});
+
+	it("emits provider-compatible patterns without lookaround", () => {
+		expect(JSON.stringify(toolParameters)).not.toMatch(/\(\?(?:[=!]|<[=!])/);
 	});
 
 	it("accepts only fixed diagnostic incident fields", () => {
@@ -31,6 +36,8 @@ describe("semantic tool schema bounds", () => {
 		["action id", actionParams({ ...validText, id: "bad id" })], ["description blank", actionParams({ ...validText, description: "" })],
 		["description whitespace", actionParams({ ...validText, description: "   " })],
 		["description length", actionParams({ ...validText, description: "x".repeat(501) })], ["description control", actionParams({ ...validText, description: "bad\ntext" })],
+		["description null", actionParams({ ...validText, description: "\u0000" })],
+		["description leading line separator", actionParams({ ...validText, description: "\u2028visible" })],
 		["text empty", actionParams({ ...validText, input: "" })], ["text length", actionParams({ ...validText, input: "x".repeat(2001) })],
 		["text control", actionParams({ ...validText, input: "yes\n" })], ["text shell metachar", actionParams({ ...validText, input: "yes; exit" })],
 		["keys empty", actionParams({ ...validKeys, inputKeys: [] })], ["key empty", actionParams({ ...validKeys, inputKeys: [""] })],
