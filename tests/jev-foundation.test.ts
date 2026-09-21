@@ -61,6 +61,50 @@ describe("Jev foundation", () => {
 		expect(result.hash).toMatch(/^[a-f0-9]{24}$/);
 	});
 
+	it("keeps approval identity stable when only elapsed and quiet time buckets advance", () => {
+		vi.useFakeTimers();
+		try {
+			const startedAt = Date.UTC(2026, 0, 1);
+			const build = () => buildTerminalObservation({
+				session: fakeSession(["unchanged output"]), mode: "monitor", task: "wait for completion",
+				recentOutput: "unchanged output", changed: false, startedAt, lastOutputAt: startedAt,
+				actions: [{ id: "confirm", description: "Confirm" }], recentActionIds: ["previous"],
+				bounds: { maxViewportLines: 10, maxRecentChars: 500, redactionPatterns: [] },
+			});
+
+			vi.setSystemTime(startedAt + 500);
+			const first = build();
+			vi.setSystemTime(startedAt + 1_500);
+			const second = build();
+
+			expect(first.observation.session).toMatchObject({ elapsedMsBucket: "<1s", quietMsBucket: "<1s" });
+			expect(second.observation.session).toMatchObject({ elapsedMsBucket: "1-10s", quietMsBucket: "1-10s" });
+			expect(second.hash).toBe(first.hash);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("changes approval identity for meaningful terminal and session state changes", () => {
+		vi.useFakeTimers();
+		try {
+			const now = Date.UTC(2026, 0, 1);
+			vi.setSystemTime(now);
+			const build = (lines: string[], mode: "monitor" | "dispatch", exited = false) => buildTerminalObservation({
+				session: fakeSession(lines, exited), mode, task: "task", recentOutput: "output", changed: true,
+				startedAt: now, lastOutputAt: now, actions: [], recentActionIds: [],
+				bounds: { maxViewportLines: 10, maxRecentChars: 500, redactionPatterns: [] },
+			});
+			const baseline = build(["ready"], "monitor");
+
+			expect(build(["approval required"], "monitor").hash).not.toBe(baseline.hash);
+			expect(build(["ready"], "dispatch").hash).not.toBe(baseline.hash);
+			expect(build(["ready"], "monitor", true).hash).not.toBe(baseline.hash);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("detects bounded secret prompts before attacker-controlled custom redaction", () => {
 		const viewport = buildTerminalObservation({
 			session: fakeSession(["Password:", "hunter2"]), mode: "monitor", recentOutput: "", changed: true,
