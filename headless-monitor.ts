@@ -351,7 +351,10 @@ export class HeadlessDispatchMonitor {
 		this.stopPollTimer();
 		if (this.timeoutTimer) { clearTimeout(this.timeoutTimer); this.timeoutTimer = null; }
 		this.unsubscribe();
-		if (timedOut || cancelled) this.session.kill();
+		if (timedOut || cancelled) {
+			this.session.markOutputCaptureIncomplete?.(autoClosedOnQuiet ? "auto-close-quiet" : timedOut ? "timed-out" : "killed");
+			this.session.kill();
+		}
 
 		const completionOutput = this.captureOutput();
 		const completionReason: DispatchCompletionReason = autoClosedOnQuiet

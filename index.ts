@@ -946,9 +946,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		handoffSnapshot?: ToolParams["handoffSnapshot"];
 		timeout?: number;
 		monitor?: ToolParams["monitor"];
+		outputSelection?: ToolParams["outputSelection"];
 		onUpdate?: (update: { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }) => void;
 	}): Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown; isError?: boolean }> => {
-		const { ctx, command, spawn, cwd, name, reason, mode, background, handsFree, handoffPreview, handoffSnapshot, timeout, monitor, onUpdate } = params;
+		const { ctx, command, spawn, cwd, name, reason, mode, background, handsFree, handoffPreview, handoffSnapshot, timeout, monitor, outputSelection, onUpdate } = params;
 		const allowsGeneratedCommand = mode === "monitor" && monitor?.strategy === "file-watch";
 		if (!command && !spawn && !allowsGeneratedCommand) {
 			return {
@@ -963,6 +964,16 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		const isMonitorMode = effectiveMode === "monitor";
 		const returnsImmediately = effectiveMode === "interactive" || effectiveMode === "hands-free" || effectiveMode === "dispatch" || isMonitorMode;
 		const hasUI = ctx.hasUI !== false;
+		let captureGoal: string | undefined;
+		if (outputSelection) {
+			captureGoal = outputSelection.goal.trim();
+			if (!captureGoal || captureGoal.length > 1000) {
+				return { content: [{ type: "text", text: "outputSelection.goal must contain 1-1000 non-whitespace characters." }], isError: true };
+			}
+			if (effectiveMode !== "dispatch" || background !== true || spawn || monitor?.semantic) {
+				return { content: [{ type: "text", text: "outputSelection is supported only for command-based, finite background dispatch launches without semantic monitoring." }], isError: true };
+			}
+		}
 
 		if (background && effectiveMode !== "dispatch" && effectiveMode !== "monitor") {
 			return {
@@ -1092,9 +1103,16 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			const semanticCompiled = semanticDelivery?.ok ? semanticDelivery.compiled : undefined;
 			const semanticRuntime = compileSemanticRuntime(id, "dispatch", semanticCompiled?.semanticConfig, config);
 			if (!semanticRuntime.ok) return { content: [{ type: "text", text: semanticRuntime.error }], isError: true };
-			const session = new PtyTerminalSession(
-				{ command: launchCommand, shellConfig, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
-			);
+			const source = captureGoal ? sessionManager.beginOutputCapture(id, captureGoal) : undefined;
+			let session: PtyTerminalSession;
+			try {
+				session = new PtyTerminalSession(
+					{ command: launchCommand, shellConfig, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines, outputCapture: source?.capture },
+				);
+			} catch (error) {
+				void source?.capture?.markIncomplete("spawn-failed").catch(() => {});
+				throw error;
+			}
 
 			const startTime = Date.now();
 			if (semanticRuntime.runtime) coordinator.registerSemanticSession(id, new Date(startTime));
@@ -1115,7 +1133,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 			return {
 				content: [{ type: "text", text: appendWorktreeNotice(`Session dispatched in background (id: ${id}).\nYou'll be notified when it completes. User can /attach ${id} to watch.`, spawnWorktreePath) }],
-				details: { sessionId: id, backgroundId: id, mode: "dispatch", background: true, spawnAgent, spawnMode, spawnWorktreePath },
+				details: { sessionId: id, backgroundId: id, mode: "dispatch", background: true, spawnAgent, spawnMode, spawnWorktreePath, ...(source ? { outputSource: { sourceId: source.sourceId, representation: source.capture?.ref.representation, available: source.available } } : {}) },
 			};
 		}
 
@@ -1490,6 +1508,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				outputLines,
 				outputMaxChars,
 				outputOffset,
+				outputView,
+				sourceId,
+				sourceOffset,
+				sourceLimit,
 				drain,
 				incremental,
 				settings,
@@ -1526,6 +1548,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				handoffSnapshot,
 				timeout,
 				monitor,
+				outputSelection,
 			} = params;
 
 			const hasStructuredInput = inputKeys?.length || inputHex?.length || inputPaste;
@@ -1533,7 +1556,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				? { text: input, keys: inputKeys, hex: inputHex, paste: inputPaste }
 				: input;
 			const normalizedSpawn = normalizeSpawnRequest(spawn);
-			const hasExistingSessionAction = Boolean(sessionId || attach || listBackground || dismissBackground || monitorEvents || monitorStatus || semanticDecisions || semanticDiagnostics || semanticIncident);
+			const hasExistingSessionAction = Boolean(sessionId || sourceId || outputView || attach || listBackground || dismissBackground || monitorEvents || monitorStatus || semanticDecisions || semanticDiagnostics || semanticIncident);
+			if (outputSelection && hasExistingSessionAction) {
+				return { content: [{ type: "text", text: "outputSelection is launch-only and cannot be combined with an existing-session action." }], isError: true };
+			}
 			if (semanticDiagnostics && semanticIncident) {
 				return { content: [{ type: "text", text: "Choose semanticDiagnostics or semanticIncident, not both." }], isError: true };
 			}
@@ -1706,6 +1732,38 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					return { content: [{ type: "text", text: `Recorded Jev diagnostic incident ${incident.incidentId} (${incident.kind}).` }], details: { incident } };
 				} catch {
 					return { content: [{ type: "text", text: "The Jev diagnostic incident could not be written to local storage." }], isError: true };
+				}
+			}
+
+			if (outputView) {
+				const conflicting = outputLines !== undefined || outputMaxChars !== undefined || outputOffset !== undefined || drain !== undefined || incremental !== undefined
+					|| settings !== undefined || effectiveInput !== undefined || submit !== undefined || kill !== undefined || background !== undefined;
+				if (conflicting) return { content: [{ type: "text", text: "outputView cannot be combined with ordinary output, cursor, input, lifecycle, or settings fields." }], isError: true };
+				if (sourceId && sessionId) return { content: [{ type: "text", text: "Use sourceId or sessionId for outputView, not both." }], isError: true };
+				let resolvedSourceId = sourceId;
+				if (!resolvedSourceId && sessionId) {
+					const association = sessionManager.getOutputSourceForSession(sessionId);
+					if (!association?.sourceId) {
+						return { content: [{ type: "text", text: `No unambiguous recoverable output source is available for session ${sessionId}.` }], isError: true, details: { sessionId, available: association?.available ?? false, state: "missing" } };
+					}
+					resolvedSourceId = association.sourceId;
+				}
+				if (!resolvedSourceId) return { content: [{ type: "text", text: "outputView requires sourceId or sessionId." }], isError: true };
+				const status = sessionManager.outputSourceStatus(resolvedSourceId);
+				if (outputView === "status") return { content: [{ type: "text", text: `Output source ${resolvedSourceId}: ${status.state} (${status.length} characters).` }], details: { outputView, ...status } };
+				const start = sourceOffset ?? 0;
+				const limit = sourceLimit ?? 5120;
+				if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 51200) {
+					return { content: [{ type: "text", text: "sourceOffset must be a non-negative integer and sourceLimit must be 1-51200." }], isError: true };
+				}
+				const end = Math.min(status.length, start + limit);
+				if (start > status.length) return { content: [{ type: "text", text: `sourceOffset exceeds source length ${status.length}.` }], isError: true };
+				try {
+					const read = await sessionManager.readOutputSource(resolvedSourceId, start, end);
+					const nextOffset = read.range.end < read.length ? read.range.end : undefined;
+					return { content: [{ type: "text", text: read.text }], details: { outputView, ...read, requestedRange: { offset: start, limit }, nextOffset } };
+				} catch {
+					return { content: [{ type: "text", text: "Recoverable output source could not be read." }], isError: true, details: { outputView, ...status } };
 				}
 			}
 
@@ -2110,6 +2168,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				mode,
 				background,
 				monitor,
+				outputSelection,
 				handsFree,
 				handoffPreview,
 				handoffSnapshot,

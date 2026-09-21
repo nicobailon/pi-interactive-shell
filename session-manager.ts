@@ -1,5 +1,8 @@
 import { PtyTerminalSession } from "./pty-session.ts";
 import type { DispatchCompletionReason } from "./types.ts";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+import { OutputSourceStore, type OutputCapture, type OutputSourceRead, type OutputSourceStatus } from "./output-source-store.ts";
 
 export interface BackgroundSession {
 	id: string;
@@ -147,6 +150,50 @@ export class ShellSessionManager {
 	private cleanupTimers = new Map<string, NodeJS.Timeout>();
 	private activeSessions = new Map<string, ActiveSession>();
 	private changeListeners = new Set<() => void>();
+	private outputStore: OutputSourceStore | undefined;
+	private outputLaunches = new Map<string, { goal: string; sourceId?: string; available: boolean }>();
+	private static readonly MAX_OUTPUT_LAUNCHES = 1024;
+
+	private rememberOutputLaunch(sessionId: string, launch: { goal: string; sourceId?: string; available: boolean }): void {
+		this.outputLaunches.delete(sessionId);
+		this.outputLaunches.set(sessionId, launch);
+		while (this.outputLaunches.size > ShellSessionManager.MAX_OUTPUT_LAUNCHES) {
+			const oldest = this.outputLaunches.keys().next().value;
+			if (oldest === undefined) break;
+			this.outputLaunches.delete(oldest);
+		}
+	}
+
+	beginOutputCapture(sessionId: string, goal: string): { capture?: OutputCapture; sourceId?: string; available: boolean } {
+		try {
+			this.outputStore ??= new OutputSourceStore({ root: join(getAgentDir(), "cache", "interactive-shell", "output-sources") });
+			const capture = this.outputStore.begin(sessionId);
+			this.rememberOutputLaunch(sessionId, { goal, sourceId: capture.ref.sourceId, available: true });
+			return { capture, sourceId: capture.ref.sourceId, available: true };
+		} catch {
+			this.rememberOutputLaunch(sessionId, { goal, available: false });
+			return { available: false };
+		}
+	}
+
+	getOutputSourceForSession(sessionId: string): { sourceId?: string; available: boolean } | undefined {
+		const launch = this.outputLaunches.get(sessionId);
+		return launch && { sourceId: launch.sourceId, available: launch.available };
+	}
+
+	outputSourceStatus(sourceId: string): OutputSourceStatus {
+		try {
+			this.outputStore ??= new OutputSourceStore({ root: join(getAgentDir(), "cache", "interactive-shell", "output-sources") });
+			return this.outputStore.status(sourceId);
+		} catch {
+			return { sourceId, state: "missing", length: 0, reason: "output-source-store-unavailable" };
+		}
+	}
+
+	async readOutputSource(sourceId: string, start: number, end: number): Promise<OutputSourceRead> {
+		this.outputStore ??= new OutputSourceStore({ root: join(getAgentDir(), "cache", "interactive-shell", "output-sources") });
+		return this.outputStore.read(sourceId, { start, end });
+	}
 
 	onChange(listener: () => void): () => void {
 		this.changeListeners.add(listener);

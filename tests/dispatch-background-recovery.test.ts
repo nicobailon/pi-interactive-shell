@@ -131,6 +131,9 @@ async function setupHarness(options: { headlessConstructionError?: string; monit
 			setActiveUpdateInterval: vi.fn(() => false),
 			setActiveQuietThreshold: vi.fn(() => false),
 			writeToActive: vi.fn(() => false),
+			getOutputSourceForSession: vi.fn(() => undefined),
+			outputSourceStatus: vi.fn((sourceId) => ({ sourceId, state: "complete", length: 6, ref: { sourceId, sessionId: "old", representation: "normalized-merged-pty-text-v1" } })),
+			readOutputSource: vi.fn(async (sourceId, start, end) => ({ sourceId, state: "complete", length: 6, ref: { sourceId, sessionId: "old", representation: "normalized-merged-pty-text-v1" }, text: "abcdef".slice(start, end), range: { start, end } })),
 		},
 		generateSessionId: vi.fn(() => options.generatedSessionId ?? "start-session"),
 	}));
@@ -213,6 +216,29 @@ describe("dispatch background recovery", () => {
 		vi.doUnmock("../runtime-coordinator.ts");
 		vi.doUnmock("../jev-client.ts");
 		vi.doUnmock("../headless-monitor.ts");
+	});
+
+	it("rejects capture consent for unsupported launches before constructing a session", async () => {
+		const { toolDef, getHeadlessConstructCount } = await setupHarness();
+		const context = { hasUI: false, cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined }, ui: {} } as any;
+		const interactive = await toolDef.execute("capture-invalid-1", {
+			command: "printf no", mode: "interactive", outputSelection: { enabled: true, goal: " recover this " },
+		}, undefined, undefined, context);
+		const empty = await toolDef.execute("capture-invalid-2", {
+			command: "printf no", mode: "dispatch", background: true, outputSelection: { enabled: true, goal: "   " },
+		}, undefined, undefined, context);
+		expect(interactive.isError).toBe(true);
+		expect(empty.isError).toBe(true);
+		expect(getHeadlessConstructCount()).toBe(0);
+	});
+
+	it("routes raw source pagination before active-session lookup", async () => {
+		const { toolDef } = await setupHarness();
+		const result = await toolDef.execute("source-read", {
+			sourceId: "00000000-0000-4000-8000-000000000000", outputView: "raw", sourceOffset: 2, sourceLimit: 3,
+		}, undefined, undefined, { cwd: "/tmp/project", sessionManager: { getSessionFile: () => undefined }, ui: {} } as any);
+		expect(result.content[0].text).toBe("cde");
+		expect(result.details).toMatchObject({ state: "complete", requestedRange: { offset: 2, limit: 3 }, nextOffset: 5 });
 	});
 
 	it("releases the source session and disposes monitor when background session lookup fails", async () => {

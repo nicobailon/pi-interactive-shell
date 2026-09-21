@@ -10,6 +10,7 @@ import {
 } from "./pty-protocol.ts";
 import type { ResolvedShellConfig } from "./shell-resolution.ts";
 import { createPtyProcess, type PtyProcess } from "./pty-process.ts";
+import type { OutputCapture } from "./output-source-store.ts";
 
 const Terminal = xterm.Terminal;
 
@@ -117,6 +118,7 @@ export interface PtySessionOptions {
 	rows?: number;
 	scrollback?: number;
 	ansiReemit?: boolean;
+	outputCapture?: OutputCapture;
 }
 
 export interface PtySessionEvents {
@@ -165,6 +167,7 @@ export class PtyTerminalSession {
 	private visualChangeListeners: Array<() => void> = [];
 	private _visualGeneration = 0;
 	private forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+	private outputCapture: OutputCapture | undefined;
 
 	// Trim raw output buffer if it exceeds max size
 	private trimRawOutputIfNeeded(): void {
@@ -187,7 +190,9 @@ export class PtyTerminalSession {
 			rows = 24,
 			scrollback = 5000,
 			ansiReemit = true,
+			outputCapture,
 		} = options;
+		this.outputCapture = outputCapture;
 
 		this.dataHandler = events.onData;
 		this.exitHandler = events.onExit;
@@ -224,6 +229,7 @@ export class PtyTerminalSession {
 			if (!hasQuery) {
 				this.writeQueue.enqueue(async () => {
 					if (this._disposed) return;
+					this.appendCapturedText(chunk);
 					this.rawOutput += chunk;
 					this.trimRawOutputIfNeeded();
 					await new Promise<void>((resolve) => {
@@ -237,6 +243,7 @@ export class PtyTerminalSession {
 					this.writeQueue.enqueue(async () => {
 						if (this._disposed) return;
 						if (segment.text) {
+							this.appendCapturedText(segment.text);
 							this.rawOutput += segment.text;
 							this.trimRawOutputIfNeeded();
 							await new Promise<void>((resolve) => {
@@ -257,6 +264,7 @@ export class PtyTerminalSession {
 				if (trailingText) {
 					this.writeQueue.enqueue(async () => {
 						if (this._disposed) return;
+						this.appendCapturedText(trailingText);
 						this.rawOutput += trailingText;
 						this.trimRawOutputIfNeeded();
 						await new Promise<void>((resolve) => {
@@ -286,14 +294,26 @@ export class PtyTerminalSession {
 			});
 
 			// Public completion follows both PTY output completion and xterm rendering.
-			this.writeQueue.drain().then(() => {
+			this.writeQueue.drain().then(async () => {
 				if (this._disposed) return;
+				try { await this.outputCapture?.finalize(); }
+				catch { /* capture failure never changes PTY completion */ }
 				this._exited = true;
 				this._exitCode = exitCode;
 				this._signal = signal;
 				this.notifyExitListeners(exitCode, signal);
 			});
 		});
+	}
+
+	private appendCapturedText(text: string): void {
+		try { this.outputCapture?.appendProcessText(text); }
+		catch { /* capture failure never changes terminal output */ }
+	}
+
+	markOutputCaptureIncomplete(reason: string): void {
+		try { void this.outputCapture?.markIncomplete(reason).catch(() => {}); }
+		catch { /* capture failure never changes lifecycle */ }
 	}
 
 	setEventHandlers(events: PtySessionEvents): void {
@@ -680,6 +700,7 @@ export class PtyTerminalSession {
 
 	dispose(): void {
 		if (this._disposed) return;
+		this.markOutputCaptureIncomplete("disposed-before-exit");
 		this._disposed = true;
 		this.clearForceKillTimer();
 		this.signalBackend("SIGKILL");

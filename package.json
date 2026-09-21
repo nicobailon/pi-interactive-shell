@@ -35,6 +35,8 @@
     "semantic-diagnostics.ts",
     "selector-corpus.ts",
     "selector-evaluator.ts",
+    "output-source-store.ts",
+    "output-selector.ts",
     "scripts/evaluate-jev.ts",
     "scripts/evaluate-jev-selector.ts",
     "skills/**/*",
