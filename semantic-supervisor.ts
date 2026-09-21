@@ -264,10 +264,10 @@ export class SemanticSupervisor {
 		const option = answer.option!;
 		const blocked = this.checkDynamicAction(answer, generation, hash);
 		if (blocked) { complete(blocked); return; }
-		const authorization = this.options.dynamicChoices?.authorization;
-		if (!authorization) { complete(this.blockDynamic(answer, "ui-unavailable")); return; }
-		authorization.request({ sessionId: this.options.dynamicChoices!.sessionId, operationId: option.id,
-			observationGeneration: generation, observationHash: hash }, option.operation, option.label, (approved) => {
+		const dynamic = this.options.dynamicChoices;
+		if (!dynamic) { complete(this.blockDynamic(answer, "ui-unavailable")); return; }
+		dynamic.authorization.request({ sessionId: dynamic.sessionId, operationId: option.id,
+			observationGeneration: generation, observationHash: hash }, option, (approved) => {
 			if (!approved) { complete(this.blockDynamic(answer, "permission-or-approval")); return; }
 			const recheck = this.checkDynamicAction(answer, generation, hash);
 			if (recheck) { complete(recheck); return; }

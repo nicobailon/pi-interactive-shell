@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { SemanticSupervisor, type SemanticObservationSession } from "../semantic-supervisor.ts";
-import { createSemanticChoiceAuthorization } from "../semantic-choice-authorization.ts";
+import { createSemanticChoiceAuthorization, type SemanticChoiceAuthorization } from "../semantic-choice-authorization.ts";
 import { compileSemanticPermissions } from "../semantic-permissions.ts";
 import type { JevClient } from "../jev-client.ts";
 import type { SemanticDecisionInput } from "../types.ts";
@@ -46,7 +46,7 @@ async function flush() { for (let index = 0; index < 8; index++) await Promise.r
 function createSupervisor(options: {
 	session: ChoiceSession;
 	client: JevClient;
-	authorization: { request: (binding: any, operation: any, label: string, complete: (approved: boolean) => void) => void; dispose(): void };
+	authorization: SemanticChoiceAuthorization;
 	interactive?: boolean;
 	decisions?: SemanticDecisionInput[];
 }) {
@@ -178,7 +178,7 @@ describe("goal-driven dynamic visible choices", () => {
 		const client: JevClient = { evaluate: vi.fn(async () => session.visualGeneration === 1
 			? answers("dynamic:number_1")
 			: answers("stop_automation")) };
-		const supervisor = createSupervisor({ session, client, decisions, authorization: { request: (_binding, _operation, _label, done) => { approve = done; }, dispose() {} } });
+		const supervisor = createSupervisor({ session, client, decisions, authorization: { request: (_binding, _option, done) => { approve = done; }, dispose() {} } });
 		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("first menu");
 		await vi.advanceTimersByTimeAsync(0); await flush();
 		session.show(["Select", "1. Alpha", "2. Beta", "Confirm selection"]); supervisor.handleOutput("changed menu");
@@ -201,7 +201,7 @@ describe("trusted permission and human approval bridge", () => {
 			{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } },
 			{ decision: "deny", operation: { kind: "dynamic-terminal-choice" } },
 		]), ui: { confirm }, isAvailable: () => true });
-		authorization.request(binding, { kind: "dynamic-terminal-choice" }, "Alpha", (approved) => { result = approved; }); await flush();
+		authorization.request(binding, { operation: { kind: "dynamic-terminal-choice" }, label: "Alpha" }, (approved) => { result = approved; }); await flush();
 		expect(result).toBe(false); expect(confirm).not.toHaveBeenCalled(); authorization.dispose();
 	});
 
@@ -209,7 +209,7 @@ describe("trusted permission and human approval bridge", () => {
 		let resolve!: (approved: boolean) => void; let result: boolean | undefined;
 		const confirm = vi.fn(() => new Promise<boolean>((done) => { resolve = done; }));
 		const authorization = createSemanticChoiceAuthorization({ permissions: compileSemanticPermissions([]), ui: { confirm }, isAvailable: () => true });
-		authorization.request(binding, { kind: "dynamic-terminal-choice" }, "Alpha", (approved) => { result = approved; });
+		authorization.request(binding, { operation: { kind: "dynamic-terminal-choice" }, label: "Alpha" }, (approved) => { result = approved; });
 		expect(confirm).toHaveBeenCalledOnce(); expect(result).toBeUndefined();
 		// An unrelated boolean or terminal/model "yes" has no ingress into approval state.
 		await Promise.resolve(true); expect(result).toBeUndefined();
@@ -220,9 +220,9 @@ describe("trusted permission and human approval bridge", () => {
 		const confirm = vi.fn(async () => true); const results: boolean[] = [];
 		const permissions = compileSemanticPermissions([{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } }]);
 		const allowed = createSemanticChoiceAuthorization({ permissions, ui: { confirm }, isAvailable: () => true });
-		allowed.request(binding, { kind: "dynamic-terminal-choice" }, "Alpha", (value) => results.push(value)); await flush();
+		allowed.request(binding, { operation: { kind: "dynamic-terminal-choice" }, label: "Alpha" }, (value) => results.push(value)); await flush();
 		const unavailable = createSemanticChoiceAuthorization({ permissions, ui: { confirm }, isAvailable: () => false });
-		unavailable.request(binding, { kind: "dynamic-terminal-choice" }, "Alpha", (value) => results.push(value)); await flush();
+		unavailable.request(binding, { operation: { kind: "dynamic-terminal-choice" }, label: "Alpha" }, (value) => results.push(value)); await flush();
 		expect(results).toEqual([true, true]); expect(confirm).not.toHaveBeenCalled(); allowed.dispose(); unavailable.dispose();
 	});
 });
