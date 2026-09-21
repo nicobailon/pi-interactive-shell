@@ -210,8 +210,6 @@ export const toolParameters = Type.Object({
 				}, { additionalProperties: false })),
 				dynamicChoices: Type.Optional(Type.Object({
 					enabled: Type.Literal(true, { description: "Opt in to goal-driven selection among conservative choices extracted from fresh visible terminal output. Requires semantic.goal and trusted global permission." }),
-					maxActions: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: "Dynamic choice attempt budget (default 1, maximum 10)." })),
-					cooldownMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 86400000, description: "Minimum delay between dynamic choice attempts (default 0)." })),
 				}, { additionalProperties: false, description: "Visible choices are code-extracted; Jev receives opaque IDs and labels and never generates terminal input. Ask permission requires a real one-time human confirmation." })),
 			}, { additionalProperties: false, description: "Optional per-session Jev supervision. Bounded terminal text is sent to TypeSafe AI only with global jev.enabled and TYPESAFE_API_KEY in Pi's environment. Attention/watches notify; actions require a separate explicit immutable allowlist." })),
 			fileWatch: Type.Optional(Type.Object({

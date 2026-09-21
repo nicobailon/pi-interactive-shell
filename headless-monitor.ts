@@ -57,8 +57,7 @@ export interface HeadlessMonitorOptions {
 		actionRegistry?: SemanticActionRegistry;
 		isOwner?: (monitor: HeadlessDispatchMonitor) => boolean;
 		reserveGlobalAction?: () => boolean;
-		dynamicChoices?: { authorization: SemanticChoiceAuthorization; maxActions: number; cooldownMs: number };
-		fixedActionAuthorization?: { authorization: SemanticChoiceAuthorization; command: string };
+		dynamicChoices?: { sessionId: string; authorization: SemanticChoiceAuthorization };
 	};
 }
 
@@ -109,14 +108,13 @@ export class HeadlessDispatchMonitor {
 		this.startTime = options.startedAt ?? Date.now();
 		if (options.semantic) {
 			this.semanticSupervisor = new SemanticSupervisor({
-				sessionId: options.semantic.sessionId, session, mode: options.semantic.mode, config: options.semantic.config, client: options.semantic.client,
+				session, mode: options.semantic.mode, config: options.semantic.config, client: options.semantic.client,
 				model: options.semantic.model, requestTimeoutMs: options.semantic.requestTimeoutMs,
 				bounds: options.semantic.bounds, startedAt: this.startTime,
 				isEpochCurrent: options.semantic.isEpochCurrent, onDecision: options.semantic.onDecision,
 				actionRegistry: options.semantic.actionRegistry, isActionOwner: () => options.semantic?.isOwner?.(this) === true,
 				reserveGlobalAction: options.semantic.reserveGlobalAction,
-				dynamicChoices: options.semantic.dynamicChoices ? { ...options.semantic.dynamicChoices, isInteractive: () => this.options.deferLifecycle === true } : undefined,
-				fixedActionAuthorization: options.semantic.fixedActionAuthorization,
+				dynamicChoices: options.semantic.dynamicChoices ? { ...options.semantic.dynamicChoices, isInteractive: () => this.options.deferLifecycle === true, maxActions: 1, cooldownMs: 0 } : undefined,
 			});
 		}
 		this.subscribe();

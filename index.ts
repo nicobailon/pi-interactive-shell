@@ -207,7 +207,7 @@ function validateSemanticIncident(incident: NonNullable<ToolParams["semanticInci
 	}
 }
 
-function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatch" | "monitor", semantic: SemanticConfig | undefined, config: InteractiveShellConfig, command: string, ui?: Pick<ExtensionUIContext, "confirm">) {
+function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatch" | "monitor", semantic: SemanticConfig | undefined, config: InteractiveShellConfig, ui?: Pick<ExtensionUIContext, "confirm">) {
 	if (!semantic) return { ok: true as const, runtime: undefined };
 	let actionRegistry;
 	try { actionRegistry = compileSemanticActions(semantic.actions); }
@@ -216,8 +216,6 @@ function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatc
 	if (dynamic) {
 		if (!semantic.goal?.trim()) return { ok: false as const, error: "Semantic dynamicChoices require a non-empty semantic goal." };
 		if (dynamic.enabled !== true) return { ok: false as const, error: "Semantic dynamicChoices require explicit enabled: true." };
-		if (dynamic.maxActions !== undefined && (!Number.isInteger(dynamic.maxActions) || dynamic.maxActions < 1 || dynamic.maxActions > 10)) return { ok: false as const, error: "Semantic dynamicChoices maxActions must be an integer from 1 to 10." };
-		if (dynamic.cooldownMs !== undefined && (!Number.isInteger(dynamic.cooldownMs) || dynamic.cooldownMs < 0 || dynamic.cooldownMs > 86_400_000)) return { ok: false as const, error: "Semantic dynamicChoices cooldownMs must be an integer from 0 to 86400000." };
 	}
 	const watchIds = new Set<string>();
 	for (const watch of semantic.watches ?? []) {
@@ -235,7 +233,6 @@ function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatc
 			? createSemanticDiagnosticsSession({ config: jev.diagnostics, sessionId, mode, model: jev.model })
 			: undefined;
 		let lastAttentionTriggerId: string | undefined;
-		const approvalUi = ui ?? { confirm: async () => false };
 		return {
 			ok: true as const,
 			runtime: {
@@ -263,13 +260,8 @@ function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatc
 				onDiagnostic: (outcome: "stale-response" | "cancelled-response") => diagnostics?.recordRequest(outcome),
 				actionRegistry,
 				dynamicChoices: dynamic && ui ? {
+					sessionId,
 					authorization: createSemanticChoiceAuthorization({ permissions: jev.semanticPermissions, ui, isAvailable: () => coordinator.isRuntimeEpochCurrent(epoch) }),
-					maxActions: dynamic.maxActions ?? 1,
-					cooldownMs: dynamic.cooldownMs ?? 0,
-				} : undefined,
-				fixedActionAuthorization: actionRegistry ? {
-					authorization: createSemanticChoiceAuthorization({ permissions: jev.semanticPermissions, ui: approvalUi, isAvailable: () => Boolean(ui) && coordinator.isRuntimeEpochCurrent(epoch) }),
-					command,
 				} : undefined,
 				isOwner: (monitor: HeadlessDispatchMonitor) => coordinator.getMonitor(sessionId) === monitor,
 				reserveGlobalAction: () => coordinator.reserveSemanticActionAttempt(),
@@ -1079,7 +1071,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			}
 
 			const id = generateSessionId(name);
-			const semanticRuntime = compileSemanticRuntime(id, "monitor", compiled.semanticConfig, config, monitorCommand);
+			const semanticRuntime = compileSemanticRuntime(id, "monitor", compiled.semanticConfig, config);
 			if (!semanticRuntime.ok) return { content: [{ type: "text", text: semanticRuntime.error }], isError: true };
 			const session = new PtyTerminalSession(
 				{ command: monitorCommand, shellConfig, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
@@ -1122,7 +1114,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				: undefined;
 			if (semanticDelivery && !semanticDelivery.ok) return { content: [{ type: "text", text: semanticDelivery.error }], isError: true };
 			const semanticCompiled = semanticDelivery?.ok ? semanticDelivery.compiled : undefined;
-			const semanticRuntime = compileSemanticRuntime(id, "dispatch", semanticCompiled?.semanticConfig, config, launchCommand);
+			const semanticRuntime = compileSemanticRuntime(id, "dispatch", semanticCompiled?.semanticConfig, config);
 			if (!semanticRuntime.ok) return { content: [{ type: "text", text: semanticRuntime.error }], isError: true };
 			const source = captureGoal ? sessionManager.beginOutputCapture(id, captureGoal, launchCommand) : undefined;
 			let session: PtyTerminalSession;
@@ -1165,7 +1157,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				: undefined;
 			if (foregroundSemanticDelivery && !foregroundSemanticDelivery.ok) return { content: [{ type: "text", text: foregroundSemanticDelivery.error }], isError: true };
 			const foregroundSemanticCompiled = foregroundSemanticDelivery?.ok ? foregroundSemanticDelivery.compiled : undefined;
-			const foregroundSemanticRuntime = compileSemanticRuntime(generatedSessionId, effectiveMode === "hands-free" ? "hands-free" : "dispatch", foregroundSemanticCompiled?.semanticConfig, config, launchCommand, ctx.ui);
+			const foregroundSemanticRuntime = compileSemanticRuntime(generatedSessionId, effectiveMode === "hands-free" ? "hands-free" : "dispatch", foregroundSemanticCompiled?.semanticConfig, config, ctx.ui);
 			if (!foregroundSemanticRuntime.ok) return { content: [{ type: "text", text: foregroundSemanticRuntime.error }], isError: true };
 			if (!coordinator.beginOverlay()) {
 				return {

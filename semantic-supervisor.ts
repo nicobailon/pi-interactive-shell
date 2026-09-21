@@ -26,7 +26,6 @@ export interface SemanticObservationSession {
 }
 
 export interface SemanticSupervisorOptions {
-	sessionId?: string;
 	session: SemanticObservationSession;
 	mode: "hands-free" | "dispatch" | "monitor";
 	config: SemanticConfig;
@@ -42,12 +41,12 @@ export interface SemanticSupervisorOptions {
 	isActionOwner?: () => boolean;
 	reserveGlobalAction?: () => boolean;
 	dynamicChoices?: {
+		sessionId: string;
 		authorization: SemanticChoiceAuthorization;
 		isInteractive: () => boolean;
 		maxActions: number;
 		cooldownMs: number;
 	};
-	fixedActionAuthorization?: { authorization: SemanticChoiceAuthorization; command: string };
 }
 
 export class SemanticSupervisor {
@@ -205,16 +204,6 @@ export class SemanticSupervisor {
 					this.beginDynamicAction(parsed.action, generation, snapshot.hash, emitAction);
 					return;
 				}
-				if (parsed.action && registry?.get(parsed.action.choice) && this.options.fixedActionAuthorization) {
-					const fixed = this.options.fixedActionAuthorization;
-					fixed.authorization.request({ sessionId: this.options.sessionId ?? "unknown", operationId: parsed.action.choice,
-						observationGeneration: generation, observationHash: snapshot.hash }, parsed.action.choice, (approved) => {
-						if (!approved) { emitAction({ choice: parsed.action!.choice, actionId: parsed.action!.choice, confidence: parsed.action!.confidence,
-							probability: parsed.action!.probability, readiness: parsed.action!.readiness, outcome: "blocked", reason: "permission-or-approval", budgetCount: this.actionCount }); return; }
-						emitAction(this.applyAction(parsed.action!, generation, snapshot.hash));
-					}, { kind: "launch-command", command: fixed.command });
-					return;
-				}
 				const action = parsed.action ? this.applyAction(parsed.action, generation, snapshot.hash) : undefined;
 				this.options.onDecision({
 					kind: "observation", route: routeSemanticAnswers(parsed.answers, this.options.config),
@@ -279,7 +268,7 @@ export class SemanticSupervisor {
 		if (blocked) { complete(blocked); return; }
 		const authorization = this.options.dynamicChoices?.authorization;
 		if (!authorization) { complete(this.blockDynamic(answer, "ui-unavailable")); return; }
-		authorization.request({ sessionId: this.options.sessionId ?? "unknown", operationId: option.id,
+		authorization.request({ sessionId: this.options.dynamicChoices!.sessionId, operationId: option.id,
 			observationGeneration: generation, observationHash: hash }, option.label, (approved) => {
 			if (!approved) { complete(this.blockDynamic(answer, "permission-or-approval")); return; }
 			const recheck = this.checkDynamicAction(answer, generation, hash);
@@ -413,7 +402,6 @@ export class SemanticSupervisor {
 		this.inFlight = undefined;
 		this.unsubscribeVisual();
 		this.options.dynamicChoices?.authorization.dispose();
-		this.options.fixedActionAuthorization?.authorization.dispose();
 	}
 }
 

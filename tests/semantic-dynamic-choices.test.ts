@@ -41,11 +41,11 @@ function createSupervisor(options: {
 	decisions?: SemanticDecisionInput[];
 }) {
 	return new SemanticSupervisor({
-		sessionId: "session-1", session: options.session, mode: "hands-free", config: { goal: "Choose the best release channel", minIntervalMs: 250, dynamicChoices: { enabled: true } },
+		session: options.session, mode: "hands-free", config: { goal: "Choose the best release channel", minIntervalMs: 250, dynamicChoices: { enabled: true } },
 		client: options.client, model: "jev-1.13.0", requestTimeoutMs: 1_000,
 		bounds: { maxViewportLines: 10, maxRecentChars: 500, redactionPatterns: [] }, startedAt: Date.now(),
 		isEpochCurrent: () => true, isActionOwner: () => true, reserveGlobalAction: () => true,
-		dynamicChoices: { authorization: options.authorization, isInteractive: () => options.interactive !== false, maxActions: 1, cooldownMs: 0 },
+		dynamicChoices: { sessionId: "session-1", authorization: options.authorization, isInteractive: () => options.interactive !== false, maxActions: 1, cooldownMs: 0 },
 		onDecision: (decision) => options.decisions?.push(decision),
 	});
 }

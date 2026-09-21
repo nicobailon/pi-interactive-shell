@@ -1,9 +1,9 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { createSemanticApprovalState, type SemanticApprovalBinding, type TrustedUiApprovalDecision } from "./semantic-approval.ts";
-import type { CompiledSemanticPermissions, SemanticPermissionOperation } from "./semantic-permissions.ts";
+import type { CompiledSemanticPermissions } from "./semantic-permissions.ts";
 
 export interface SemanticChoiceAuthorization {
-	request(binding: SemanticApprovalBinding, label: string, complete: (approved: boolean) => void, operation?: SemanticPermissionOperation): void;
+	request(binding: SemanticApprovalBinding, label: string, complete: (approved: boolean) => void): void;
 	dispose(): void;
 }
 
@@ -25,9 +25,9 @@ export function createSemanticChoiceAuthorization(options: {
 	});
 
 	return {
-		request(binding, label, complete, operation = { kind: "dynamic-terminal-choice" }) {
+		request(binding, label, complete) {
 			if (disposed) { complete(false); return; }
-			const decision = options.permissions.evaluate(operation);
+			const decision = options.permissions.evaluate({ kind: "dynamic-terminal-choice" });
 			if (decision === "deny") { complete(false); return; }
 			if (decision === "allow") { queueMicrotask(() => complete(!disposed)); return; }
 			if (!options.isAvailable()) { complete(false); return; }

@@ -87,8 +87,6 @@ export interface SemanticConfig {
 	actions?: SemanticActionsConfig;
 	dynamicChoices?: {
 		enabled: true;
-		maxActions?: number;
-		cooldownMs?: number;
 	};
 }
 
