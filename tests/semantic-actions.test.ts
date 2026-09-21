@@ -35,13 +35,14 @@ function actionResult(ids: string[], choice: string, options: { confidence?: num
 }
 async function flush() { for (let i = 0; i < 6; i++) await Promise.resolve(); }
 
-function supervisor(session: ActionSession, responses: unknown[], items: SemanticActionItemConfig[], decisions: SemanticDecisionInput[], overrides: { owner?: () => boolean; epoch?: () => boolean; maxActions?: number; reserveGlobalAction?: (() => boolean) | null; redactionPatterns?: string[] } = {}) {
+function supervisor(session: ActionSession, responses: unknown[], items: SemanticActionItemConfig[], decisions: SemanticDecisionInput[], overrides: { owner?: () => boolean; epoch?: () => boolean; maxActions?: number; reserveGlobalAction?: (() => boolean) | null; redactionPatterns?: string[]; fixedAuthorization?: { request: (...args: any[]) => void; dispose(): void } } = {}) {
 	const semantic = config(items, overrides.maxActions ?? 3);
 	const registry = compileSemanticActions(semantic.actions)!;
 	const client: JevClient = { evaluate: vi.fn(async () => responses.shift()) };
 	return { client, value: new SemanticSupervisor({ session, mode: "monitor", config: semantic, client, actionRegistry: registry,
 		model: "jev-1.13.0", requestTimeoutMs: 1000, bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: overrides.redactionPatterns ?? [] }, startedAt: Date.now(),
 		isEpochCurrent: overrides.epoch ?? (() => true), isActionOwner: overrides.owner ?? (() => true),
+		...(overrides.fixedAuthorization ? { fixedActionAuthorization: { authorization: overrides.fixedAuthorization, command: "deploy-tool" } } : {}),
 		...(overrides.reserveGlobalAction === null ? {} : { reserveGlobalAction: overrides.reserveGlobalAction ?? (() => true) }), onDecision: (d) => decisions.push(d) }) };
 }
 
@@ -172,6 +173,24 @@ describe("authorized semantic action Jev and execution path", () => {
 		expect(JSON.stringify(decisions)).not.toContain(text.input);
 		expect(JSON.stringify(decisions)).not.toContain(text.description);
 		h.value.dispose();
+	});
+
+	it("composes trusted launch-command authorization with the unchanged fixed-action gates", async () => {
+		const allowedSession = new ActionSession(); const allowedDecisions: SemanticDecisionInput[] = [];
+		const request = vi.fn((_binding, _label, done, operation) => {
+			expect(operation).toEqual({ kind: "launch-command", command: "deploy-tool" }); done(true);
+		});
+		const allowed = supervisor(allowedSession, [actionResult(["confirm"], "confirm")], [text], allowedDecisions,
+			{ fixedAuthorization: { request, dispose() {} } });
+		allowedSession.mutate("Confirm?"); allowed.value.handleOutput("Confirm?"); await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(allowedSession.writes).toEqual(["yes\r"]); expect(request).toHaveBeenCalledOnce();
+		expect(allowedDecisions[0]?.action).toMatchObject({ outcome: "executed", reason: "written-once" }); allowed.value.dispose();
+
+		const deniedSession = new ActionSession(); const deniedDecisions: SemanticDecisionInput[] = [];
+		const denied = supervisor(deniedSession, [actionResult(["confirm"], "confirm")], [text], deniedDecisions,
+			{ fixedAuthorization: { request: (_binding, _label, done) => done(false), dispose() {} } });
+		deniedSession.mutate("Confirm?"); denied.value.handleOutput("Confirm?"); await vi.advanceTimersByTimeAsync(250); await flush();
+		expect(deniedSession.writes).toEqual([]); expect(deniedDecisions[0]?.action).toMatchObject({ outcome: "blocked", reason: "permission-or-approval" }); denied.value.dispose();
 	});
 
 	it("hard confidence, selected probability, readiness, ownership, active-state and session-budget gates block writes", async () => {

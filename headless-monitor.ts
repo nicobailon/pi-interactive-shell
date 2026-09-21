@@ -6,6 +6,7 @@ import type { SemanticConfig, SemanticDecisionInput } from "./types.ts";
 import type { JevClient } from "./jev-client.ts";
 import { SemanticSupervisor } from "./semantic-supervisor.ts";
 import type { SemanticActionRegistry } from "./semantic-actions.ts";
+import type { SemanticChoiceAuthorization } from "./semantic-choice-authorization.ts";
 
 export interface MonitorMatchInfo {
 	strategy: MonitorStrategy;
@@ -56,6 +57,8 @@ export interface HeadlessMonitorOptions {
 		actionRegistry?: SemanticActionRegistry;
 		isOwner?: (monitor: HeadlessDispatchMonitor) => boolean;
 		reserveGlobalAction?: () => boolean;
+		dynamicChoices?: { authorization: SemanticChoiceAuthorization; maxActions: number; cooldownMs: number };
+		fixedActionAuthorization?: { authorization: SemanticChoiceAuthorization; command: string };
 	};
 }
 
@@ -106,12 +109,14 @@ export class HeadlessDispatchMonitor {
 		this.startTime = options.startedAt ?? Date.now();
 		if (options.semantic) {
 			this.semanticSupervisor = new SemanticSupervisor({
-				session, mode: options.semantic.mode, config: options.semantic.config, client: options.semantic.client,
+				sessionId: options.semantic.sessionId, session, mode: options.semantic.mode, config: options.semantic.config, client: options.semantic.client,
 				model: options.semantic.model, requestTimeoutMs: options.semantic.requestTimeoutMs,
 				bounds: options.semantic.bounds, startedAt: this.startTime,
 				isEpochCurrent: options.semantic.isEpochCurrent, onDecision: options.semantic.onDecision,
 				actionRegistry: options.semantic.actionRegistry, isActionOwner: () => options.semantic?.isOwner?.(this) === true,
 				reserveGlobalAction: options.semantic.reserveGlobalAction,
+				dynamicChoices: options.semantic.dynamicChoices ? { ...options.semantic.dynamicChoices, isInteractive: () => this.options.deferLifecycle === true } : undefined,
+				fixedActionAuthorization: options.semantic.fixedActionAuthorization,
 			});
 		}
 		this.subscribe();

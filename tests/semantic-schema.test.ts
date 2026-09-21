@@ -13,6 +13,7 @@ describe("semantic tool schema bounds", () => {
 		expect(Value.Check(toolParameters, actionParams(validKeys))).toBe(true);
 		expect(Value.Check(toolParameters, actionParams({ ...validText, description: "visible\u2028" }))).toBe(true);
 		expect(Value.Check(toolParameters, params({ goal: "observe", minIntervalMs: 250, watches: [{ id: "build.ready", condition: "build is visibly ready", threshold: 0.8 }] }))).toBe(true);
+		expect(Value.Check(toolParameters, params({ goal: "choose a release", dynamicChoices: { enabled: true, maxActions: 1, cooldownMs: 0 } }))).toBe(true);
 	});
 
 	it("emits provider-compatible patterns without lookaround", () => {
@@ -46,6 +47,9 @@ describe("semantic tool schema bounds", () => {
 		["key item length", actionParams({ ...validKeys, inputKeys: ["x".repeat(65)] })],
 		["unknown watch property", params({ watches: [{ id: "safe", condition: "visible", extra: true }] })],
 		["unknown semantic property", params({ attention: true, extra: true })],
+		["dynamic enabled", params({ goal: "choose", dynamicChoices: { enabled: false } })],
+		["dynamic budget", params({ goal: "choose", dynamicChoices: { enabled: true, maxActions: 11 } })],
+		["dynamic cooldown", params({ goal: "choose", dynamicChoices: { enabled: true, cooldownMs: -1 } })],
 		["cooldown low", actionParams({ ...validText, cooldownMs: -1 })], ["cooldown high", actionParams({ ...validText, cooldownMs: 86400001 })],
 		["cooldown integer", actionParams({ ...validText, cooldownMs: 1.5 })], ["execution budget", actionParams({ ...validText, maxExecutions: 11 })],
 		["execution integer", actionParams({ ...validText, maxExecutions: 1.5 })],

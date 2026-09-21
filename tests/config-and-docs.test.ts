@@ -172,6 +172,23 @@ describe("config + docs parity", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
+	it("loads semantic permissions only from trusted global config and rejects malformed or project rules", async () => {
+		const root = mkdtempSync(join(tmpdir(), "interactive-shell-permissions-"));
+		const project = join(root, "project"); const agentDir = join(root, "agent");
+		mkdirSync(agentDir, { recursive: true }); mkdirSync(join(project, ".pi"), { recursive: true });
+		const globalPath = join(agentDir, "interactive-shell.json"); const projectPath = join(project, ".pi", "interactive-shell.json");
+		writeFileSync(globalPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } }] } }));
+		writeFileSync(projectPath, JSON.stringify({}));
+		const { loadConfig } = await loadConfigModule(agentDir);
+		expect(loadConfig(project).jev?.semanticPermissions.evaluate({ kind: "dynamic-terminal-choice" })).toBe("allow");
+		writeFileSync(projectPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } }] } }));
+		expect(() => loadConfig(project)).toThrow("Project config cannot define trusted semantic permissions.");
+		writeFileSync(projectPath, JSON.stringify({}));
+		writeFileSync(globalPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "maybe", operation: { kind: "dynamic-terminal-choice" } }] } }));
+		expect(() => loadConfig(project)).toThrow("Invalid global Jev semantic permissions");
+		rmSync(root, { recursive: true, force: true });
+	});
+
 	it("keeps README, SKILL, and tool help defaults aligned with config defaults", async () => {
 		const root = mkdtempSync(join(tmpdir(), "interactive-shell-defaults-"));
 		const { loadConfig } = await loadConfigModule(root);
