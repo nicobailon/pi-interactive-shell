@@ -18,7 +18,7 @@ export interface SelectorCorpusFixture {
 	designatedTailMiss?: "early" | "middle";
 }
 
-const noise = (count: number, label: string): SelectorCorpusLine[] => Array.from({ length: count }, (_, index) => ({ text: `${label} progress ${index + 1}/${count}` }));
+const noise = (count: number, label: string): SelectorCorpusLine[] => Array.from({ length: count }, (_, index) => ({ text: `${label} progress ${index + 1}/${count} ${".".repeat(220)}` }));
 const line = (text: string, labels: { required?: true; relevant?: true } = {}): SelectorCorpusLine => ({ text, ...labels });
 
 /** Compact, wholly synthetic corpus. Labels are an evidence oracle and are never supplied to selectors. */
@@ -56,8 +56,8 @@ export const SELECTOR_CORPUS: readonly SelectorCorpusFixture[] = Object.freeze([
 	] },
 	{ id: "held-interactive-decision", split: "held-out", goal: "retain the approved choice and consequence", lines: [
 		...noise(11, "analysis"), line("Choice: migrate using compatibility mode", { required: true, relevant: true }),
-		...noise(11, "planning"), line("Approved by synthetic operator", { required: true, relevant: true }),
-		line("Consequence: legacy reads remain enabled for one release", { required: true, relevant: true }), ...noise(8, "apply"),
+		...noise(20, "planning"), line("Approved by synthetic operator", { required: true, relevant: true }),
+		line("Consequence: legacy reads remain enabled for one release", { required: true, relevant: true }), ...noise(12, "apply"),
 	] },
 	{ id: "held-all-important", split: "held-out", goal: "retain every listed result", bypass: "all-important", lines: [
 		line("FAIL alpha", { required: true, relevant: true }), line("FAIL beta", { required: true, relevant: true }),
