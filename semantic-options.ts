@@ -20,10 +20,15 @@ export type SemanticOption = Readonly<{
 const EMPTY_OPTIONS: readonly SemanticOption[] = Object.freeze([]);
 const MAX_LINE_LENGTH = 240;
 const MAX_VIEWPORT_LENGTH = 4_096;
+const MAX_MENU_HEADER_LINES = 4;
 const FORBIDDEN_TEXT = /\b(?:password|passphrase|credential|secret|token|api[ _-]?key|mfa|2fa|otp|one[- ]time|recovery code|pin|payment|credit card|shell|command|exec(?:ute)?|kill|signal|exit|quit|logout|shutdown|reboot|terminate|dispose|background|transfer|disown|suspend|job[ _-]?control|process control|abort|cancel)\b/i;
 const FREE_FORM_PROMPT = /(?:\b(?:enter|type|provide|input|paste|write)\b[^\n]*[:?]\s*$|\b(?:name|email|message|value|text|response)\s*[:?]\s*$)/im;
+const UNSUPPORTED_OPTION = /(?:\b(?:enter|type|provide|write)\b[^\n]*\b(?:something|own|custom|response|answer|text|message)\b|\b(?:chat|discuss|custom input)\b)/i;
 const SHELL_SYNTAX = /(?:&&|\|\||[;`$<>]|\$\(|\b(?:sudo|sh|bash|zsh|fish|powershell|cmd\.exe)\b)/i;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\p{Cf}]/u;
+const CANCEL_HELP = /\besc(?:ape)?(?:\s+key)?\s+(?:to\s+)?cancel\b/i;
+const CANCEL_HELP_LINE = /^\s*esc(?:ape)?(?:\s+key)?\s+(?:to\s+)?cancel\s*$/i;
+const VISUAL_SEPARATOR = /^\s*[\u2500-\u257f]{3,}\s*$/u;
 const CHOICE_OPERATION = Object.freeze({ kind: "dynamic-terminal-choice" as const });
 const CONFIRMATION_OPERATION = Object.freeze({ kind: "dynamic-terminal-confirmation" as const });
 
@@ -39,12 +44,14 @@ export function extractSemanticOptions(viewport: unknown): readonly SemanticOpti
 	if (!viewport.every((line) => typeof line === "string" && line.length <= MAX_LINE_LENGTH && !CONTROL.test(line))) return EMPTY_OPTIONS;
 	const lines = viewport as string[];
 	const screen = lines.join("\n");
-	if (screen.length > MAX_VIEWPORT_LENGTH || FORBIDDEN_TEXT.test(screen) || FREE_FORM_PROMPT.test(screen) || SHELL_SYNTAX.test(screen)) return EMPTY_OPTIONS;
+	if (screen.length > MAX_VIEWPORT_LENGTH) return EMPTY_OPTIONS;
 
-	return extractEnumerated(lines) ?? extractSelected(lines) ?? EMPTY_OPTIONS;
+	return extractSelected(lines) ?? extractEnumerated(lines) ?? EMPTY_OPTIONS;
 }
 
 function extractEnumerated(lines: readonly string[]): readonly SemanticOption[] | undefined {
+	const screen = lines.join("\n");
+	if (FORBIDDEN_TEXT.test(screen) || FREE_FORM_PROMPT.test(screen) || SHELL_SYNTAX.test(screen)) return EMPTY_OPTIONS;
 	const matches: Array<ParsedOption & { kind: "number" | "letter"; style: string }> = [];
 	let first = -1;
 	let last = -1;
@@ -82,16 +89,32 @@ function extractEnumerated(lines: readonly string[]): readonly SemanticOption[] 
 }
 
 function extractSelected(lines: readonly string[]): readonly SemanticOption[] | undefined {
+	const navigationIndexes = lines.flatMap((line, index) => isNavigationFooter(line) ? [index] : []);
+	if (navigationIndexes.length === 0) return undefined;
+	if (navigationIndexes.length !== 1) return EMPTY_OPTIONS;
+	const navigationIndex = navigationIndexes[0]!;
+	const numberedSelected = lines.flatMap((line, index) => {
+		const match = line.match(/^(\s*)[>❯▶]\s+(\d{1,2})[.)]\s+(.+?)\s*$/);
+		return match && index < navigationIndex ? [{ index, indent: match[1]!.length }] : [];
+	});
+	if (numberedSelected.length) {
+		const current = numberedSelected.at(-1)!;
+		return extractNumberedSelected(lines, current.index, current.indent, navigationIndex);
+	}
 	const selected = lines.flatMap((line, index) => {
 		const match = line.match(/^(\s*)[>❯▶]\s+(.+?)\s*$/);
 		return match ? [{ index, indent: match[1]!.length, label: match[2]! }] : [];
 	});
 	if (selected.length === 0) return undefined;
 	if (selected.length !== 1) return EMPTY_OPTIONS;
-	const navigationEvidence = lines.some((line) => /(?:↑|\bup\b)/i.test(line) && /(?:↓|\bdown\b)/i.test(line)
-		&& /\b(?:enter|return)\b/i.test(line) && /\b(?:select|choose|confirm)\b/i.test(line));
-	if (!navigationEvidence) return EMPTY_OPTIONS;
+	const navigationLine = lines[navigationIndex]!;
+	const safeScreen = lines.map((line) => {
+		if (line === navigationLine) return line.replace(CANCEL_HELP, "");
+		return CANCEL_HELP_LINE.test(line) ? "" : line;
+	}).join("\n");
+	if (FORBIDDEN_TEXT.test(safeScreen) || SHELL_SYNTAX.test(safeScreen)) return EMPTY_OPTIONS;
 	const current = selected[0]!;
+	if (FREE_FORM_PROMPT.test(safeScreen)) return EMPTY_OPTIONS;
 	const optionAt = (index: number): string | undefined => {
 		if (index === current.index) return current.label;
 		const match = lines[index]!.match(/^(\s+)(\S.*?)\s*$/);
@@ -119,6 +142,75 @@ function extractSelected(lines: readonly string[]): readonly SemanticOption[] | 
 	return finish(options);
 }
 
+function extractNumberedSelected(lines: readonly string[], selectedIndex: number, markerIndent: number, navigationIndex: number): readonly SemanticOption[] {
+	type MenuRow = { line: number; position: number; label: string; selected: boolean };
+	const candidates: MenuRow[] = [];
+	for (let index = 0; index < navigationIndex; index++) {
+		const selected = lines[index]!.match(/^(\s*)[>❯▶]\s+(\d{1,2})[.)]\s+(.+?)\s*$/);
+		const plain = lines[index]!.match(/^(\s+)(\d{1,2})[.)]\s+(.+?)\s*$/);
+		if (selected) {
+			if (selected[1]!.length !== markerIndent) return EMPTY_OPTIONS;
+			candidates.push({ line: index, position: Number(selected[2]), label: selected[3]!, selected: true });
+		} else if (plain && plain[1]!.length === markerIndent + 2) {
+			candidates.push({ line: index, position: Number(plain[2]), label: plain[3]!, selected: false });
+		}
+	}
+	if (candidates.filter((row) => row.position === 1).length !== 1 || candidates.filter((row) => row.selected).length !== 1) return EMPTY_OPTIONS;
+	const firstRow = candidates.findIndex((row) => row.position === 1 && row.line <= selectedIndex);
+	if (firstRow < 0) return EMPTY_OPTIONS;
+	const rows = candidates.slice(firstRow);
+	if (rows.filter((row) => row.selected).length !== 1 || rows.find((row) => row.selected)?.line !== selectedIndex || !validCount(rows.length)) return EMPTY_OPTIONS;
+	for (let index = 0; index < rows.length; index++) if (rows[index]!.position !== index + 1) return EMPTY_OPTIONS;
+
+	const precedingBoundary = lines.findLastIndex((line, index) => index < rows[0]!.line && !line.trim());
+	const regionStart = precedingBoundary >= 0 ? precedingBoundary + 1 : Math.max(0, rows[0]!.line - MAX_MENU_HEADER_LINES);
+	const regionEnd = navigationIndex + (CANCEL_HELP.test(lines[navigationIndex + 1] ?? "") ? 2 : 1);
+	const safetyLines = lines.slice(regionStart, regionEnd).map((line, index) => {
+		const absoluteIndex = regionStart + index;
+		if (absoluteIndex === navigationIndex) return line.replace(CANCEL_HELP, "");
+		return CANCEL_HELP_LINE.test(line) ? "" : line;
+	});
+	const safetyScreen = safetyLines.join("\n");
+	if (FORBIDDEN_TEXT.test(safetyScreen) || SHELL_SYNTAX.test(safetyScreen)) return EMPTY_OPTIONS;
+
+	const selectedPosition = rows.findIndex((row) => row.selected);
+	const options: ExtractedSemanticOption[] = [];
+	const freeFormLines = [...safetyLines];
+	for (let index = 0; index < rows.length; index++) {
+		const row = rows[index]!;
+		const end = index + 1 < rows.length ? rows[index + 1]!.line : navigationIndex;
+		if (end <= row.line) return EMPTY_OPTIONS;
+		const descriptions: string[] = [];
+		let separatorSeen = false;
+		for (let line = row.line + 1; line < end; line++) {
+			if (!lines[line]!.trim()) continue;
+			if (VISUAL_SEPARATOR.test(lines[line]!)) {
+				const next = rows[index + 1];
+				if (separatorSeen || !UNSUPPORTED_OPTION.test(row.label) || !next || !UNSUPPORTED_OPTION.test(next.label)
+					|| lines.slice(line + 1, end).some((item) => item.trim())) return EMPTY_OPTIONS;
+				separatorSeen = true;
+				continue;
+			}
+			const description = lines[line]!.match(/^(\s+)(\S.*?)\s*$/);
+			if (!description || description[1]!.length <= markerIndent + 2) return EMPTY_OPTIONS;
+			descriptions.push(description[2]!);
+		}
+		const label = [row.label, ...descriptions].join(" ");
+		if (UNSUPPORTED_OPTION.test(label)) {
+			freeFormLines.fill("", row.line - regionStart, end - regionStart);
+			continue;
+		}
+		const distance = index - selectedPosition;
+		const direction = distance < 0 ? "up" : "down";
+		const keys = Object.freeze([...Array<"up" | "down">(Math.abs(distance)).fill(direction), "enter" as const]);
+		const bytes = `${distance < 0 ? "\x1b[A".repeat(-distance) : "\x1b[B".repeat(distance)}\r`;
+		options.push(Object.freeze({ id: `menu_${row.position}`, label, input: Object.freeze({ kind: "keys" as const, keys, bytes }) }));
+	}
+	if (FREE_FORM_PROMPT.test(freeFormLines.join("\n"))) return EMPTY_OPTIONS;
+	if (!validCount(options.length)) return EMPTY_OPTIONS;
+	return finish(options);
+}
+
 function finish(options: readonly ExtractedSemanticOption[]): readonly SemanticOption[] {
 	const labels = new Set<string>();
 	const inputs = new Set<string>();
@@ -143,4 +235,9 @@ function finish(options: readonly ExtractedSemanticOption[]): readonly SemanticO
 
 function validCount(count: number): boolean {
 	return count >= 2 && count <= MAX_SEMANTIC_OPTIONS;
+}
+
+function isNavigationFooter(line: string): boolean {
+	return /(?:↑|\bup\b)/i.test(line) && /(?:↓|\bdown\b)/i.test(line)
+		&& /\b(?:enter|return)\b/i.test(line) && /\b(?:select|choose|confirm)\b/i.test(line);
 }

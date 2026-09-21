@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { SemanticSupervisor, type SemanticObservationSession } from "../semantic-supervisor.ts";
+import { compileSemanticActions } from "../semantic-actions.ts";
 import { createSemanticChoiceAuthorization, type SemanticChoiceAuthorization } from "../semantic-choice-authorization.ts";
 import { compileSemanticPermissions } from "../semantic-permissions.ts";
 import type { JevClient } from "../jev-client.ts";
@@ -17,28 +18,39 @@ class ChoiceSession implements SemanticObservationSession {
 	show(lines: string[]) { this.lines = lines; this.visualGeneration++; for (const listener of [...this.listeners]) listener(); }
 }
 
-const answers = (choice: string) => ({
+const ACTION_CONTROLS = ["observe_again", "notify_pi", "stop_automation"] as const;
+
+const answers = (choice: string, options: { confidence?: number; selected?: number; control?: typeof ACTION_CONTROLS[number] } = {}) => ({
 	model: "jev-1.13.0", usage: { input_tokens: 1, output_tokens: 1 }, answers: {
 		requests_input: { type: "noul", noul: 0.9 }, requests_approval: { type: "noul", noul: 0.1 },
 		presents_result: { type: "noul", noul: 0.1 }, requires_intervention: { type: "noul", noul: 0.1 }, meaningful_progress: { type: "noul", noul: 0.1 },
 		attention: { type: "choice", choice: "waiting_input", confidence: 0.99, probabilities: { working: 0, waiting_input: 0.99, waiting_approval: 0, presenting_result: 0, blocked: 0, other: 0.01 } },
-		"action_ready:dynamic:number_1": { type: "noul", noul: 0.99 }, "action_ready:dynamic:number_2": { type: "noul", noul: 0.99 },
-		action: { type: "choice", choice, confidence: 0.99, probabilities: {
-			"dynamic:number_1": choice === "dynamic:number_1" ? 0.99 : 0,
-			"dynamic:number_2": choice === "dynamic:number_2" ? 0.99 : 0,
-			observe_again: choice === "observe_again" ? 0.99 : 0,
-			notify_pi: choice === "notify_pi" ? 0.99 : 0,
-			stop_automation: choice === "stop_automation" ? 0.99 : 0,
+		dynamic_choice: { type: "choice", choice, confidence: options.confidence ?? 0.99, probabilities: {
+			"dynamic:number_1": choice === "dynamic:number_1" ? (options.selected ?? 0.99) : 0,
+			"dynamic:number_2": choice === "dynamic:number_2" ? (options.selected ?? 0.99) : 0,
+			none: choice === "none" ? (options.selected ?? 0.99) : 0,
 		} },
+		action: { type: "choice", choice: options.control ?? "observe_again", confidence: options.control ? 0.99 : 0,
+			probabilities: Object.fromEntries(ACTION_CONTROLS.map((control) => [control, control === options.control ? 0.99 : 0])) },
 	},
 });
 
 const observationAnswers = () => {
 	const result = answers("dynamic:number_1");
-	delete (result.answers as Record<string, unknown>)["action_ready:dynamic:number_1"];
-	delete (result.answers as Record<string, unknown>)["action_ready:dynamic:number_2"];
+	delete (result.answers as Record<string, unknown>).dynamic_choice;
 	delete (result.answers as Record<string, unknown>).action;
 	return result;
+};
+
+const answersWithFixedControl = (choice: "observe_again" | "notify_pi") => {
+	const result = answers("dynamic:number_1");
+	return { ...result, answers: { ...result.answers,
+		"action_ready:fixed": { type: "noul", noul: 0.99 },
+		action: { type: "choice", choice, confidence: 0.99, probabilities: {
+			fixed: 0, observe_again: choice === "observe_again" ? 0.99 : 0,
+			notify_pi: choice === "notify_pi" ? 0.99 : 0, stop_automation: 0,
+		} },
+	} };
 };
 
 async function flush() { for (let index = 0; index < 8; index++) await Promise.resolve(); }
@@ -48,13 +60,18 @@ function createSupervisor(options: {
 	client: JevClient;
 	authorization: SemanticChoiceAuthorization;
 	interactive?: boolean;
+	fixedActions?: boolean;
 	decisions?: SemanticDecisionInput[];
 }) {
+	const actionRegistry = options.fixedActions ? compileSemanticActions({ enabled: true, items: [
+		{ id: "fixed", description: "Use the configured fixed response", input: "fixed" },
+	] }) : undefined;
 	return new SemanticSupervisor({
 		session: options.session, mode: "hands-free", config: { goal: "Choose the best release channel", minIntervalMs: 250, dynamicChoices: { enabled: true } },
 		client: options.client, model: "jev-1.13.0", requestTimeoutMs: 1_000,
 		bounds: { maxViewportLines: 10, maxRecentChars: 500, redactionPatterns: [] }, startedAt: Date.now(),
 		isEpochCurrent: () => true, isActionOwner: () => true, reserveGlobalAction: () => true,
+		...(actionRegistry ? { actionRegistry } : {}),
 		dynamicChoices: { sessionId: "session-1", authorization: options.authorization, isInteractive: () => options.interactive !== false },
 		onDecision: (decision) => options.decisions?.push(decision),
 	});
@@ -75,9 +92,13 @@ describe("goal-driven dynamic visible choices", () => {
 		const client: JevClient = { evaluate: vi.fn(async (request) => {
 			const serialized = JSON.stringify(request);
 			expect(serialized).toContain("Choose the best release channel");
-			if (!(request.questions as Record<string, unknown>).action) return observationAnswers();
+			if (!(request.questions as Record<string, unknown>).dynamic_choice) return observationAnswers();
+			expect(Object.keys(((request.questions as Record<string, any>).action).criteria)).toEqual(ACTION_CONTROLS);
 			expect(serialized).toContain("dynamic:number_2");
 			expect(serialized).toContain("Beta");
+			expect(Object.keys(((request.questions as Record<string, any>).dynamic_choice).criteria)).toEqual([
+				"dynamic:number_1", "dynamic:number_2", "none",
+			]);
 			expect(serialized).not.toContain('"bytes"');
 			expect(serialized).not.toContain("dynamic-terminal-choice");
 			return answers("dynamic:number_2");
@@ -90,7 +111,7 @@ describe("goal-driven dynamic visible choices", () => {
 		await vi.advanceTimersByTimeAsync(250); await flush();
 		expect(session.writes).toEqual(["2\r"]);
 		expect(confirm).not.toHaveBeenCalled();
-		expect(decisions[1]?.action).toMatchObject({ actionId: "dynamic:number_2", outcome: "executed" });
+		expect(decisions[1]?.action).toMatchObject({ actionId: "dynamic:number_2", confidence: 0.99, probability: 0.99, outcome: "executed" });
 		supervisor.dispose(); vi.useRealTimers();
 	});
 
@@ -113,13 +134,70 @@ describe("goal-driven dynamic visible choices", () => {
 	it("fails closed when the session is headless and does not offer dynamic options", async () => {
 		vi.useFakeTimers(); const session = new ChoiceSession();
 		const client: JevClient = { evaluate: vi.fn(async (request) => {
-			expect((request.questions as Record<string, unknown>).action).toBeUndefined();
+			expect((request.questions as Record<string, unknown>).dynamic_choice).toBeUndefined();
 			return observationAnswers();
 		}) };
 		const supervisor = createSupervisor({ session, client, interactive: false, authorization: { request: vi.fn(), dispose() {} } });
 		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("new menu");
 		await vi.advanceTimersByTimeAsync(0); await flush();
 		expect(session.writes).toEqual([]);
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it("offers no executable choice and sends zero bytes for an unsupported visible menu", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession();
+		const client: JevClient = { evaluate: vi.fn(async (request) => {
+			expect((request.questions as Record<string, unknown>).dynamic_choice).toBeUndefined();
+			return observationAnswers();
+		}) };
+		const authorization = { request: vi.fn(), dispose() {} };
+		const supervisor = createSupervisor({ session, client, authorization });
+		session.show(["Enter a response:", "[ ] Alpha", "[x] Beta"]); supervisor.handleOutput("unsupported");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(session.writes).toEqual([]); expect(authorization.request).not.toHaveBeenCalled();
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it.each(["observe_again", "notify_pi"] as const)("preserves the configured %s control when the independent dynamic choice selects an option", async (control) => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
+		const authorization = { request: vi.fn(), dispose() {} };
+		const supervisor = createSupervisor({ session, client: { evaluate: vi.fn(async () => answersWithFixedControl(control)) },
+			decisions, authorization, fixedActions: true });
+		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("menu");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(session.writes).toEqual([]); expect(authorization.request).not.toHaveBeenCalled();
+		expect(decisions[0]?.action).toMatchObject({ choice: control, outcome: control === "observe_again" ? "observe-again" : "notified" });
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it.each(["observe_again", "notify_pi"] as const)("gives the dynamic-only %s control priority over a simultaneous dynamic option", async (control) => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
+		const authorization = { request: vi.fn(), dispose() {} };
+		const supervisor = createSupervisor({ session, client: { evaluate: vi.fn(async () => answers("dynamic:number_1", { control })) },
+			decisions, authorization });
+		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("menu");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(session.writes).toEqual([]); expect(authorization.request).not.toHaveBeenCalled();
+		expect(decisions[0]?.action).toMatchObject({ choice: control, outcome: control === "observe_again" ? "observe-again" : "notified" });
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it("gives dynamic-only stop_automation priority and removes later dynamic offers", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
+		const requests: unknown[] = []; const authorization = { request: vi.fn(), dispose() {} };
+		const client: JevClient = { evaluate: vi.fn(async (request) => {
+			requests.push(request);
+			return requests.length === 1 ? answers("dynamic:number_1", { control: "stop_automation" }) : observationAnswers();
+		}) };
+		const supervisor = createSupervisor({ session, client, decisions, authorization });
+		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("first menu");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(decisions[0]?.action).toMatchObject({ choice: "stop_automation", outcome: "stopped" });
+		session.show(["Select", "1. Stable", "2. Canary"]); supervisor.handleOutput("later menu");
+		await vi.advanceTimersByTimeAsync(250); await flush();
+		expect((requests[1] as { questions: Record<string, unknown> }).questions).not.toHaveProperty("action");
+		expect((requests[1] as { questions: Record<string, unknown> }).questions).not.toHaveProperty("dynamic_choice");
+		expect(session.writes).toEqual([]); expect(authorization.request).not.toHaveBeenCalled();
 		supervisor.dispose(); vi.useRealTimers();
 	});
 
@@ -147,51 +225,39 @@ describe("goal-driven dynamic visible choices", () => {
 		supervisor.dispose(); vi.useRealTimers();
 	});
 
-	it("stops offering goal-driven choices after stop_automation", async () => {
+	it.each([[0.89, 0.92], [0.87, 0.91]] as const)("executes at confidence %.2f with selected probability %.2f", async (confidence, selected) => {
 		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
-		const requests: unknown[] = [];
-		const client: JevClient = { evaluate: vi.fn(async (request) => {
-			requests.push(request);
-			const action = (request.questions as Record<string, unknown>).action;
-			if (session.visualGeneration === 1) {
-				expect(action).toBeDefined();
-				return answers("stop_automation");
-			}
-			expect(action).toBeUndefined();
-			expect(JSON.stringify(request)).not.toContain("dynamic:number_");
-			return observationAnswers();
-		}) };
-		const authorization = { request: vi.fn(), dispose() {} };
-		const supervisor = createSupervisor({ session, client, decisions, authorization });
-		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("first menu");
+		const supervisor = createSupervisor({ session, client: { evaluate: vi.fn(async () => answers("dynamic:number_2", { confidence, selected })) }, decisions,
+			authorization: { request: (_binding, _option, done) => done(true), dispose() {} } });
+		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("menu");
 		await vi.advanceTimersByTimeAsync(0); await flush();
-		expect(decisions[0]?.action).toMatchObject({ choice: "stop_automation", outcome: "stopped" });
-		session.show(["Select", "1. Stable", "2. Canary"]); supervisor.handleOutput("fresh menu");
-		await vi.advanceTimersByTimeAsync(250); await flush();
-		expect(client.evaluate).toHaveBeenCalledTimes(2);
-		expect(((requests[1] as { questions: Record<string, unknown> }).questions).action).toBeUndefined();
-		expect(JSON.stringify(requests[1])).not.toContain("dynamic:number_");
-		expect(authorization.request).not.toHaveBeenCalled();
-		expect(session.writes).toEqual([]);
+		expect(session.writes).toEqual(["2\r"]);
+		expect(decisions[0]?.action).toMatchObject({ confidence, probability: selected, outcome: "executed" });
 		supervisor.dispose(); vi.useRealTimers();
 	});
 
-	it("rechecks stop state before a pending approved dynamic choice executes", async () => {
-		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = []; let approve!: (approved: boolean) => void;
-		const client: JevClient = { evaluate: vi.fn(async () => session.visualGeneration === 1
-			? answers("dynamic:number_1")
-			: answers("stop_automation")) };
-		const supervisor = createSupervisor({ session, client, decisions, authorization: { request: (_binding, _option, done) => { approve = done; }, dispose() {} } });
-		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("first menu");
+	it.each([
+		["none", answers("none")],
+		["low selected probability", answers("dynamic:number_1", { confidence: 0.99, selected: 0.89 })],
+	])("sends zero bytes for %s", async (_name, response) => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
+		const supervisor = createSupervisor({ session, client: { evaluate: vi.fn(async () => response) }, decisions,
+			authorization: { request: (_binding, _option, done) => done(true), dispose() {} } });
+		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("menu");
 		await vi.advanceTimersByTimeAsync(0); await flush();
-		session.show(["Select", "1. Alpha", "2. Beta", "Confirm selection"]); supervisor.handleOutput("changed menu");
-		await vi.advanceTimersByTimeAsync(250); await flush();
-		approve(true); await flush();
 		expect(session.writes).toEqual([]);
-		expect(decisions.map((decision) => decision.action)).toEqual(expect.arrayContaining([
-			expect.objectContaining({ choice: "stop_automation", outcome: "stopped" }),
-			expect.objectContaining({ actionId: "dynamic:number_1", outcome: "blocked", reason: "session-actions-disabled" }),
-		]));
+		if (_name !== "none") expect(decisions[0]?.action).toMatchObject({ outcome: "blocked", reason: "choice-threshold" });
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it("fails closed on a malformed dedicated choice response", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
+		const malformed = answers("dynamic:number_1"); delete (malformed.answers.dynamic_choice.probabilities as Record<string, number>).none;
+		const supervisor = createSupervisor({ session, client: { evaluate: vi.fn(async () => malformed) }, decisions,
+			authorization: { request: vi.fn(), dispose() {} } });
+		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("menu");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(session.writes).toEqual([]); expect(decisions[0]?.kind).toBe("evaluator-error");
 		supervisor.dispose(); vi.useRealTimers();
 	});
 });

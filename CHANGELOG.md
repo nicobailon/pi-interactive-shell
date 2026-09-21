@@ -5,6 +5,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 ## [Unreleased]
 
 ### Fixed
+- Recognize wrapped keyboard menus with navigation help and non-executable custom-input/chat siblings, and select dynamic options through a dedicated opaque-ID-or-`none` confidence gate.
 - Enforce separate policy for extracted Yes/No and comma-qualified Yes/No confirmations, stop pending and later dynamic choices after automation stops, and keep unchanged-screen approvals valid across elapsed/quiet time drift (#72).
 
 ### Added
