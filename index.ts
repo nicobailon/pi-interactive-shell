@@ -995,8 +995,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		onUpdate?: (update: { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }) => void;
 	}): Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown; isError?: boolean }> => {
 		const { ctx, command, spawn, cwd, name, reason, mode, background, handsFree, handoffPreview, handoffSnapshot, timeout, monitor, outputSelection, onUpdate } = params;
+		const hasCommand = command !== undefined;
+		const hasSpawn = spawn !== undefined;
 		const allowsGeneratedCommand = mode === "monitor" && monitor?.strategy === "file-watch";
-		if (!command && !spawn && !allowsGeneratedCommand) {
+		if (!hasCommand && !hasSpawn && !allowsGeneratedCommand) {
 			return {
 				content: [{ type: "text", text: "One of 'command' or 'spawn' is required." }],
 				isError: true,
@@ -1026,7 +1028,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				isError: true,
 			};
 		}
-		if (isMonitorMode && monitor?.strategy === "file-watch" && (command || spawn)) {
+		if (isMonitorMode && monitor?.strategy === "file-watch" && (hasCommand || hasSpawn)) {
 			return {
 				content: [{ type: "text", text: "file-watch monitor generates its own command and cannot be combined with command or spawn." }],
 				isError: true,

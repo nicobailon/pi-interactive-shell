@@ -766,6 +766,20 @@ describe("monitor mode", () => {
 		expect(harness.getSpawnResolutionOptions()).toEqual([]);
 	});
 
+	it("rejects a present empty command mixed with file-watch before authorization or construction", async () => {
+		const harness = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "other" } }] });
+		const confirm = vi.fn(async () => true);
+		const result = await harness.toolDef.execute("mixed-file-watch-empty-command", {
+			command: "", mode: "monitor",
+			monitor: { strategy: "file-watch", fileWatch: { path: "./uploads" }, triggers: [{ id: "changed", literal: "CHANGE" }] },
+		}, undefined, undefined, { hasUI: true, cwd: "/tmp/project", ui: { confirm }, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toContain("cannot be combined with command or spawn");
+		expect(confirm).not.toHaveBeenCalled();
+		expect(harness.getLaunchedCommand()).toBeUndefined();
+		expect(harness.getSpawnResolutionOptions()).toEqual([]);
+	});
+
 	it("rejects structured spawn mixed with file-watch before worktree resolution", async () => {
 		const harness = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "codex" } }] });
 		const result = await harness.toolDef.execute("mixed-file-watch-spawn", {
