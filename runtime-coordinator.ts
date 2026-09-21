@@ -2,6 +2,7 @@ import type { OverlayHandle } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HeadlessDispatchMonitor } from "./headless-monitor.ts";
 import type { MonitorConfig, MonitorEventPayload, MonitorSessionState, MonitorTerminalReason, SemanticDecision, SemanticDecisionInput, SemanticSessionState } from "./types.ts";
+import type { OutputSelectionResult } from "./output-selector.ts";
 
 const MONITOR_HISTORY_LIMIT = 200;
 const SEMANTIC_HISTORY_LIMIT = 200;
@@ -41,9 +42,17 @@ export class InteractiveShellCoordinator {
 	private semanticState = new Map<string, SemanticSessionState>();
 	private runtimeEpoch = 0;
 	private semanticActionAttempts = 0;
+	private outputSelectionInflight = new Map<string, { epoch: number; controller: AbortController; promise: Promise<OutputSelectionResult> }>();
+	private outputSelectionCache = new Map<string, OutputSelectionResult>();
+
+	private cancelOutputSelections(): void {
+		for (const task of this.outputSelectionInflight.values()) task.controller.abort(new Error("runtime-epoch-ended"));
+		this.outputSelectionInflight.clear();
+	}
 
 	bindExtensionApi(pi: ExtensionAPI): void {
 		if (this.extensionApi === pi) return;
+		this.cancelOutputSelections();
 		this.runtimeEpoch += 1;
 		const epoch = this.runtimeEpoch;
 		for (const monitor of this.headlessMonitors.values()) {
@@ -67,15 +76,36 @@ export class InteractiveShellCoordinator {
 
 	ensureReloadState(): void {
 		if (!Number.isSafeInteger(this.semanticActionAttempts) || this.semanticActionAttempts < 0) this.semanticActionAttempts = 0;
+		this.outputSelectionInflight ??= new Map();
+		this.outputSelectionCache ??= new Map();
 	}
 
 	unbindExtensionApi(pi: ExtensionAPI): void {
 		if (this.extensionApi !== pi) return;
 		this.extensionApi = null;
+		this.cancelOutputSelections();
 		this.runtimeEpoch += 1;
 		for (const monitor of this.headlessMonitors.values()) {
 			monitor.pauseSemantic();
 		}
+	}
+
+	runOutputSelection(key: string, work: (signal: AbortSignal) => Promise<OutputSelectionResult>): Promise<OutputSelectionResult> {
+		const cached = this.outputSelectionCache.get(key);
+		if (cached) return Promise.resolve(cached);
+		const existing = this.outputSelectionInflight.get(key);
+		if (existing?.epoch === this.runtimeEpoch) return existing.promise;
+		const epoch = this.runtimeEpoch;
+		const controller = new AbortController();
+		const promise = work(controller.signal).then((result) => {
+			if (controller.signal.aborted || epoch !== this.runtimeEpoch) throw new Error("stale-output-selection");
+			if (result.status === "selected" || result.status === "unchanged" || result.status === "pagination-required") this.outputSelectionCache.set(key, result);
+			return result;
+		}).finally(() => {
+			if (this.outputSelectionInflight.get(key)?.promise === promise) this.outputSelectionInflight.delete(key);
+		});
+		this.outputSelectionInflight.set(key, { epoch, controller, promise });
+		return promise;
 	}
 
 	runWithExtensionApi(task: (pi: ExtensionAPI) => void): void {

@@ -5,6 +5,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 ## [Unreleased]
 
 ### Added
+- Add explicit recoverable output capture for opted-in command-based background dispatches, with local status/raw pagination and conservative on-demand Jev-selected excerpts. Selection is globally/user gated, redacted, bounded, raw-range recoverable, and fails closed to ordinary completion output; the frozen corpus/manual evaluator remains as calibration evidence (#67).
 - Add optional, globally gated Jev semantic supervision with bounded/redacted observations, typed attention/watch events, narrowly authorized exact-input actions, inspectable audit history, and a repository corpus evaluator (#61).
 - Add an opt-in, content-free local Jev diagnostic journal with bounded summaries and structured agent-reported incidents (#65).
 

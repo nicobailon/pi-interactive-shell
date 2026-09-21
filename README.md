@@ -155,6 +155,46 @@ The notification includes a brief tail (last 5 lines) and a reattach instruction
 
 Dispatch defaults `autoExitOnQuiet: true` — the session gets a 15s startup grace period, then auto-closes after output goes silent (8s by default). The completion notification and details set `completionReason: "auto-close-quiet"`; this is not a terminal command verdict. Tune the grace period with `handsFree: { gracePeriod: 60000 }` or opt out entirely with `handsFree: { autoExitOnQuiet: false }`.
 
+### Recoverable selected output (explicit opt-in)
+
+Recoverable selection is deliberately narrow: it supports only a raw `command` launched as a headless `mode: "dispatch"` session with `background: true`. It does not filter live TUI output, coding-agent/spawn sessions, auth flows, monitor or hands-free sessions, completion notifications, or ordinary output queries. It does not authorize commands or terminal input, and it does not generate a summary.
+
+```typescript
+const launch = await interactive_shell({
+  command: "npm test -- --runInBand",
+  mode: "dispatch",
+  background: true,
+  outputSelection: {
+    enabled: true,
+    goal: "retain failing test details, totals, and report paths"
+  }
+})
+// launch.details.outputSource = {
+//   sourceId: "<stable source id>",
+//   representation: "normalized-merged-pty-text-v1",
+//   available: true
+// }
+
+interactive_shell({ sourceId: launch.details.outputSource.sourceId, outputView: "selected" })
+interactive_shell({ sourceId: launch.details.outputSource.sourceId, outputView: "status" })
+interactive_shell({
+  sourceId: launch.details.outputSource.sourceId,
+  outputView: "raw",
+  sourceOffset: 0,
+  sourceLimit: 5120
+})
+```
+
+Capture starts only from the per-launch `outputSelection` consent above. Capture, `status`, and local-only `raw` reads do not call Jev. An eligible completed-log block reaches TypeSafe only when an agent explicitly queries `outputView: "selected"` and the other two consent gates are also open: the user's **global** config has `jev.enabled: true`, and `TYPESAFE_API_KEY` was inherited by the Pi process. Project config, a credential by itself, and `monitor.semantic` cannot enable selected-output transmission. Never put the credential in a tool call, config example, or project file.
+
+Selected queries return `selected`, `unchanged`, `unavailable`, or `pagination-required`. Semantic omission ranges identify blocks omitted after evaluation; physical recovery ranges identify retained evidence that does not fit the selected display budget. In every case, use `outputView: "raw"` with the stable source ID to recover the local source. Short, exact/exhaustive, JSON/XML/YAML/diff, binary/control-heavy, interactive/auth, secret-like, or incomplete sources conservatively bypass transmission. Disabled configuration, a missing credential, provider/parse/timeout/abort failure, or request-cap exhaustion never authorizes omission: the response is unavailable with the bounded ordinary completion fallback and raw recovery metadata.
+
+The raw source representation, `normalized-merged-pty-text-v1`, is the exact merged PTY JavaScript text received after terminal device-query removal. It preserves ANSI and carriage returns and uses half-open UTF-16 ranges; it is not original bytes and does not separate stdout from stderr. Provider/model and selected display text use `safe-normalized-terminal-text-v1`: controls are removed and carriage returns apply narrow same-line overwrite semantics, while every excerpt retains its exact raw range.
+
+Fixed safety/retention bounds are not configuration knobs: 8 MiB per complete source, 64 MiB process-local aggregate storage, one-hour completed-source recovery, and at most 51,200 UTF-16 characters per raw read. Selection has a 5,120-visible-character budget, uses `jev-1.13.0`, and permits at most eight logical/sixteen possible physical attempts, 10 seconds per call, and one 90-second outer deadline. Canonical UTF-8 preflight stays strictly below 24 KiB for state plus a full single question and below 48 KiB for state plus all questions, conservative headroom under the provider's official 32K/64K token limits. Returned token usage is audit evidence only; this integration does not expose an authoritative price.
+
+Selection requires process-retained launch consent/goal metadata. After a Pi process restart, selected view is explicitly unavailable, but raw recovery by `sourceId` remains available until expiry. The frozen calibration corpus (`747b075e4ad3d49411a12c3775d5316e7ad32bdd3e3ef231670b750facd37a45`) is kept as a reproducible regression: three accepted frozen live runs each scored held-out 15/15 versus deterministic 14/15 and tail 11/15; all 18/18 requests succeeded with no failure/retry statuses, p50 216.5 ms/p95 309 ms, and 17,993 input plus 2,660 output tokens per run. Cost was unavailable. This bounded corpus evidence does not establish universal accuracy or generalization.
+
 For an external gate, use this provider-agnostic watch-until-terminal pattern. The watcher must print one of the terminal lines and exit only after it has a verdict:
 
 ```typescript

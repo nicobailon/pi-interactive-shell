@@ -1,5 +1,8 @@
 import { PtyTerminalSession } from "./pty-session.ts";
 import type { DispatchCompletionReason } from "./types.ts";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+import { OutputSourceStore, type OutputCapture, type OutputSourceRead, type OutputSourceStatus } from "./output-source-store.ts";
 
 export interface BackgroundSession {
 	id: string;
@@ -147,6 +150,98 @@ export class ShellSessionManager {
 	private cleanupTimers = new Map<string, NodeJS.Timeout>();
 	private activeSessions = new Map<string, ActiveSession>();
 	private changeListeners = new Set<() => void>();
+	private outputStore: OutputSourceStore | undefined;
+	private outputLaunches = new Map<string, { goal: string; command: string; sourceId?: string; available: boolean; status?: string; fallback?: string }>();
+	private outputSweepTimer: ReturnType<typeof setInterval> | undefined;
+	private outputSweepInFlight: Promise<void> = Promise.resolve();
+	private static readonly MAX_OUTPUT_LAUNCHES = 1024;
+	private static readonly OUTPUT_SWEEP_INTERVAL_MS = 60_000;
+
+	ensureReloadState(): void {
+		this.outputLaunches ??= new Map();
+		this.outputSweepInFlight ??= Promise.resolve();
+		if (this.outputStore) {
+			Object.setPrototypeOf(this.outputStore, OutputSourceStore.prototype);
+			this.outputStore.ensureReloadState();
+		}
+		for (const id of this.sessions?.keys?.() ?? []) usedIds.add(id);
+		for (const id of this.activeSessions?.keys?.() ?? []) usedIds.add(id);
+	}
+
+	private ensureOutputStore(): OutputSourceStore {
+		if (!this.outputStore) {
+			this.outputStore = new OutputSourceStore({ root: join(getAgentDir(), "cache", "interactive-shell", "output-sources") });
+		}
+		if (!this.outputSweepTimer) {
+			this.queueOutputSweep();
+			this.outputSweepTimer = setInterval(() => this.queueOutputSweep(), ShellSessionManager.OUTPUT_SWEEP_INTERVAL_MS);
+			this.outputSweepTimer.unref?.();
+		}
+		return this.outputStore;
+	}
+
+	private queueOutputSweep(): void {
+		const store = this.outputStore;
+		if (!store) return;
+		this.outputSweepInFlight = this.outputSweepInFlight.then(() => store.sweep()).catch(() => {});
+	}
+
+	disposeOutputRetention(): void {
+		if (this.outputSweepTimer) clearInterval(this.outputSweepTimer);
+		this.outputSweepTimer = undefined;
+	}
+
+	private rememberOutputLaunch(sessionId: string, launch: { goal: string; command: string; sourceId?: string; available: boolean; status?: string; fallback?: string }): void {
+		this.outputLaunches.delete(sessionId);
+		this.outputLaunches.set(sessionId, launch);
+		while (this.outputLaunches.size > ShellSessionManager.MAX_OUTPUT_LAUNCHES) {
+			const oldest = this.outputLaunches.keys().next().value;
+			if (oldest === undefined) break;
+			this.outputLaunches.delete(oldest);
+		}
+	}
+
+	beginOutputCapture(sessionId: string, goal: string, command: string): { capture?: OutputCapture; sourceId?: string; available: boolean } {
+		try {
+			const capture = this.ensureOutputStore().begin(sessionId);
+			this.rememberOutputLaunch(sessionId, { goal, command: command.slice(0, 1000), sourceId: capture.ref.sourceId, available: true });
+			return { capture, sourceId: capture.ref.sourceId, available: true };
+		} catch {
+			this.rememberOutputLaunch(sessionId, { goal, command: command.slice(0, 1000), available: false });
+			return { available: false };
+		}
+	}
+
+	getOutputSourceForSession(sessionId: string): { sourceId?: string; available: boolean } | undefined {
+		const launch = this.outputLaunches.get(sessionId);
+		return launch && { sourceId: launch.sourceId, available: launch.available };
+	}
+
+	getOutputSelectionMetadata(sourceId: string): { goal: string; command: string; status?: string; fallback?: string } | undefined {
+		for (const launch of this.outputLaunches.values()) {
+			if (launch.sourceId === sourceId && launch.available) return { goal: launch.goal, command: launch.command, status: launch.status, fallback: launch.fallback };
+		}
+		return undefined;
+	}
+
+	recordOutputCompletion(sessionId: string, completion: { exitCode: number | null; signal?: number; completionReason: string; completionOutput?: { lines: string[] } }): void {
+		const launch = this.outputLaunches.get(sessionId);
+		if (!launch) return;
+		launch.status = `completion=${completion.completionReason}; exitCode=${completion.exitCode === null ? "unknown" : completion.exitCode}${completion.signal === undefined ? "" : `; signal=${completion.signal}`}`;
+		launch.fallback = completion.completionOutput?.lines.join("\n").slice(-5120) ?? "";
+	}
+
+	outputSourceStatus(sourceId: string): OutputSourceStatus {
+		try {
+			return this.ensureOutputStore().status(sourceId);
+		} catch {
+			return { sourceId, state: "missing", length: 0, reason: "output-source-store-unavailable" };
+		}
+	}
+
+	async readOutputSource(sourceId: string, start: number, end: number): Promise<OutputSourceRead> {
+		return this.ensureOutputStore().read(sourceId, { start, end });
+	}
 
 	onChange(listener: () => void): () => void {
 		this.changeListeners.add(listener);
@@ -373,10 +468,14 @@ export class ShellSessionManager {
 const SESSION_MANAGER_KEY = "__piInteractiveShellSessionManagerV1" as const;
 const runtimeGlobal = globalThis as typeof globalThis & Partial<Record<typeof SESSION_MANAGER_KEY, ShellSessionManager>>;
 
-export const sessionManager = runtimeGlobal[SESSION_MANAGER_KEY] ??= new ShellSessionManager();
+const retainedSessionManager = runtimeGlobal[SESSION_MANAGER_KEY];
+if (retainedSessionManager) Object.setPrototypeOf(retainedSessionManager, ShellSessionManager.prototype);
+export const sessionManager = runtimeGlobal[SESSION_MANAGER_KEY] ??= retainedSessionManager ?? new ShellSessionManager();
+sessionManager.ensureReloadState();
 
 export function releaseSessionManagerSingleton(manager: ShellSessionManager): void {
 	if (runtimeGlobal[SESSION_MANAGER_KEY] === manager) {
+		manager.disposeOutputRetention();
 		Reflect.deleteProperty(runtimeGlobal, SESSION_MANAGER_KEY);
 	}
 }

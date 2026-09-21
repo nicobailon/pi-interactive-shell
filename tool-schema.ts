@@ -71,6 +71,14 @@ export const toolParameters = Type.Object({
 			description: "Line offset for pagination (0-indexed). Use with outputLines to read specific ranges.",
 		}),
 	),
+	outputView: Type.Optional(Type.Union([
+		Type.Literal("status"),
+		Type.Literal("raw"),
+		Type.Literal("selected"),
+	], { description: "Explicitly inspect a recoverable output source without changing ordinary output cursors." })),
+	sourceId: Type.Optional(Type.String({ description: "Stable output source ID returned by an opted-in dispatch launch." })),
+	sourceOffset: Type.Optional(Type.Integer({ minimum: 0, description: "UTF-16 offset for raw source pagination (default 0)." })),
+	sourceLimit: Type.Optional(Type.Integer({ minimum: 1, maximum: 51200, description: "Maximum UTF-16 characters returned from a raw source (default 5120, maximum 51200)." })),
 	drain: Type.Optional(
 		Type.Boolean({
 			description: "If true, return only NEW output since last query (raw stream). More token-efficient for repeated polling.",
@@ -138,6 +146,10 @@ export const toolParameters = Type.Object({
 			description: "Mode: 'interactive' (default, user controls), 'hands-free' (agent monitors, user can take over), 'dispatch' (agent notified on completion, no polling needed), or 'monitor' (headless structured event monitor with stream, poll-diff, file-watch, or semantic strategy).",
 		}),
 	),
+	outputSelection: Type.Optional(Type.Object({
+		enabled: Type.Literal(true),
+		goal: Type.String({ minLength: 1, maxLength: 1000, description: "Explicit bounded goal authorizing recoverable output capture for a finite headless dispatch." }),
+	}, { additionalProperties: false })),
 	monitor: Type.Optional(
 		Type.Object({
 			strategy: Type.Optional(Type.Union([

@@ -3,6 +3,7 @@ import { ChildProcess } from "node:child_process";
 import { createPtyProcess, type PtyProcess } from "../pty-process.ts";
 import { PtyTerminalSession } from "../pty-session.ts";
 import { resolvePiShell } from "../shell-resolution.ts";
+import { OUTPUT_SOURCE_REPRESENTATION, type OutputCapture } from "../output-source-store.ts";
 
 vi.mock("@earendil-works/pi-coding-agent", async () => ({
 	...(await vi.importActual<typeof import("@earendil-works/pi-coding-agent")>("@earendil-works/pi-coding-agent")),
@@ -58,6 +59,30 @@ afterEach(() => {
 });
 
 describe("PtyTerminalSession cleanup", () => {
+	it.runIf(process.platform !== "win32")("captures exact process text before rollover and finalizes before exit publication", async () => {
+		const fragments: string[] = [];
+		let finalized = false;
+		const capture: OutputCapture = {
+			ref: { sourceId: "00000000-0000-4000-8000-000000000000", sessionId: "capture-test", representation: OUTPUT_SOURCE_REPRESENTATION },
+			appendProcessText: (text) => { fragments.push(text); },
+			finalize: async () => { finalized = true; return { sourceId: "test", state: "complete", length: fragments.join("").length }; },
+			markIncomplete: async (reason) => ({ sourceId: "test", state: "incomplete", length: fragments.join("").length, reason }),
+		};
+		let resolveExit!: () => void;
+		const exited = new Promise<void>((resolve) => { resolveExit = resolve; });
+		const session = new PtyTerminalSession({
+			command: `node -e "process.stdout.write('\\u001b[31mhead\\rnext\\u001b[0m' + 'x'.repeat(1100000) + 'tail')"`,
+			shellConfig: resolvePiShell(process.cwd(), true), outputCapture: capture,
+		}, { onExit: () => { expect(finalized).toBe(true); resolveExit(); } });
+		sessions.push(session);
+		await exited;
+		const captured = fragments.join("");
+		expect(captured).toContain("\x1b[31mhead\rnext\x1b[0m");
+		expect(captured.length).toBeGreaterThan(1024 * 1024);
+		expect(captured.endsWith("tail")).toBe(true);
+		expect(captured).not.toContain("[Process exited");
+	});
+
 	it("increments visual generation for viewport scroll mutations", async () => {
 		let resolveExit!: () => void;
 		const exited = new Promise<void>((resolve) => { resolveExit = resolve; });
