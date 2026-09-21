@@ -522,7 +522,8 @@ Per-session `monitor.semantic` supports: `goal` (optional task context, sent bou
     "semanticPermissions": [
       { "decision": "allow", "operation": { "kind": "launch-command", "command": "npm test" } },
       { "decision": "deny", "operation": { "kind": "launch-command", "command": "deploy --production" } },
-      { "decision": "ask", "operation": { "kind": "dynamic-terminal-choice" } }
+      { "decision": "ask", "operation": { "kind": "dynamic-terminal-choice" } },
+      { "decision": "deny", "operation": { "kind": "dynamic-terminal-confirmation" } }
     ]
   }
 }
@@ -595,7 +596,7 @@ interactive_shell({
 })
 ```
 
-The extension conservatively extracts a fresh numbered, lettered, or explicitly keyboard-navigable menu from the visible viewport. Jev chooses only among code-owned opaque IDs plus `observe_again`, `notify_pi`, and `stop_automation`; it never supplies terminal input. Code resolves the chosen ID to the exact extracted bytes. Global `jev.semanticPermissions` rules for `dynamic-terminal-choice` are the trusted policy source; project/tool configuration cannot add or weaken them. `deny` always blocks; `ask` opens Pi's confirmation dialog and grants one request bound to the session, operation, generation, and observation hash; `allow` skips the dialog. The extension relies on Pi to deliver that dialog to the user; it does not independently attest who responds. Missing UI, background transfer, rejection, reload, takeover, exit, expiry, stale output, provider failure, ambiguity, secrets, lifecycle-like content, or unsupported menus result in no dynamic input. Existing configured fixed actions are unchanged and retain their ownership, freshness, secret, cooldown, dedupe, and budget gates.
+The extension conservatively extracts a fresh numbered, lettered, or explicitly keyboard-navigable menu from the visible viewport. Jev chooses only among code-owned opaque IDs plus `observe_again`, `notify_pi`, and `stop_automation`; it never supplies terminal input. Code resolves the chosen ID to the exact extracted bytes and classifies an exact visible Yes/No pair as `dynamic-terminal-confirmation`; other supported menus use `dynamic-terminal-choice`. Global `jev.semanticPermissions` rules are the trusted policy source for each classification; project/tool configuration cannot add or weaken them. `deny` always blocks; `ask` opens Pi's confirmation dialog and grants one request bound to the session, operation, generation, and observation hash; `allow` skips the dialog. Elapsed/quiet time alone does not invalidate that hash, but terminal, session, or operation changes do. `stop_automation` prevents later and pending dynamic choices for the session. The extension relies on Pi to deliver the dialog to the user; it does not independently attest who responds. Missing UI, background transfer, rejection, reload, takeover, exit, expiry, stale output, provider failure, ambiguity, secrets, lifecycle-like content, or unsupported menus result in no dynamic input. Existing configured fixed actions are unchanged and retain their ownership, freshness, secret, cooldown, dedupe, and budget gates.
 
 Inspect semantic decisions with `interactive_shell({ semanticDecisions: true, semanticSessionId: sessionId })`. Inspect delivered events with `interactive_shell({ monitorEvents: true, monitorSessionId: sessionId })`; `monitorStatus: true` returns monitor lifecycle state.
 

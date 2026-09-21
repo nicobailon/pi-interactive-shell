@@ -4,6 +4,9 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+- Enforce separate policy for extracted Yes/No confirmations, stop pending and later dynamic choices after automation stops, and keep unchanged-screen approvals valid across elapsed/quiet time drift (#72).
+
 ### Added
 - Add opt-in goal-driven selection among conservative choices discovered in fresh visible CLI output, with code-owned exact inputs, trusted global allow/ask/deny policy, and a one-time Pi confirmation prompt for `ask` (#71).
 - Add explicitly activated global exact-command policy for launches through `interactive_shell`; deny blocks before construction, ask requires Pi confirmation, and allow proceeds without changing existing-session controls (#71).

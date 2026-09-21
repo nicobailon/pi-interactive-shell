@@ -4,7 +4,7 @@ import { buildTerminalObservation, classifyTerminalSecretPrompt, createTerminalR
 import type { SemanticAnswers, SemanticAttentionState, SemanticConfig, SemanticDecisionInput } from "./types.ts";
 import type { SemanticActionRegistry } from "./semantic-actions.ts";
 import { SEMANTIC_THRESHOLDS } from "./semantic-policy.ts";
-import { extractSemanticOptions } from "./semantic-options.ts";
+import { extractSemanticOptions, type SemanticOption } from "./semantic-options.ts";
 import type { SemanticChoiceAuthorization } from "./semantic-choice-authorization.ts";
 
 const ATTENTION_STATES = ["working", "waiting_input", "waiting_approval", "presenting_result", "blocked", "other"] as const;
@@ -256,6 +256,7 @@ export class SemanticSupervisor {
 			id: `dynamic:${option.id}`,
 			label: option.label,
 			bytes: option.input.bytes,
+			operation: option.operation,
 		}));
 	}
 
@@ -266,7 +267,7 @@ export class SemanticSupervisor {
 		const authorization = this.options.dynamicChoices?.authorization;
 		if (!authorization) { complete(this.blockDynamic(answer, "ui-unavailable")); return; }
 		authorization.request({ sessionId: this.options.dynamicChoices!.sessionId, operationId: option.id,
-			observationGeneration: generation, observationHash: hash }, option.label, (approved) => {
+			observationGeneration: generation, observationHash: hash }, option.operation, option.label, (approved) => {
 			if (!approved) { complete(this.blockDynamic(answer, "permission-or-approval")); return; }
 			const recheck = this.checkDynamicAction(answer, generation, hash);
 			if (recheck) { complete(recheck); return; }
@@ -410,7 +411,7 @@ export class SemanticSupervisor {
 }
 
 const ACTION_CONTROLS = ["observe_again", "notify_pi", "stop_automation"] as const;
-type RuntimeSemanticOption = { id: string; label: string; bytes: string };
+type RuntimeSemanticOption = { id: string; label: string; bytes: string; operation: SemanticOption["operation"] };
 type ParsedActionAnswer = { choice: string; confidence: number; probability: number; readiness?: number; option?: RuntimeSemanticOption };
 
 export function buildSemanticRequest(observation: TerminalObservation, config: SemanticConfig, model: string, registry?: SemanticActionRegistry, dynamicOptions: readonly RuntimeSemanticOption[] = []): JevEvaluationRequest {
