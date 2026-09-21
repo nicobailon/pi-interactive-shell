@@ -58,6 +58,7 @@ export interface JevConfig {
 	redactionPatterns: readonly string[];
 	diagnostics: JevDiagnosticsConfig;
 	semanticPermissions: CompiledSemanticPermissions;
+	launchPermissionsEnabled: boolean;
 }
 
 export interface JevDiagnosticsConfig {
@@ -76,6 +77,7 @@ const DEFAULT_JEV_CONFIG: JevConfig = {
 	redactionPatterns: [],
 	diagnostics: { enabled: false, retentionDays: 14, maxBytes: 20_000_000 },
 	semanticPermissions: compileSemanticPermissions([]),
+	launchPermissionsEnabled: false,
 };
 
 const DEFAULT_SPAWN_CONFIG: SpawnConfig = {
@@ -244,6 +246,7 @@ function resolveJevConfig(globalValue: Record<string, unknown>, projectValue: Re
 		maxRecentChars: Math.min(globalRecentChars, clampInt(projectValue.maxRecentChars, globalRecentChars, 500, 8_000)),
 		redactionPatterns,
 		semanticPermissions,
+		launchPermissionsEnabled: Object.hasOwn(globalValue, "semanticPermissions"),
 		diagnostics: {
 			enabled: diagnostics.enabled === true,
 			retentionDays: clampInt(diagnostics.retentionDays, DEFAULT_JEV_CONFIG.diagnostics.retentionDays, 1, 90),

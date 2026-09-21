@@ -180,6 +180,7 @@ describe("config + docs parity", () => {
 		writeFileSync(globalPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } }] } }));
 		writeFileSync(projectPath, JSON.stringify({}));
 		const { loadConfig } = await loadConfigModule(agentDir);
+		expect(loadConfig(project).jev).toMatchObject({ launchPermissionsEnabled: true });
 		expect(loadConfig(project).jev?.semanticPermissions.evaluate({ kind: "dynamic-terminal-choice" })).toBe("allow");
 		writeFileSync(projectPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } }] } }));
 		expect(() => loadConfig(project)).toThrow("Project config cannot define trusted semantic permissions.");
@@ -198,6 +199,7 @@ describe("config + docs parity", () => {
 		const toolSchema = readFileSync("tool-schema.ts", "utf-8");
 
 		expect(defaults.defer).toBe(false);
+		expect(defaults.jev?.launchPermissionsEnabled).toBe(false);
 		expect(defaults.handsFreeQuietThreshold).toBe(8000);
 		expect(defaults.autoExitGracePeriod).toBe(15000);
 		expect(defaults.overlayAnchor).toBe("center");

@@ -22,7 +22,7 @@ Detailed mode, query, input, spawn, attach, and monitor recipes live in the bund
 export const toolParameters = Type.Object({
 	command: Type.Optional(
 		Type.String({
-			description: "The raw CLI command to run (e.g., 'pi \"Fix the bug\"'). Use this for arbitrary CLIs. Mutually exclusive with 'spawn'.",
+			description: "The raw CLI command to run (e.g., 'pi \"Fix the bug\"'). Use this for arbitrary CLIs. Mutually exclusive with 'spawn'. A globally enabled interactive-shell launch policy matches this exact string.",
 		}),
 	),
 	spawn: Type.Optional(
@@ -43,7 +43,7 @@ export const toolParameters = Type.Object({
 				description: "Optional startup prompt, appended as the CLI's final argument. Uses each CLI's native prompt-bearing startup form.",
 			})),
 		}, {
-			description: "Structured spawn request for any configured spawn agent. Use this instead of building the command string manually when you want the extension's spawn defaults, Pi-only fork behavior, worktree support, or native startup prompts.",
+			description: "Structured spawn request for any configured spawn agent. Use this instead of building the command string manually when you want the extension's spawn defaults, Pi-only fork behavior, worktree support, or native startup prompts. Global launch policy applies to the resolved command before worktree creation.",
 		}),
 	),
 	sessionId: Type.Optional(

@@ -272,6 +272,28 @@ function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatc
 	}
 }
 
+async function authorizeLaunchCommand(
+	config: InteractiveShellConfig,
+	command: string,
+	ctx: Pick<ExtensionContext, "ui"> & { hasUI?: boolean },
+): Promise<{ allowed: true } | { allowed: false; reason: "denied" | "ui-unavailable" | "rejected" }> {
+	const jev = config.jev;
+	if (!jev?.launchPermissionsEnabled) return { allowed: true };
+	const decision = jev.semanticPermissions.evaluate({ kind: "launch-command", command });
+	if (decision === "allow") return { allowed: true };
+	if (decision === "deny") return { allowed: false, reason: "denied" };
+	if (ctx.hasUI === false || typeof ctx.ui.confirm !== "function") return { allowed: false, reason: "ui-unavailable" };
+	try {
+		const approved = await ctx.ui.confirm(
+			"Allow interactive shell launch?",
+			`Launch this exact command once?\n\n${JSON.stringify(command)}`,
+		);
+		return approved ? { allowed: true } : { allowed: false, reason: "rejected" };
+	} catch {
+		return { allowed: false, reason: "ui-unavailable" };
+	}
+}
+
 function describeSemanticMonitor(config: SemanticConfig): string {
 	const watches = config.watches?.map((watch) => watch.id).join(", ") || "none";
 	const actions = config.actions?.enabled === true
@@ -915,6 +937,16 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			ctx.ui.notify(describeShellResolutionError(error), "error");
 			return;
 		}
+		const preview = resolveSpawn(config, ctx.cwd, request, () => ctx.sessionManager.getSessionFile(), { createWorktree: false });
+		if (!preview.ok) {
+			ctx.ui.notify(preview.error, "error");
+			return;
+		}
+		const authorization = await authorizeLaunchCommand(config, preview.spawn.command, ctx);
+		if (!authorization.allowed) {
+			ctx.ui.notify("Launch blocked by the global interactive-shell command policy.", "error");
+			return;
+		}
 		const spawn = resolveSpawn(config, ctx.cwd, request, () => ctx.sessionManager.getSessionFile());
 		if (!spawn.ok) {
 			ctx.ui.notify(spawn.error, "error");
@@ -1027,7 +1059,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		let spawnAgent: string | undefined;
 		let spawnMode: string | undefined;
 		if (spawn) {
-			const resolvedSpawn = resolveSpawn(config, effectiveCwd, spawn, () => ctx.sessionManager.getSessionFile());
+			const resolvedSpawn = resolveSpawn(config, effectiveCwd, spawn, () => ctx.sessionManager.getSessionFile(), { createWorktree: false });
 			if (!resolvedSpawn.ok) {
 				return {
 					content: [{ type: "text", text: resolvedSpawn.error }],
@@ -1035,10 +1067,23 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				};
 			}
 			effectiveCommand = resolvedSpawn.spawn.command;
+		}
+		let launchAuthorized = false;
+		if (effectiveCommand) {
+			const authorization = await authorizeLaunchCommand(config, effectiveCommand, ctx);
+			if (!authorization.allowed) return {
+				content: [{ type: "text", text: "Launch blocked by the global interactive-shell command policy." }],
+				isError: true,
+				details: { error: "launch_not_authorized", reason: authorization.reason },
+			};
+			launchAuthorized = true;
+		}
+		if (spawn) {
+			const resolvedSpawn = resolveSpawn(config, effectiveCwd, spawn, () => ctx.sessionManager.getSessionFile());
+			if (!resolvedSpawn.ok) return { content: [{ type: "text", text: resolvedSpawn.error }], isError: true };
+			effectiveCommand = resolvedSpawn.spawn.command;
 			effectiveCwd = resolvedSpawn.spawn.cwd;
-			effectiveReason = effectiveReason
-				? `${effectiveReason} • ${resolvedSpawn.spawn.reason}`
-				: resolvedSpawn.spawn.reason;
+			effectiveReason = effectiveReason ? `${effectiveReason} • ${resolvedSpawn.spawn.reason}` : resolvedSpawn.spawn.reason;
 			spawnWorktreePath = resolvedSpawn.spawn.worktreePath;
 			spawnAgent = resolvedSpawn.spawn.agent;
 			spawnMode = resolvedSpawn.spawn.mode;
@@ -1068,6 +1113,13 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				monitorCommand = compiled.strategy === "poll-diff"
 					? buildPollDiffLoopCommand(effectiveCommand, compiled.runtime.pollIntervalMs)
 					: effectiveCommand;
+			}
+			if (!launchAuthorized) {
+				const authorization = await authorizeLaunchCommand(config, monitorCommand, ctx);
+				if (!authorization.allowed) return {
+					content: [{ type: "text", text: "Launch blocked by the global interactive-shell command policy." }], isError: true,
+					details: { error: "launch_not_authorized", reason: authorization.reason },
+				};
 			}
 
 			const id = generateSessionId(name);

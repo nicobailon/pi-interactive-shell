@@ -152,6 +152,7 @@ export function resolveSpawn(
 	cwd: string,
 	request: SpawnRequest | undefined,
 	getSessionFile: () => string | undefined,
+	options: { createWorktree?: boolean } = {},
 ):
 	| { ok: true; spawn: ResolvedSpawn }
 	| { ok: false; error: string } {
@@ -185,7 +186,7 @@ export function resolveSpawn(
 
 	let effectiveCwd = cwd;
 	let worktreePath: string | undefined;
-	if (worktree) {
+	if (worktree && options.createWorktree !== false) {
 		const resolvedWorktree = createSpawnWorktree(config, cwd, agent);
 		if (!resolvedWorktree.ok) {
 			return resolvedWorktree;
