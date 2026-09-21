@@ -103,6 +103,22 @@ describe("bounded output selector", () => {
 		expect(result.status).toBe("pagination-required"); expect(result.audit.physicalTruncationRanges.some((range) => range.start <= blocks[0]!.range.start && range.end >= blocks[0]!.range.end)).toBe(true);
 	});
 
+	it("renders consecutive semantic omission markers in raw source order", async () => {
+		const parts = ["A".repeat(251), "B".repeat(251), "C".repeat(251), "D".repeat(251)];
+		const text = parts.join("");
+		const blocks = parts.map((part, index) => ({ text: part, range: { start: index * 251, end: (index + 1) * 251 }, kind: "progress" as const }));
+		const input: OutputSelectionInput = { source: { identity: { scheme: "memory", id: "ordered", version: "v1" }, text, complete: true, kind: "text", visibleLength: 6_000 }, goal: "find outcome", blocks };
+		const client = fake((request) => answer(request, (position, kind) => kind === "routine_progress" ? 0.9 : ((position === 0 || position === 3) && kind === "problem_or_failure" ? 0.9 : 0.1)));
+		const result = await selectOutput(input, { client, redact: redactor });
+		expect(result.status).toBe("selected");
+		const first = "[omitted 251 UTF-16 chars; source:251-502]";
+		const second = "[omitted 251 UTF-16 chars; source:502-753]";
+		expect(result.text.indexOf(first)).toBeGreaterThan(250);
+		expect(result.text.indexOf(second)).toBeGreaterThan(result.text.indexOf(first));
+		expect(result.text.indexOf("D".repeat(20))).toBeGreaterThan(result.text.indexOf(second));
+		expect(result.audit.semanticOmissionCount).toBe(2); // decision count, even when audit ranges merge adjacently
+	});
+
 	it("is deterministic, validates stable UTF-16 ranges, and marks semantic omissions within exact budget", async () => {
 		const input = makeInput(); const one = await selectOutput(input, { client: fake(), redact: redactor }); const two = await selectOutput(input, { client: fake(), redact: redactor });
 		expect(one).toEqual(two); expect(one.text.length).toBeLessThanOrEqual(5_120); expect(one.text).toContain("[omitted"); expect(one.rawSourceReference.identity).toEqual(input.source.identity);

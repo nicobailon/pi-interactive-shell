@@ -96,9 +96,24 @@ function parse(raw: unknown, count: number): { keep: boolean[]; usage: { input_t
 }
 function auditBase(requests: RequestAudit[], retained: SourceRange[], omitted: SourceRange[], physical: SourceRange[], complete: boolean): SelectionAudit { return { completeCoverage: complete, logicalCalls: requests.filter((r) => r.status !== "unsent").length, maxLogicalCalls: 8, possiblePhysicalAttempts: 16, requests, retainedRanges: mergeRanges(retained), semanticOmissionRanges: mergeRanges(omitted), semanticOmissionCount: omitted.length, physicalTruncationRanges: mergeRanges(physical) }; }
 function render(input: OutputSelectionInput, retained: SourceRange[], omissions: SourceRange[], redact: TerminalRedactor): { text: string; excerpts: { range: SourceRange; text: string }[] } {
-	const excerpts = mergeRanges(retained).map((range) => ({ range, text: redact(input.source.text.slice(range.start, range.end)) })); let text = "";
-	for (const excerpt of excerpts) { const before = omissions.find((range) => range.end <= excerpt.range.start && !text.includes(`source:${range.start}-${range.end}`)); if (before) text += `[omitted ${before.end - before.start} UTF-16 chars; source:${before.start}-${before.end}]\n`; text += excerpt.text; }
-	for (const range of omissions) if (!text.includes(`source:${range.start}-${range.end}`)) text += `${text ? "\n" : ""}[omitted ${range.end - range.start} UTF-16 chars; source:${range.start}-${range.end}]`;
+	const excerpts = mergeRanges(retained).map((range) => ({ range, text: redact(input.source.text.slice(range.start, range.end)) }));
+	const orderedOmissions: Array<{ start: number; end: number }> = [];
+	for (const range of omissions.map((item) => ({ ...item })).sort((a, b) => a.start - b.start || a.end - b.end)) {
+		const prior = orderedOmissions.at(-1);
+		if (prior && range.start < prior.end) prior.end = Math.max(prior.end, range.end);
+		else if (!prior || !sameRange(prior, range)) orderedOmissions.push(range);
+	}
+	const sequence = [
+		...excerpts.map((excerpt) => ({ start: excerpt.range.start, kind: "excerpt" as const, excerpt })),
+		...orderedOmissions.map((range) => ({ start: range.start, kind: "omission" as const, range })),
+	].sort((a, b) => a.start - b.start || (a.kind === "omission" ? -1 : 1));
+	let text = "";
+	for (const item of sequence) {
+		if (item.kind === "excerpt") { text += item.excerpt.text; continue; }
+		if (text && !text.endsWith("\n")) text += "\n";
+		text += `[omitted ${item.range.end - item.range.start} UTF-16 chars; source:${item.range.start}-${item.range.end}]\n`;
+	}
+	if (text.endsWith("\n") && sequence.at(-1)?.kind === "omission") text = text.slice(0, -1);
 	return { text, excerpts };
 }
 

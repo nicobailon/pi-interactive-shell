@@ -77,6 +77,7 @@ interface RecordEntry {
 	corruptReason?: string;
 	discoveredCorrupt?: boolean;
 	writeBroken?: boolean;
+	needsExpiryPersistence?: boolean;
 }
 
 function frozenRef(sourceId: string, sessionId: string): OutputSourceRef {
@@ -98,6 +99,7 @@ export class OutputSourceStore {
 	private readonly records = new Map<string, RecordEntry>();
 	private readonly sessions = new Map<string, string>();
 	private aggregateReserved = 0;
+	private sweepQueue: Promise<void> = Promise.resolve();
 
 	constructor(options: OutputSourceStoreOptions) {
 		this.root = options.root;
@@ -113,6 +115,10 @@ export class OutputSourceStore {
 		mkdirSync(this.root, { recursive: true, mode: 0o700 });
 		if (process.platform !== "win32") chmodSync(this.root, 0o700);
 		this.discover();
+	}
+
+	ensureReloadState(): void {
+		this.sweepQueue ??= Promise.resolve();
 	}
 
 	begin(sessionId: string): OutputCapture {
@@ -171,15 +177,39 @@ export class OutputSourceStore {
 		return Object.freeze({ ...status, text: text.slice(start, end), range: Object.freeze({ start, end }) });
 	}
 
-	async sweep(now = this.clock()): Promise<void> {
+	sweep(now = this.clock()): Promise<void> {
+		const run = this.sweepQueue.then(() => this.performSweep(now));
+		this.sweepQueue = run.catch(() => {});
+		return run;
+	}
+
+	private async performSweep(now: number): Promise<void> {
 		const ordered = [...this.records.entries()].sort(([a], [b]) => a.localeCompare(b));
 		for (const [sourceId, entry] of ordered) {
-			if (entry.manifest.state === "complete" && Date.parse(entry.manifest.expiresAt ?? "") <= now) {
+			if (entry.active) continue;
+			if (entry.terminal) await entry.terminal.catch(() => {});
+			if (entry.manifest.state === "expired") {
 				await this.removeFile(this.dataPath(sourceId));
+				await this.removeFile(this.capturePath(sourceId));
+				if (entry.needsExpiryPersistence) {
+					await this.persistManifest(entry.manifest);
+					entry.needsExpiryPersistence = false;
+				}
+			}
+			const expiresAt = Date.parse(entry.manifest.expiresAt ?? "") || Date.parse(entry.manifest.finalizedAt) + this.completedTtlMs;
+			if ((entry.manifest.state === "complete" || entry.manifest.state === "incomplete" || entry.discoveredCorrupt) && expiresAt <= now) {
+				await this.removeFile(this.dataPath(sourceId));
+				await this.removeFile(this.capturePath(sourceId));
 				this.aggregateReserved -= entry.reservedBytes;
 				entry.reservedBytes = entry.committedBytes = 0;
-				entry.manifest = { ...entry.manifest, state: "expired", length: 0, bytes: 0, tombstonedAt: iso(now), reason: "completed-source-expired", sha256: undefined };
+				const priorState = entry.discoveredCorrupt ? "corrupt" : entry.manifest.state;
+				entry.discoveredCorrupt = false;
+				entry.corruptReason = undefined;
+				entry.manifest = { ...entry.manifest, state: "expired", length: 0, bytes: 0, expiresAt: undefined, tombstonedAt: iso(now), reason: `${priorState}-source-expired`, sha256: undefined };
+				entry.needsExpiryPersistence = true;
 				await this.persistManifest(entry.manifest);
+				entry.needsExpiryPersistence = false;
+				if (this.sessions.get(entry.manifest.ref.sessionId) === sourceId) this.sessions.delete(entry.manifest.ref.sessionId);
 			} else if (entry.manifest.state === "expired" && Date.parse(entry.manifest.tombstonedAt ?? entry.manifest.finalizedAt) + this.tombstoneTtlMs <= now) {
 				await this.removeRecord(sourceId);
 			}
@@ -188,6 +218,17 @@ export class OutputSourceStore {
 			.filter(([, entry]) => entry.manifest.state === "expired")
 			.sort((a, b) => (a[1].manifest.tombstonedAt ?? "").localeCompare(b[1].manifest.tombstonedAt ?? "") || a[0].localeCompare(b[0]));
 		for (let i = 0; i < tombstones.length - this.maxTombstones; i++) await this.removeRecord(tombstones[i]![0]);
+		for (const filename of readdirSync(this.root).sort()) {
+			if (!filename.endsWith(".capture") && !filename.endsWith(".data") && !filename.endsWith(".tmp")) continue;
+			const sourceId = filename.endsWith(".capture") ? filename.slice(0, -".capture".length) : filename.endsWith(".data") ? filename.slice(0, -".data".length) : "";
+			if (sourceId && this.records.has(sourceId)) continue;
+			const path = join(this.root, filename);
+			try {
+				if (statSync(path).mtimeMs + this.completedTtlMs <= now) await this.removeFile(path);
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			}
+		}
 	}
 
 	private append(entry: RecordEntry, text: string): void {
@@ -216,13 +257,13 @@ export class OutputSourceStore {
 
 	private finish(entry: RecordEntry): Promise<OutputSourceStatus> {
 		if (entry.terminal) return entry.terminal;
-		entry.terminal = this.settle(entry, undefined);
+		entry.terminal = this.settle(entry);
 		return entry.terminal;
 	}
 
 	private fail(entry: RecordEntry, reason: string): Promise<OutputSourceStatus> {
 		this.setIncomplete(entry, reason);
-		if (!entry.terminal) entry.terminal = this.settle(entry, entry.corruptReason ?? reason);
+		if (!entry.terminal) entry.terminal = this.settle(entry);
 		return entry.terminal;
 	}
 
@@ -230,11 +271,10 @@ export class OutputSourceStore {
 		if (this.currentState(entry) === "capturing") entry.corruptReason = reason;
 	}
 
-	private async settle(entry: RecordEntry, requestedFailure?: string): Promise<OutputSourceStatus> {
+	private async settle(entry: RecordEntry): Promise<OutputSourceStatus> {
 		await entry.queue;
 		entry.active = false;
 		const sourceId = entry.manifest.ref.sourceId;
-		const reason = entry.corruptReason ?? requestedFailure;
 		const finalized = this.clock();
 		try {
 			await rename(this.capturePath(sourceId), this.dataPath(sourceId));
@@ -242,23 +282,22 @@ export class OutputSourceStore {
 		} catch (error) {
 			entry.corruptReason = `finalize-content-failed: ${this.errorMessage(error)}`;
 		}
-		const finalReason = entry.corruptReason ?? reason;
 		let hash: string | undefined;
 		try { hash = digest((await readFile(this.dataPath(sourceId))).subarray(0, entry.committedBytes)); }
 		catch (error) { entry.corruptReason = `finalize-read-failed: ${this.errorMessage(error)}`; }
 		entry.manifest = {
 			...entry.manifest,
-			state: finalReason || entry.corruptReason ? "incomplete" : "complete",
+			state: entry.corruptReason ? "incomplete" : "complete",
 			length: entry.committedBytes / 2,
 			bytes: entry.committedBytes,
 			finalizedAt: iso(finalized),
-			expiresAt: !finalReason && !entry.corruptReason ? iso(finalized + this.completedTtlMs) : undefined,
-			reason: entry.corruptReason ?? finalReason,
+			expiresAt: iso(finalized + this.completedTtlMs),
+			reason: entry.corruptReason,
 			sha256: hash,
 		};
 		try { await this.persistManifest(entry.manifest); }
 		catch (error) {
-			entry.manifest = { ...entry.manifest, state: "incomplete", expiresAt: undefined, reason: `manifest-write-failed: ${this.errorMessage(error)}` };
+			entry.manifest = { ...entry.manifest, state: "incomplete", expiresAt: iso(finalized + this.completedTtlMs), reason: `manifest-write-failed: ${this.errorMessage(error)}` };
 		}
 		return this.publicStatus(entry);
 	}
@@ -284,6 +323,12 @@ export class OutputSourceStore {
 				const parsed = JSON.parse(readFileSync(join(this.root, filename), "utf8")) as Partial<Manifest>;
 				if (!this.validManifest(parsed) || parsed.ref.sourceId !== filenameId) throw new Error("manifest identity or schema mismatch");
 				const manifest = parsed as Manifest;
+				const expiresAt = Date.parse(manifest.expiresAt ?? "") || Date.parse(manifest.finalizedAt) + this.completedTtlMs;
+				if ((manifest.state === "complete" || manifest.state === "incomplete") && expiresAt <= this.clock()) {
+					const expired: Manifest = { ...manifest, state: "expired", length: 0, bytes: 0, expiresAt: undefined, tombstonedAt: iso(this.clock()), reason: `${manifest.state}-source-expired`, sha256: undefined };
+					this.records.set(filenameId, { manifest: { ...expired, ref: frozenRef(manifest.ref.sourceId, manifest.ref.sessionId) }, active: false, queue: Promise.resolve(), committedBytes: 0, reservedBytes: 0, needsExpiryPersistence: true });
+					continue;
+				}
 				const entry: RecordEntry = { manifest: { ...manifest, ref: frozenRef(manifest.ref.sourceId, manifest.ref.sessionId) }, active: false, queue: Promise.resolve(), committedBytes: manifest.bytes, reservedBytes: manifest.bytes };
 				if (manifest.state !== "expired") {
 					const path = this.dataPath(filenameId);
@@ -295,7 +340,7 @@ export class OutputSourceStore {
 					this.aggregateReserved += manifest.bytes;
 				}
 				this.records.set(filenameId, entry);
-				this.sessions.set(manifest.ref.sessionId, filenameId);
+				if (manifest.state !== "expired") this.sessions.set(manifest.ref.sessionId, filenameId);
 			} catch (error) {
 				const now = iso(this.clock());
 				const manifest: Manifest = { version: 1, ref: frozenRef(filenameId, ""), state: "incomplete", length: 0, bytes: 0, startedAt: now, finalizedAt: now };

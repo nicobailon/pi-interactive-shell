@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { sessionManager, ShellSessionManager } from "../session-manager.ts";
+import { releaseSessionManagerSingleton, sessionManager, ShellSessionManager } from "../session-manager.ts";
 import type { ActiveSession } from "../session-manager.ts";
 import { PtyTerminalSession } from "../pty-session.ts";
 import { resolvePiShell } from "../shell-resolution.ts";
@@ -29,7 +29,52 @@ function createActiveSession(overrides: Partial<ActiveSession> = {}): ActiveSess
 	};
 }
 
+function releaseCurrentSingleton(): void {
+	const current = (globalThis as any).__piInteractiveShellSessionManagerV1 as ShellSessionManager | undefined;
+	if (current) releaseSessionManagerSingleton(current);
+}
+
 describe("ShellSessionManager", () => {
+	it("migrates a pre-feature reload singleton without losing sessions or duplicating retention ownership", async () => {
+		vi.useFakeTimers();
+		releaseCurrentSingleton();
+		const active = createActiveSession({ id: "legacy-active" });
+		const sweep = vi.fn(async () => {});
+		const begin = vi.fn((sessionId: string) => ({
+			ref: { sourceId: "11111111-1111-4111-8111-111111111111", sessionId, representation: "normalized-merged-pty-text-v1" },
+			appendProcessText: vi.fn(), finalize: vi.fn(), markIncomplete: vi.fn(),
+		}));
+		const legacy: any = {
+			sessions: new Map([["legacy-bg", { id: "legacy-bg", session: createSession(), command: "job", name: "job", startedAt: new Date() }]]),
+			exitWatchers: new Map(), cleanupTimers: new Map(), activeSessions: new Map([[active.id, active]]), changeListeners: new Set(),
+			outputStore: { begin, sweep, status: vi.fn(() => ({ sourceId: "x", state: "missing", length: 0 })), read: vi.fn() },
+		};
+		(globalThis as any).__piInteractiveShellSessionManagerV1 = legacy;
+		vi.resetModules();
+		const migrated = await import("../session-manager.ts");
+		expect(migrated.sessionManager).toBe(legacy);
+		expect(migrated.sessionManager.getActive("legacy-active")).toBe(active);
+		expect(migrated.sessionManager.list().map((entry) => entry.id)).toEqual(["legacy-bg"]);
+		const capture = migrated.sessionManager.beginOutputCapture("new-capture", "goal", "command");
+		expect(capture.available).toBe(true);
+		expect(begin).toHaveBeenCalledTimes(1);
+		await legacy.outputSweepInFlight;
+		expect(sweep).toHaveBeenCalledTimes(1);
+		migrated.sessionManager.recordOutputCompletion("ordinary-dispatch", { exitCode: 0, completionReason: "exited" });
+		const timers = vi.getTimerCount();
+		expect(timers).toBe(1);
+		vi.resetModules();
+		const reloaded = await import("../session-manager.ts");
+		expect(reloaded.sessionManager).toBe(legacy);
+		expect(vi.getTimerCount()).toBe(timers);
+		await vi.advanceTimersByTimeAsync(60_000);
+		await legacy.outputSweepInFlight;
+		expect(sweep).toHaveBeenCalledTimes(2);
+		reloaded.releaseSessionManagerSingleton(reloaded.sessionManager);
+		expect(vi.getTimerCount()).toBe(0);
+		(globalThis as any).__piInteractiveShellSessionManagerV1 = sessionManager;
+	});
+
 	it("reuses the process-wide manager when extension modules reload", async () => {
 		vi.resetModules();
 		const reloaded = await import("../session-manager.ts");
