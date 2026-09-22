@@ -200,6 +200,52 @@ describe("semantic option extraction", () => {
 	});
 
 	it.each([
+		["yes", "Continue? (Y/n)"],
+		["no", "Proceed with the safe operation? (y/N)"],
+	] as const)("extracts an inline confirmation whose uppercase default is %s without assuming Enter", (_default, prompt) => {
+		const options = extractSemanticOptions(["Status: ready", prompt, ""]);
+		expect(options).toEqual([
+			{
+				id: "inline_yes", label: "Yes", operation: { kind: "dynamic-terminal-confirmation" },
+				input: { kind: "inline-confirmation", response: "y", bytes: "y", prompt, promptIndex: 1, viewport: ["Status: ready", prompt] },
+			},
+			{
+				id: "inline_no", label: "No", operation: { kind: "dynamic-terminal-confirmation" },
+				input: { kind: "inline-confirmation", response: "n", bytes: "n", prompt, promptIndex: 1, viewport: ["Status: ready", prompt] },
+			},
+		]);
+		expect(options.every((option) => option.input.bytes.length === 1 && !option.input.bytes.includes("\r"))).toBe(true);
+		expect(Object.isFrozen(options[0]!.input)).toBe(true);
+		const input = options[0]!.input;
+		expect(input.kind === "inline-confirmation" && Object.isFrozen(input.viewport)).toBe(true);
+	});
+
+	it("bounds inline confirmation identity to adjacent visible context", () => {
+		const options = extractSemanticOptions(["stale one", "stale two", "stale three", "stale four", "stale five", "Ready", "Continue? (Y/n)"]);
+		const input = options[0]!.input;
+		expect(input.kind === "inline-confirmation" ? input.viewport : []).toEqual([
+			"stale three", "stale four", "stale five", "Ready", "Continue? (Y/n)",
+		]);
+	});
+
+	it.each([
+		["ambiguous lowercase hint", ["Continue? (y/n)"]],
+		["ambiguous uppercase hint", ["Continue? (Y/N)"]],
+		["multiple prompts", ["Continue? (Y/n)", "Proceed? (y/N)"]],
+		["adjacent question", ["Are you ready?", "Continue? (Y/n)"]],
+		["prefilled same line", ["Continue? (Y/n) y"]],
+		["prefilled following line", ["Continue? (Y/n)", "y"]],
+		["free text", ["Enter a response:", "Continue? (Y/n)"]],
+		["credential", ["Password required", "Continue? (Y/n)"]],
+		["shell syntax", ["Run sudo deploy", "Continue? (Y/n)"]],
+		...["delete", "remove", "overwrite", "drop", "reset", "erase", "destroy", "format", "purge", "abort", "cancel", "exit", "kill", "shutdown"]
+			.map((operation) => [`${operation} operation`, [`${operation} data? (Y/n)`]]),
+		["process-control operation", ["Stop the process? (y/N)"]],
+	] as Array<[string, string[]]>)("rejects unsafe or ambiguous inline confirmation: %s", (_name, viewport) => {
+		expect(extractSemanticOptions(viewport)).toEqual([]);
+	});
+
+	it.each([
 		["duplicate labels", ["1. Same", "2. same"]],
 		["non-sequential selectors", ["1. One", "3. Three"]],
 		["mixed selector styles", ["1. One", "2) Two"]],

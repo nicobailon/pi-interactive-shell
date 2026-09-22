@@ -8,7 +8,15 @@ export const MAX_SEMANTIC_OPTION_LABEL = 160;
 
 export type SemanticOptionInput =
 	| Readonly<{ kind: "text"; text: string; submit: true; bytes: string }>
-	| Readonly<{ kind: "keys"; keys: readonly ("up" | "down" | "enter")[]; bytes: string }>;
+	| Readonly<{ kind: "keys"; keys: readonly ("up" | "down" | "enter")[]; bytes: string }>
+	| Readonly<{
+		kind: "inline-confirmation";
+		response: "y" | "n";
+		bytes: "y" | "n";
+		prompt: string;
+		promptIndex: number;
+		viewport: readonly string[];
+	}>;
 
 export type SemanticOption = Readonly<{
 	id: string;
@@ -21,10 +29,14 @@ const EMPTY_OPTIONS: readonly SemanticOption[] = Object.freeze([]);
 const MAX_LINE_LENGTH = 240;
 const MAX_VIEWPORT_LENGTH = 4_096;
 const MAX_MENU_HEADER_LINES = 4;
+const MAX_INLINE_CONTEXT_LINES = 4;
 const FORBIDDEN_TEXT = /\b(?:password|passphrase|credential|secret|token|api[ _-]?key|mfa|2fa|otp|one[- ]time|recovery code|pin|payment|credit card|shell|command|exec(?:ute)?|kill|signal|exit|quit|logout|shutdown|reboot|terminate|dispose|background|transfer|disown|suspend|job[ _-]?control|process control|abort|cancel)\b/i;
 const FREE_FORM_PROMPT = /(?:\b(?:enter|type|provide|input|paste|write)\b[^\n]*[:?]\s*$|\b(?:name|email|message|value|text|response)\s*[:?]\s*$)/im;
 const UNSUPPORTED_OPTION = /(?:\b(?:enter|type|provide|write)\b[^\n]*\b(?:something|own|custom|response|answer|text|message)\b|\b(?:chat|discuss|custom input)\b)/i;
 const SHELL_SYNTAX = /(?:&&|\|\||[;`$<>]|\$\(|\b(?:sudo|sh|bash|zsh|fish|powershell|cmd\.exe)\b)/i;
+const INLINE_DESTRUCTIVE_OPERATION = /\b(?:delete|remove|overwrite|drop|reset|erase|destroy|format|purge|abort|cancel|exit|kill|shutdown|(?:start|stop|pause|resume)\s+(?:the\s+)?(?:process|service|server|system))\b/i;
+const INLINE_HINT = /\(\s*[yY]\s*\/\s*[nN]\s*\)/;
+const INLINE_PROMPT = /^\s*(\S(?:[^?]*\S)?)\?\s*\(([Yy])\/([Nn])\)\s*$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\p{Cf}]/u;
 const CANCEL_HELP = /\besc(?:ape)?(?:\s+key)?\s+(?:to\s+)?cancel\b/i;
 const CANCEL_HELP_LINE = /^\s*esc(?:ape)?(?:\s+key)?\s+(?:to\s+)?cancel\s*$/i;
@@ -46,7 +58,39 @@ export function extractSemanticOptions(viewport: unknown): readonly SemanticOpti
 	const screen = lines.join("\n");
 	if (screen.length > MAX_VIEWPORT_LENGTH) return EMPTY_OPTIONS;
 
-	return extractSelected(lines) ?? extractEnumerated(lines) ?? EMPTY_OPTIONS;
+	return extractInlineConfirmation(lines) ?? extractSelected(lines) ?? extractEnumerated(lines) ?? EMPTY_OPTIONS;
+}
+
+function extractInlineConfirmation(lines: readonly string[]): readonly SemanticOption[] | undefined {
+	const hinted = lines.flatMap((line, index) => INLINE_HINT.test(line) ? [{ line, index }] : []);
+	if (hinted.length === 0) return undefined;
+	if (hinted.length !== 1) return EMPTY_OPTIONS;
+	const candidate = hinted[0]!;
+	const match = candidate.line.match(INLINE_PROMPT);
+	if (!match || (match[2] === match[2]!.toLowerCase()) === (match[3] === match[3]!.toLowerCase())) return EMPTY_OPTIONS;
+	if (lines.filter((line) => line.includes("?")).length !== 1) return EMPTY_OPTIONS;
+	if (lines.slice(candidate.index + 1).some((line) => line.trim())) return EMPTY_OPTIONS;
+
+	const contextStart = Math.max(0, candidate.index - MAX_INLINE_CONTEXT_LINES);
+	const snapshot = Object.freeze(lines.slice(contextStart, candidate.index + 1).map((line) => line.trim()));
+	const promptIndex = snapshot.length - 1;
+	const prompt = snapshot[promptIndex]!;
+	const safetyScreen = snapshot.join("\n");
+	if (FORBIDDEN_TEXT.test(safetyScreen) || FREE_FORM_PROMPT.test(safetyScreen) || SHELL_SYNTAX.test(safetyScreen) || /[|&]/.test(safetyScreen)
+		|| INLINE_DESTRUCTIVE_OPERATION.test(safetyScreen)) return EMPTY_OPTIONS;
+
+	const makeInput = (response: "y" | "n") => Object.freeze({
+		kind: "inline-confirmation" as const,
+		response,
+		bytes: response,
+		prompt,
+		promptIndex,
+		viewport: snapshot,
+	});
+	return finish([
+		Object.freeze({ id: "inline_yes", label: "Yes", input: makeInput("y") }),
+		Object.freeze({ id: "inline_no", label: "No", input: makeInput("n") }),
+	]);
 }
 
 function extractEnumerated(lines: readonly string[]): readonly SemanticOption[] | undefined {
