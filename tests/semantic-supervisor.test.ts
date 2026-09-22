@@ -240,6 +240,68 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		supervisor.dispose();
 	});
 
+	it("performs one bounded observe-only reassessment when launch remains quiet", async () => {
+		const session = new FakeSession();
+		const requests: any[] = [];
+		const decisions: SemanticDecisionInput[] = [];
+		const supervisor = createSupervisor(session, { evaluate: vi.fn(async (request) => { requests.push(request); return result(); }) }, decisions);
+
+		await vi.advanceTimersByTimeAsync(1_999);
+		expect(requests).toEqual([]);
+		await vi.advanceTimersByTimeAsync(1); await flush();
+		expect(requests).toHaveLength(1);
+		expect(requests[0].state.observation.terminal).toMatchObject({ viewport: [], recentOutput: "" });
+		expect(requests[0].questions).not.toHaveProperty("action");
+		expect(decisions).toHaveLength(1);
+
+		await vi.advanceTimersByTimeAsync(60_000); await flush();
+		expect(requests).toHaveLength(1);
+		supervisor.dispose();
+	});
+
+	it("arms one quiet follow-up per output episode without replaying action choices", async () => {
+		const session = new FakeSession();
+		const requests: any[] = [];
+		const decisions: SemanticDecisionInput[] = [];
+		const supervisor = createSupervisor(session, { evaluate: vi.fn(async (request) => { requests.push(request); return result(); }) }, decisions);
+
+		session.mutate("working"); supervisor.handleOutput("working");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(requests).toHaveLength(1);
+		expect(requests[0].state.observation.terminal.changed).toBe(true);
+
+		await vi.advanceTimersByTimeAsync(1_999);
+		expect(requests).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(1); await flush();
+		expect(requests).toHaveLength(2);
+		expect(requests[1].state.observation.terminal.changed).toBe(false);
+		expect(requests[1].questions).not.toHaveProperty("action");
+		expect(decisions).toHaveLength(2);
+
+		await vi.advanceTimersByTimeAsync(60_000); await flush();
+		expect(requests).toHaveLength(2);
+		supervisor.dispose();
+	});
+
+	it("invalidates quiet timers across pause, epoch loss, exit, and disposal", async () => {
+		for (const invalidate of ["pause", "epoch", "exit", "dispose"] as const) {
+			const session = new FakeSession(); let epoch = true;
+			const evaluate = vi.fn(async () => result());
+			const supervisor = createSupervisor(session, { evaluate }, [], { epoch: () => epoch });
+			session.mutate("working"); supervisor.handleOutput("working");
+			await vi.advanceTimersByTimeAsync(0); await flush();
+			expect(evaluate, invalidate).toHaveBeenCalledTimes(1);
+
+			if (invalidate === "pause") supervisor.pause();
+			if (invalidate === "epoch") epoch = false;
+			if (invalidate === "exit") session.exited = true;
+			if (invalidate === "dispose") supervisor.dispose();
+			await vi.advanceTimersByTimeAsync(2_000); await flush();
+			expect(evaluate, invalidate).toHaveBeenCalledTimes(1);
+			supervisor.dispose();
+		}
+	});
+
 	it("invalidates on visual mutation and suppresses late results after pause, disposal, and epoch change", async () => {
 		for (const invalidate of ["resize", "pause", "dispose", "epoch"] as const) {
 			const session = new FakeSession(); const work = deferred<unknown>(); let epoch = true;
