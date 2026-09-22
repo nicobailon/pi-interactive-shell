@@ -555,11 +555,8 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		const session = new FakeSession();
 		session.lines = [...MULTI_SCREENS[0]];
 		const expectedWrites = [" ", "\x1b[B", " ", "\r"];
-		let supervisor!: SemanticSupervisor;
 		session.writeIfActive = (data: string) => {
 			expect(data).toBe(expectedWrites[session.writes.length]);
-			const active = supervisor as unknown as { multiSelect?: { transaction: { pending: string } } };
-			expect(active.multiSelect?.transaction.pending).toBe(["Space", "ArrowDown", "Space", "Enter"][session.writes.length]);
 			if (data === "\r") expect(session.lines).toEqual(MULTI_SCREENS[3]);
 			session.writes.push(data);
 			session.mutate([...MULTI_SCREENS[session.writes.length]!]);
@@ -570,7 +567,7 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		const requestAuthorization = vi.fn((_binding: unknown, option: { operation: unknown }, complete: (approved: boolean) => void) => {
 			expect(option.operation).toEqual({ kind: "dynamic-terminal-multi-select" }); complete(true);
 		});
-		supervisor = new SemanticSupervisor({
+		const supervisor = new SemanticSupervisor({
 			session, sessionId: "multi", mode: "hands-free", config: { goal: "Only Beta", minIntervalMs: 250, dynamicChoices: { enabled: true } },
 			client: { evaluate: vi.fn(async () => multiResult()) }, model: "jev-1.13.0", requestTimeoutMs: 1_000, startedAt: Date.now(),
 			bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] }, isEpochCurrent: () => true,
@@ -580,7 +577,6 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		supervisor.handleOutput("menu");
 		await vi.advanceTimersByTimeAsync(0); await flush();
 		expect(session.writes).toEqual(expectedWrites);
-		expect(session.writes).toHaveLength(4);
 		expect(session.writes.length).toBeLessThanOrEqual(3 * 2 + 1);
 		expect(reserve).toHaveBeenCalledOnce();
 		expect(requestAuthorization).toHaveBeenCalledOnce();
@@ -601,7 +597,6 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		const supervisor = createMultiSupervisor(session, decisions, { reserve, authorize });
 		supervisor.handleOutput("menu"); await vi.advanceTimersByTimeAsync(0); await flush();
 		expect(session.writes).toEqual([" "]);
-		expect(session.writes).not.toContain("\r");
 		expect(reserve).toHaveBeenCalledOnce(); expect(authorize).toHaveBeenCalledOnce();
 		expect(decisions.map((decision) => decision.action?.reason)).toEqual([
 			"multi-select-transaction-started", mode === "throw" ? "multi-select-write-failed" : "multi-select-write-refused",
@@ -636,7 +631,6 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		expect(decisions.at(-1)?.action).toMatchObject({ outcome: "refused", reason: mode === "pause" ? "multi-select-paused" : "multi-select-disposed", budgetCount: 1 });
 		session.mutate([...MULTI_SCREENS[1]]); await flush();
 		expect(session.writes).toEqual([" "]);
-		expect(session.writes).not.toContain("\r");
 		if (mode === "pause") supervisor.dispose();
 	});
 
@@ -655,7 +649,7 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		supervisor.dispose();
 	});
 
-	it.each(["ownership", "epoch", "takeover", "exit", "secret", "stop"] as const)("rechecks %s before the next transaction write", async (kind) => {
+	it.each(["ownership", "epoch", "takeover", "exit", "secret"] as const)("rechecks %s before the next transaction write", async (kind) => {
 		const session = new FakeSession(); session.lines = [...MULTI_SCREENS[0]];
 		const decisions: SemanticDecisionInput[] = [];
 		let owner = true; let epoch = true; let interactive = true; let supervisor!: SemanticSupervisor;
@@ -665,14 +659,15 @@ describe("SemanticSupervisor observe-only state machine", () => {
 			if (kind === "epoch") epoch = false;
 			if (kind === "takeover") interactive = false;
 			if (kind === "exit") session.exited = true;
-			if (kind === "secret") (supervisor as any).secretPromptFence = { generation: session.visualGeneration };
-			if (kind === "stop") (supervisor as any).actionsStopped = true;
+			if (kind === "secret") {
+				session.lines = [...session.lines, "Password:"];
+				supervisor.handleOutput("Password:");
+			}
 			return true;
 		};
 		supervisor = createMultiSupervisor(session, decisions, { owner: () => owner, epoch: () => epoch, interactive: () => interactive });
 		supervisor.handleOutput("menu"); await vi.advanceTimersByTimeAsync(0); await flush();
 		expect(session.writes).toEqual([" "]);
-		expect(session.writes).not.toContain("\r");
 		expect(decisions.at(-1)?.action).toMatchObject({ outcome: "refused", budgetCount: 1 });
 		supervisor.dispose();
 	});

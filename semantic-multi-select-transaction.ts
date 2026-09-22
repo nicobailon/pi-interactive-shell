@@ -195,7 +195,7 @@ function cloneSnapshot(value: SemanticMultiSelectSnapshot): SemanticMultiSelectS
 	});
 }
 
-function blocked(reason: MultiSelectBlockedReason, steps: number): MultiSelectTransactionResult {
+function blocked(reason: MultiSelectBlockedReason, steps: number): Extract<MultiSelectTransactionResult, { kind: "blocked" }> {
 	return Object.freeze({ kind: "blocked", reason, steps });
 }
 
