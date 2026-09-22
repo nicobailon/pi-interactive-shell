@@ -42,6 +42,17 @@ const observationAnswers = () => {
 	return result;
 };
 
+const inlineAnswers = (choice: "dynamic:inline_yes" | "dynamic:inline_no", selected = 0.99) => {
+	const result = answers("none");
+	return { ...result, answers: { ...result.answers,
+		dynamic_choice: { type: "choice", choice, confidence: 0.99, probabilities: {
+			"dynamic:inline_yes": choice === "dynamic:inline_yes" ? selected : 0,
+			"dynamic:inline_no": choice === "dynamic:inline_no" ? selected : 0,
+			none: 0,
+		} },
+	} };
+};
+
 const answersWithFixedControl = (choice: "observe_again" | "notify_pi") => {
 	const result = answers("dynamic:number_1");
 	return { ...result, answers: { ...result.answers,
@@ -60,6 +71,10 @@ function createSupervisor(options: {
 	client: JevClient;
 	authorization: SemanticChoiceAuthorization;
 	interactive?: boolean;
+	isInteractive?: () => boolean;
+	isEpochCurrent?: () => boolean;
+	isActionOwner?: () => boolean;
+	reserveGlobalAction?: () => boolean;
 	fixedActions?: boolean;
 	decisions?: SemanticDecisionInput[];
 }) {
@@ -70,9 +85,11 @@ function createSupervisor(options: {
 		session: options.session, mode: "hands-free", config: { goal: "Choose the best release channel", minIntervalMs: 250, dynamicChoices: { enabled: true } },
 		client: options.client, model: "jev-1.13.0", requestTimeoutMs: 1_000,
 		bounds: { maxViewportLines: 10, maxRecentChars: 500, redactionPatterns: [] }, startedAt: Date.now(),
-		isEpochCurrent: () => true, isActionOwner: () => true, reserveGlobalAction: () => true,
+		isEpochCurrent: options.isEpochCurrent ?? (() => true), isActionOwner: options.isActionOwner ?? (() => true),
+		reserveGlobalAction: options.reserveGlobalAction ?? (() => true),
 		...(actionRegistry ? { actionRegistry } : {}),
-		dynamicChoices: { sessionId: "session-1", authorization: options.authorization, isInteractive: () => options.interactive !== false },
+		dynamicChoices: { sessionId: "session-1", authorization: options.authorization,
+			isInteractive: options.isInteractive ?? (() => options.interactive !== false) },
 		onDecision: (decision) => options.decisions?.push(decision),
 	});
 }
@@ -258,6 +275,95 @@ describe("goal-driven dynamic visible choices", () => {
 		session.show(["Select", "1. Alpha", "2. Beta"]); supervisor.handleOutput("menu");
 		await vi.advanceTimersByTimeAsync(0); await flush();
 		expect(session.writes).toEqual([]); expect(decisions[0]?.kind).toBe("evaluator-error");
+		supervisor.dispose(); vi.useRealTimers();
+	});
+});
+
+describe("bounded inline confirmation transactions", () => {
+	const approved = (): SemanticChoiceAuthorization => ({ request: (_binding, _option, done) => done(true), dispose() {} });
+	const runInitial = async (options: Parameters<typeof createSupervisor>[0], prompt = "Continue? (Y/n)") => {
+		const supervisor = createSupervisor(options);
+		options.session.show([prompt]); supervisor.handleOutput(prompt);
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		return supervisor;
+	};
+
+	it("writes one immediate key and one Enter only after its exact echo", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = []; const reserveGlobalAction = vi.fn(() => true);
+		const supervisor = await runInitial({ session, decisions, authorization: approved(),
+			reserveGlobalAction, client: { evaluate: vi.fn(async () => inlineAnswers("dynamic:inline_yes")) } });
+		expect(session.writes).toEqual(["y"]);
+		expect(decisions[0]?.action).toMatchObject({ outcome: "executed", reason: "inline-selection-written", budgetCount: 1 });
+		session.show(["Continue? (Y/n)y"]);
+		expect(session.writes).toEqual(["y", "\r"]);
+		expect(reserveGlobalAction).toHaveBeenCalledOnce();
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it("finishes immediate-key consumers without Enter when the prompt disappears", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession();
+		const supervisor = await runInitial({ session, authorization: approved(),
+			client: { evaluate: vi.fn(async () => inlineAnswers("dynamic:inline_no")) } }, "Continue? (y/N)");
+		expect(session.writes).toEqual(["n"]);
+		session.show(["Completed"]);
+		expect(session.writes).toEqual(["n"]);
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it.each([
+		["no echo", ["Continue? (Y/n)"]],
+		["wrong echo", ["Continue? (Y/n)n"]],
+		["extra edit", ["Continue? (Y/n)y now"]],
+		["unrelated redraw", ["Changed context", "Continue? (Y/n)y"]],
+	] as const)("sends no Enter for %s", async (_name, next) => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); session.lines = ["Stable context"];
+		const supervisor = createSupervisor({ session, authorization: approved(),
+			client: { evaluate: vi.fn(async () => inlineAnswers("dynamic:inline_yes")) } });
+		session.show(["Stable context", "Continue? (Y/n)"]); supervisor.handleOutput("prompt");
+		await vi.advanceTimersByTimeAsync(0); await flush(); expect(session.writes).toEqual(["y"]);
+		session.show([...next]); expect(session.writes).toEqual(["y"]);
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it.each(["ownership", "epoch", "takeover", "pause", "exit", "secret"] as const)("sends no Enter after %s interruption", async (kind) => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); let owner = true; let epoch = true; let interactive = true;
+		const supervisor = await runInitial({ session, authorization: approved(), client: { evaluate: vi.fn(async () => inlineAnswers("dynamic:inline_yes")) },
+			isActionOwner: () => owner, isEpochCurrent: () => epoch, isInteractive: () => interactive });
+		expect(session.writes).toEqual(["y"]);
+		if (kind === "ownership") owner = false;
+		if (kind === "epoch") epoch = false;
+		if (kind === "takeover") interactive = false;
+		if (kind === "pause") supervisor.pause();
+		if (kind === "exit") session.exited = true;
+		const next = kind === "secret" ? ["Authentication code:", "Continue? (Y/n)y"] : ["Continue? (Y/n)y"];
+		session.show(next); expect(session.writes).toEqual(["y"]);
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it.each(["deny", "ask-unavailable", "stale"] as const)("writes zero bytes when initial authorization is %s", async (kind) => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); let approve: ((allowed: boolean) => void) | undefined;
+		const permissions = compileSemanticPermissions(kind === "deny"
+			? [{ decision: "deny", operation: { kind: "dynamic-terminal-confirmation" } }]
+			: []);
+		const authorization = createSemanticChoiceAuthorization({ permissions,
+			ui: { confirm: () => kind === "stale" ? new Promise<boolean>((resolve) => { approve = resolve; }) : Promise.resolve(true) },
+			isAvailable: () => kind !== "ask-unavailable" });
+		const supervisor = createSupervisor({ session, authorization, client: { evaluate: vi.fn(async () => inlineAnswers("dynamic:inline_yes")) } });
+		session.show(["Continue? (Y/n)"]); supervisor.handleOutput("prompt"); await vi.advanceTimersByTimeAsync(0); await flush();
+		if (kind === "stale") { session.show(["Changed"]); approve!(true); await flush(); }
+		expect(session.writes).toEqual([]);
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it("does not replay Enter and consumes the one dynamic choice budget", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession();
+		const client: JevClient = { evaluate: vi.fn(async (request) =>
+			(request.questions as Record<string, unknown>).dynamic_choice ? inlineAnswers("dynamic:inline_yes") : observationAnswers()) };
+		const supervisor = await runInitial({ session, authorization: approved(), client });
+		session.show(["Continue? (Y/n)y"]); session.show(["Continue? (Y/n)y"]);
+		expect(session.writes).toEqual(["y", "\r"]);
+		session.show(["Again? (Y/n)"]); supervisor.handleOutput("again"); await vi.advanceTimersByTimeAsync(250); await flush();
+		expect(session.writes).toEqual(["y", "\r"]);
 		supervisor.dispose(); vi.useRealTimers();
 	});
 });

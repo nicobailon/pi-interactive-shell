@@ -30,6 +30,7 @@
     "semantic-events.ts",
     "semantic-actions.ts",
 	"semantic-options.ts",
+	"semantic-inline-confirmation.ts",
 	"semantic-permissions.ts",
 	"semantic-approval.ts",
 	"semantic-choice-authorization.ts",

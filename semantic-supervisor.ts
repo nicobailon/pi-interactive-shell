@@ -5,6 +5,7 @@ import type { SemanticAnswers, SemanticAttentionState, SemanticConfig, SemanticD
 import type { SemanticActionRegistry } from "./semantic-actions.ts";
 import { SEMANTIC_THRESHOLDS } from "./semantic-policy.ts";
 import { extractSemanticOptions, type SemanticOption } from "./semantic-options.ts";
+import { createInlineConfirmationPlan, verifyInlineConfirmationTransition, type InlineConfirmationPlan } from "./semantic-inline-confirmation.ts";
 import type { SemanticChoiceAuthorization } from "./semantic-choice-authorization.ts";
 import { validateSemanticReply, type SemanticReplyBinding } from "./semantic-reply.ts";
 
@@ -74,6 +75,7 @@ export class SemanticSupervisor {
 	private actionsStopped = false;
 	private actionCount = 0;
 	private dynamicActionUsed = false;
+	private inlineConfirmation: { plan: InlineConfirmationPlan; generation: number; hash: string } | undefined;
 	private readonly actionCounts = new Map<string, number>();
 	private readonly actionLastAt = new Map<string, number>();
 	private readonly consumedActionHashes = new Set<string>();
@@ -98,7 +100,8 @@ export class SemanticSupervisor {
 			: DEFAULT_QUIET_REASSESSMENT_MS;
 		this.unsubscribeVisual = options.session.addVisualChangeListener(() => {
 			this.currentObservationHash = undefined;
-			if (this.awaitingVisualGeneration !== undefined && options.session.visualGeneration !== this.awaitingVisualGeneration) this.awaitingVisualGeneration = undefined;
+			if (this.inlineConfirmation && options.session.visualGeneration !== this.inlineConfirmation.generation) this.finishInlineConfirmation(this.inlineConfirmation);
+			else if (this.awaitingVisualGeneration !== undefined && options.session.visualGeneration !== this.awaitingVisualGeneration) this.awaitingVisualGeneration = undefined;
 			if (this.inFlight && options.session.visualGeneration !== this.inFlight.generation) {
 				this.inFlight.controller.abort();
 			}
@@ -145,6 +148,7 @@ export class SemanticSupervisor {
 	pause(): void {
 		if (this.disposed) return;
 		this.paused = true;
+		this.inlineConfirmation = undefined;
 		this.pending = false;
 		this.cancelQuietReassessment();
 		if (this.timer) clearTimeout(this.timer);
@@ -346,6 +350,7 @@ export class SemanticSupervisor {
 			label: option.label,
 			bytes: option.input.bytes,
 			operation: option.operation,
+			input: option.input,
 		}));
 	}
 
@@ -389,6 +394,11 @@ export class SemanticSupervisor {
 	}
 
 	private writeDynamicAction(answer: ParsedActionAnswer, generation: number, hash: string): NonNullable<SemanticDecisionInput["action"]> {
+		const input = answer.option!.input;
+		const plan = input.kind === "inline-confirmation"
+			? createInlineConfirmationPlan(input.viewport, input.prompt, input.response)
+			: undefined;
+		if (input.kind === "inline-confirmation" && (!plan || plan.promptLine !== input.promptIndex)) return this.blockDynamic(answer, "invalid-transaction");
 		if (this.options.reserveGlobalAction?.() !== true) return this.blockDynamic(answer, "global-budget");
 		this.actionInFlight = true;
 		let outcome: "executed" | "refused" | "error";
@@ -396,7 +406,8 @@ export class SemanticSupervisor {
 		try {
 			const written = this.options.session.writeIfActive!(answer.option!.bytes);
 			outcome = written ? "executed" : "refused";
-			reason = written ? "written-once" : "inactive-session";
+			reason = written ? (plan ? "inline-selection-written" : "written-once") : "inactive-session";
+			if (written && plan) this.inlineConfirmation = { plan, generation, hash };
 		} catch {
 			outcome = "error";
 			reason = "write-failed";
@@ -409,6 +420,43 @@ export class SemanticSupervisor {
 		}
 		return { choice: answer.choice, actionId: answer.choice, confidence: answer.confidence, probability: answer.probability,
 			readiness: answer.readiness, outcome, reason, budgetCount: 1 };
+	}
+
+	private finishInlineConfirmation(transaction: { plan: InlineConfirmationPlan; generation: number; hash: string }): void {
+		if (this.inlineConfirmation !== transaction) return;
+		const identityCurrent = this.awaitingVisualGeneration === transaction.generation && this.dynamicActionUsed;
+		this.inlineConfirmation = undefined;
+		this.awaitingVisualGeneration = undefined;
+		const viewport = this.inlineConfirmationViewport(transaction.plan);
+		const transition = verifyInlineConfirmationTransition(transaction.plan, viewport);
+		if (transition.kind !== "submit") return;
+		const current = this.buildObservation(true);
+		const dynamic = this.options.dynamicChoices;
+		if (this.disposed || this.paused || this.actionsStopped || this.options.session.exited || !this.options.isEpochCurrent()
+			|| !dynamic?.isInteractive() || this.options.isActionOwner?.() !== true || !identityCurrent || current.secretPrompt
+			|| classifyTerminalSecretPrompt(this.trustedViewport(), "").secretPrompt
+			|| transaction.hash.length === 0 || transaction.generation >= this.options.session.visualGeneration) return;
+		try {
+			if (this.options.session.writeIfActive?.("\r") !== true) return;
+		} catch {
+			return;
+		}
+		this.awaitingVisualGeneration = this.options.session.visualGeneration;
+		this.lastActionGeneration = this.options.session.visualGeneration;
+		this.currentObservationHash = undefined;
+	}
+
+	private inlineConfirmationViewport(plan: InlineConfirmationPlan): readonly string[] {
+		const viewport = this.trustedViewport().map((line) => line.trim());
+		const matches = viewport.flatMap((line, index) => line.startsWith(plan.prompt) ? [index] : []);
+		if (matches.length === 0) return viewport;
+		if (matches.length > 1) return [plan.prompt, plan.prompt];
+		const promptLine = matches[0]!;
+		const start = Math.max(0, promptLine - plan.promptLine);
+		const end = promptLine + 1;
+		const region = viewport.slice(start, end);
+		const trailing = viewport.slice(end).find((line) => line.length > 0);
+		return trailing === undefined ? region : [...region, trailing];
 	}
 
 	private blockDynamic(answer: ParsedActionAnswer, reason: string): NonNullable<SemanticDecisionInput["action"]> {
@@ -497,6 +545,7 @@ export class SemanticSupervisor {
 	dispose(): void {
 		if (this.disposed) return;
 		this.disposed = true;
+		this.inlineConfirmation = undefined;
 		this.cancelQuietReassessment();
 		if (this.timer) clearTimeout(this.timer);
 		this.timer = undefined;
@@ -509,7 +558,7 @@ export class SemanticSupervisor {
 
 const ACTION_CONTROLS = ["observe_again", "notify_pi", "stop_automation"] as const;
 const DYNAMIC_NONE = "none";
-type RuntimeSemanticOption = { id: string; label: string; bytes: string; operation: SemanticOption["operation"] };
+type RuntimeSemanticOption = { id: string; label: string; bytes: string; operation: SemanticOption["operation"]; input: SemanticOption["input"] };
 type ParsedActionAnswer = { choice: string; confidence: number; probability: number; readiness?: number; option?: RuntimeSemanticOption };
 
 export function buildSemanticRequest(observation: TerminalObservation, config: SemanticConfig, model: string, registry?: SemanticActionRegistry, dynamicOptions: readonly RuntimeSemanticOption[] = []): JevEvaluationRequest {

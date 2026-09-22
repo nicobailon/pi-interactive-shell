@@ -267,7 +267,7 @@ describe("config + docs parity", () => {
 
 	it("packages the semantic runtime, corpus evaluator, command, and accurate key-free documentation", () => {
 		const pkg = JSON.parse(readFileSync("package.json", "utf-8")) as { files: string[]; scripts: Record<string, string>; dependencies: Record<string, string> };
-		for (const asset of ["jev-client.ts", "terminal-observation.ts", "semantic-supervisor.ts", "semantic-events.ts", "semantic-actions.ts", "semantic-corpus.ts", "semantic-evaluator.ts", "semantic-diagnostics.ts", "scripts/evaluate-jev.ts"]) {
+		for (const asset of ["jev-client.ts", "terminal-observation.ts", "semantic-supervisor.ts", "semantic-inline-confirmation.ts", "semantic-events.ts", "semantic-actions.ts", "semantic-corpus.ts", "semantic-evaluator.ts", "semantic-diagnostics.ts", "scripts/evaluate-jev.ts"]) {
 			expect(pkg.files).toContain(asset);
 		}
 		expect(pkg.scripts["eval:jev"]).toBe("node --experimental-strip-types scripts/evaluate-jev.ts");
