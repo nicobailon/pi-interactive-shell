@@ -207,11 +207,11 @@ describe("semantic option extraction", () => {
 		expect(options).toEqual([
 			{
 				id: "inline_yes", label: "Yes", operation: { kind: "dynamic-terminal-confirmation" },
-				input: { kind: "inline-confirmation", response: "y", bytes: "y", prompt, promptIndex: 1, viewport: ["Status: ready", prompt] },
+				input: { kind: "inline-confirmation", response: "y", bytes: "y", prompt, promptIndex: 1, viewport: ["Status: ready", prompt, ""] },
 			},
 			{
 				id: "inline_no", label: "No", operation: { kind: "dynamic-terminal-confirmation" },
-				input: { kind: "inline-confirmation", response: "n", bytes: "n", prompt, promptIndex: 1, viewport: ["Status: ready", prompt] },
+				input: { kind: "inline-confirmation", response: "n", bytes: "n", prompt, promptIndex: 1, viewport: ["Status: ready", prompt, ""] },
 			},
 		]);
 		expect(options.every((option) => option.input.bytes.length === 1 && !option.input.bytes.includes("\r"))).toBe(true);
@@ -220,12 +220,18 @@ describe("semantic option extraction", () => {
 		expect(input.kind === "inline-confirmation" && Object.isFrozen(input.viewport)).toBe(true);
 	});
 
-	it("bounds inline confirmation identity to adjacent visible context", () => {
+	it("binds inline confirmation identity to the complete visible viewport", () => {
 		const options = extractSemanticOptions(["stale one", "stale two", "stale three", "stale four", "stale five", "Ready", "Continue? (Y/n)"]);
 		const input = options[0]!.input;
 		expect(input.kind === "inline-confirmation" ? input.viewport : []).toEqual([
-			"stale three", "stale four", "stale five", "Ready", "Continue? (Y/n)",
+			"stale one", "stale two", "stale three", "stale four", "stale five", "Ready", "Continue? (Y/n)",
 		]);
+	});
+
+	it("rejects destructive context anywhere in the viewport without falling back to a generic menu", () => {
+		expect(extractSemanticOptions([
+			"Delete production resources", "1. Continue", "2. Go back", "details", "more details", "review", "Continue? (Y/n)",
+		])).toEqual([]);
 	});
 
 	it.each([

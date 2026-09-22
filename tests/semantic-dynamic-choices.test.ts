@@ -290,13 +290,38 @@ describe("bounded inline confirmation transactions", () => {
 
 	it("writes one immediate key and one Enter only after its exact echo", async () => {
 		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = []; const reserveGlobalAction = vi.fn(() => true);
-		const supervisor = await runInitial({ session, decisions, authorization: approved(),
+		const confirm = vi.fn(async () => true);
+		const authorization = createSemanticChoiceAuthorization({ permissions: compileSemanticPermissions([
+			{ decision: "allow", operation: { kind: "dynamic-terminal-confirmation" } },
+			{ decision: "deny", operation: { kind: "dynamic-terminal-choice" } },
+		]), ui: { confirm }, isAvailable: () => true });
+		const supervisor = await runInitial({ session, decisions, authorization,
 			reserveGlobalAction, client: { evaluate: vi.fn(async () => inlineAnswers("dynamic:inline_yes")) } });
 		expect(session.writes).toEqual(["y"]);
-		expect(decisions[0]?.action).toMatchObject({ outcome: "executed", reason: "inline-selection-written", budgetCount: 1 });
+		expect(decisions[0]?.action).toMatchObject({ outcome: "executed", budgetCount: 1 });
+		expect(confirm).not.toHaveBeenCalled();
 		session.show(["Continue? (Y/n)y"]);
 		expect(session.writes).toEqual(["y", "\r"]);
 		expect(reserveGlobalAction).toHaveBeenCalledOnce();
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it.each([
+		["ambiguous protocol", ["Continue? (y/n)"]],
+		["destructive adjacent context", ["Delete production resources", "details", "review", "Continue? (Y/n)"]],
+	] as const)("wakes Pi with zero terminal bytes for %s", async (_name, viewport) => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
+		const authorization = { request: vi.fn(), dispose() {} };
+		const client: JevClient = { evaluate: vi.fn(async (request) => {
+			expect((request.questions as Record<string, unknown>).dynamic_choice).toBeUndefined();
+			return observationAnswers();
+		}) };
+		const supervisor = createSupervisor({ session, decisions, authorization, client });
+		session.show([...viewport]); supervisor.handleOutput("confirmation");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(session.writes).toEqual([]);
+		expect(authorization.request).not.toHaveBeenCalled();
+		expect(decisions[0]).toMatchObject({ kind: "observation", route: "notify" });
 		supervisor.dispose(); vi.useRealTimers();
 	});
 
@@ -322,6 +347,19 @@ describe("bounded inline confirmation transactions", () => {
 		session.show(["Stable context", "Continue? (Y/n)"]); supervisor.handleOutput("prompt");
 		await vi.advanceTimersByTimeAsync(0); await flush(); expect(session.writes).toEqual(["y"]);
 		session.show([...next]); expect(session.writes).toEqual(["y"]);
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it("wakes semantic attention after an ambiguous echo without sending Enter", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = []; let calls = 0;
+		const client: JevClient = { evaluate: vi.fn(async () => ++calls === 1
+			? inlineAnswers("dynamic:inline_yes") : observationAnswers()) };
+		const supervisor = await runInitial({ session, decisions, authorization: approved(), client });
+		expect(session.writes).toEqual(["y"]);
+		session.show(["Continue? (Y/n)n"]); supervisor.handleOutput("ambiguous echo");
+		await vi.advanceTimersByTimeAsync(250); await flush();
+		expect(session.writes).toEqual(["y"]);
+		expect(decisions[1]).toMatchObject({ kind: "observation", route: "notify" });
 		supervisor.dispose(); vi.useRealTimers();
 	});
 

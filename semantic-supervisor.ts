@@ -75,7 +75,7 @@ export class SemanticSupervisor {
 	private actionsStopped = false;
 	private actionCount = 0;
 	private dynamicActionUsed = false;
-	private inlineConfirmation: { plan: InlineConfirmationPlan; generation: number; hash: string } | undefined;
+	private inlineConfirmation: { plan: InlineConfirmationPlan; generation: number } | undefined;
 	private readonly actionCounts = new Map<string, number>();
 	private readonly actionLastAt = new Map<string, number>();
 	private readonly consumedActionHashes = new Set<string>();
@@ -348,7 +348,6 @@ export class SemanticSupervisor {
 		return extractSemanticOptions(viewport).map((option) => Object.freeze({
 			id: `dynamic:${option.id}`,
 			label: option.label,
-			bytes: option.input.bytes,
 			operation: option.operation,
 			input: option.input,
 		}));
@@ -367,7 +366,7 @@ export class SemanticSupervisor {
 			if (!approved) { complete(this.blockDynamic(answer, "permission-or-approval")); this.resumeDeferredQuiet(); return; }
 			const recheck = this.checkDynamicAction(answer, generation, hash);
 			if (recheck) { complete(recheck); this.resumeDeferredQuiet(); return; }
-			complete(this.writeDynamicAction(answer, generation, hash));
+			complete(this.writeDynamicAction(answer, generation));
 			this.resumeDeferredQuiet();
 		});
 	}
@@ -389,25 +388,30 @@ export class SemanticSupervisor {
 		const current = this.buildObservation(true);
 		if (!current.observation.terminal.changed || current.hash !== hash || current.secretPrompt) return this.blockDynamic(answer, "changed-hash-or-secret");
 		if (this.dynamicActionUsed || this.actionCount >= 10) return this.blockDynamic(answer, "session-budget");
-		if (!answer.option?.bytes || Buffer.byteLength(answer.option.bytes) > 64 || !this.options.session.writeIfActive) return this.blockDynamic(answer, "invalid-bytes-or-session");
+		if (!answer.option?.input.bytes || Buffer.byteLength(answer.option.input.bytes) > 64 || !this.options.session.writeIfActive) return this.blockDynamic(answer, "invalid-bytes-or-session");
 		return undefined;
 	}
 
-	private writeDynamicAction(answer: ParsedActionAnswer, generation: number, hash: string): NonNullable<SemanticDecisionInput["action"]> {
+	private writeDynamicAction(answer: ParsedActionAnswer, generation: number): NonNullable<SemanticDecisionInput["action"]> {
 		const input = answer.option!.input;
-		const plan = input.kind === "inline-confirmation"
-			? createInlineConfirmationPlan(input.viewport, input.prompt, input.response)
-			: undefined;
-		if (input.kind === "inline-confirmation" && (!plan || plan.promptLine !== input.promptIndex)) return this.blockDynamic(answer, "invalid-transaction");
+		let plan: InlineConfirmationPlan | undefined;
+		if (input.kind === "inline-confirmation") {
+			const trustedInput = extractSemanticOptions(this.trustedViewport())
+				.find((option) => `dynamic:${option.id}` === answer.option!.id)?.input;
+			if (trustedInput?.kind !== "inline-confirmation" || trustedInput.bytes !== input.bytes
+				|| answer.option!.operation.kind !== "dynamic-terminal-confirmation") return this.blockDynamic(answer, "invalid-transaction");
+			plan = createInlineConfirmationPlan(trustedInput.viewport, trustedInput.prompt, trustedInput.response);
+			if (!plan || plan.promptLine !== trustedInput.promptIndex) return this.blockDynamic(answer, "invalid-transaction");
+		}
 		if (this.options.reserveGlobalAction?.() !== true) return this.blockDynamic(answer, "global-budget");
 		this.actionInFlight = true;
 		let outcome: "executed" | "refused" | "error";
 		let reason: string;
 		try {
-			const written = this.options.session.writeIfActive!(answer.option!.bytes);
+			const written = this.options.session.writeIfActive!(answer.option!.input.bytes);
 			outcome = written ? "executed" : "refused";
 			reason = written ? (plan ? "inline-selection-written" : "written-once") : "inactive-session";
-			if (written && plan) this.inlineConfirmation = { plan, generation, hash };
+			if (written && plan) this.inlineConfirmation = { plan, generation };
 		} catch {
 			outcome = "error";
 			reason = "write-failed";
@@ -422,20 +426,19 @@ export class SemanticSupervisor {
 			readiness: answer.readiness, outcome, reason, budgetCount: 1 };
 	}
 
-	private finishInlineConfirmation(transaction: { plan: InlineConfirmationPlan; generation: number; hash: string }): void {
+	private finishInlineConfirmation(transaction: { plan: InlineConfirmationPlan; generation: number }): void {
 		if (this.inlineConfirmation !== transaction) return;
 		const identityCurrent = this.awaitingVisualGeneration === transaction.generation && this.dynamicActionUsed;
 		this.inlineConfirmation = undefined;
 		this.awaitingVisualGeneration = undefined;
-		const viewport = this.inlineConfirmationViewport(transaction.plan);
-		const transition = verifyInlineConfirmationTransition(transaction.plan, viewport);
+		const transition = verifyInlineConfirmationTransition(transaction.plan, this.trustedViewport());
 		if (transition.kind !== "submit") return;
 		const current = this.buildObservation(true);
 		const dynamic = this.options.dynamicChoices;
 		if (this.disposed || this.paused || this.actionsStopped || this.options.session.exited || !this.options.isEpochCurrent()
 			|| !dynamic?.isInteractive() || this.options.isActionOwner?.() !== true || !identityCurrent || current.secretPrompt
 			|| classifyTerminalSecretPrompt(this.trustedViewport(), "").secretPrompt
-			|| transaction.hash.length === 0 || transaction.generation >= this.options.session.visualGeneration) return;
+			|| transaction.generation >= this.options.session.visualGeneration) return;
 		try {
 			if (this.options.session.writeIfActive?.("\r") !== true) return;
 		} catch {
@@ -444,19 +447,6 @@ export class SemanticSupervisor {
 		this.awaitingVisualGeneration = this.options.session.visualGeneration;
 		this.lastActionGeneration = this.options.session.visualGeneration;
 		this.currentObservationHash = undefined;
-	}
-
-	private inlineConfirmationViewport(plan: InlineConfirmationPlan): readonly string[] {
-		const viewport = this.trustedViewport().map((line) => line.trim());
-		const matches = viewport.flatMap((line, index) => line.startsWith(plan.prompt) ? [index] : []);
-		if (matches.length === 0) return viewport;
-		if (matches.length > 1) return [plan.prompt, plan.prompt];
-		const promptLine = matches[0]!;
-		const start = Math.max(0, promptLine - plan.promptLine);
-		const end = promptLine + 1;
-		const region = viewport.slice(start, end);
-		const trailing = viewport.slice(end).find((line) => line.length > 0);
-		return trailing === undefined ? region : [...region, trailing];
 	}
 
 	private blockDynamic(answer: ParsedActionAnswer, reason: string): NonNullable<SemanticDecisionInput["action"]> {
@@ -558,7 +548,7 @@ export class SemanticSupervisor {
 
 const ACTION_CONTROLS = ["observe_again", "notify_pi", "stop_automation"] as const;
 const DYNAMIC_NONE = "none";
-type RuntimeSemanticOption = { id: string; label: string; bytes: string; operation: SemanticOption["operation"]; input: SemanticOption["input"] };
+type RuntimeSemanticOption = { id: string; label: string; operation: SemanticOption["operation"]; input: SemanticOption["input"] };
 type ParsedActionAnswer = { choice: string; confidence: number; probability: number; readiness?: number; option?: RuntimeSemanticOption };
 
 export function buildSemanticRequest(observation: TerminalObservation, config: SemanticConfig, model: string, registry?: SemanticActionRegistry, dynamicOptions: readonly RuntimeSemanticOption[] = []): JevEvaluationRequest {
