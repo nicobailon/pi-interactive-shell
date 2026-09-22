@@ -37,6 +37,7 @@
     "semantic-corpus.ts",
     "semantic-evaluator.ts",
     "semantic-diagnostics.ts",
+	"semantic-reply.ts",
     "selector-corpus.ts",
     "selector-evaluator.ts",
     "output-source-store.ts",

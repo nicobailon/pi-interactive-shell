@@ -9,8 +9,10 @@ class FakeSession implements SemanticObservationSession {
 	visualGeneration = 0;
 	lines: string[] = [];
 	private listeners: Array<() => void> = [];
+	writes: string[] = [];
 	getViewportLines() { return this.lines; }
 	addVisualChangeListener(listener: () => void) { this.listeners.push(listener); return () => { this.listeners = this.listeners.filter((item) => item !== listener); }; }
+	writeIfActive(data: string) { if (this.exited) return false; this.writes.push(data); return true; }
 	mutate(line: string | string[]) { this.lines = Array.isArray(line) ? line : [line]; this.visualGeneration += 1; for (const listener of [...this.listeners]) listener(); }
 }
 
@@ -33,9 +35,9 @@ function result(choice = "working", confidence = 0.95) {
 	};
 }
 
-function createSupervisor(session: FakeSession, client: JevClient, decisions: SemanticDecisionInput[], overrides: { watches?: Array<{ id: string; condition: string }>; epoch?: () => boolean; onDiagnostic?: (outcome: "stale-response" | "cancelled-response") => void } = {}) {
+function createSupervisor(session: FakeSession, client: JevClient, decisions: SemanticDecisionInput[], overrides: { watches?: Array<{ id: string; condition: string }>; epoch?: () => boolean; onDiagnostic?: (outcome: "stale-response" | "cancelled-response") => void; minIntervalMs?: number; quietIntervalMs?: number } = {}) {
 	return new SemanticSupervisor({
-		session, mode: "monitor", config: { goal: "test", minIntervalMs: 250, watches: overrides.watches }, client,
+		session, mode: "monitor", config: { goal: "test", minIntervalMs: overrides.minIntervalMs ?? 250, quietIntervalMs: overrides.quietIntervalMs, watches: overrides.watches }, client,
 		model: "jev-1.13.0", requestTimeoutMs: 1000, startedAt: Date.now(), isEpochCurrent: overrides.epoch ?? (() => true),
 		bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] }, onDecision: (decision) => decisions.push(decision),
 		onDiagnostic: overrides.onDiagnostic,
@@ -238,6 +240,114 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		calls[1]!.work.resolve(result()); await flush();
 		expect(decisions[0]).toMatchObject({ kind: "observation", route: "continue", model: "jev-1.13.0", inputTokens: 42, generation: 3 });
 		supervisor.dispose();
+	});
+
+	it("performs one bounded observe-only reassessment when launch remains quiet", async () => {
+		const session = new FakeSession();
+		const requests: any[] = [];
+		const decisions: SemanticDecisionInput[] = [];
+		const supervisor = createSupervisor(session, { evaluate: vi.fn(async (request) => { requests.push(request); return result(); }) }, decisions);
+
+		await vi.advanceTimersByTimeAsync(1_999);
+		expect(requests).toEqual([]);
+		await vi.advanceTimersByTimeAsync(1); await flush();
+		expect(requests).toHaveLength(1);
+		expect(requests[0].state.observation.terminal).toMatchObject({ viewport: [], recentOutput: "" });
+		expect(requests[0].questions).not.toHaveProperty("action");
+		expect(decisions).toHaveLength(1);
+
+		await vi.advanceTimersByTimeAsync(60_000); await flush();
+		expect(requests).toHaveLength(1);
+		supervisor.dispose();
+	});
+
+	it("arms one quiet follow-up per output episode without replaying action choices", async () => {
+		const session = new FakeSession();
+		const requests: any[] = [];
+		const decisions: SemanticDecisionInput[] = [];
+		const supervisor = createSupervisor(session, { evaluate: vi.fn(async (request) => { requests.push(request); return result(); }) }, decisions);
+
+		session.mutate("working"); supervisor.handleOutput("working");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(requests).toHaveLength(1);
+		expect(requests[0].state.observation.terminal.changed).toBe(true);
+
+		await vi.advanceTimersByTimeAsync(1_999);
+		expect(requests).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(1); await flush();
+		expect(requests).toHaveLength(2);
+		expect(requests[1].state.observation.terminal.changed).toBe(false);
+		expect(requests[1].questions).not.toHaveProperty("action");
+		expect(decisions).toHaveLength(2);
+
+		await vi.advanceTimersByTimeAsync(60_000); await flush();
+		expect(requests).toHaveLength(2);
+		supervisor.dispose();
+	});
+
+	it("honors the bounded quiet setting while retaining the minimum request interval", async () => {
+		const session = new FakeSession(); const evaluate = vi.fn(async () => result());
+		const supervisor = createSupervisor(session, { evaluate }, [], { quietIntervalMs: 500, minIntervalMs: 1_000 });
+		session.mutate("working"); supervisor.handleOutput("working");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(999); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(60_000); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(2);
+		supervisor.dispose();
+	});
+
+	it("writes one exact reply from the evaluated observation and replaces its quiet deadline", async () => {
+		const session = new FakeSession(); const decisions: SemanticDecisionInput[] = [];
+		const evaluate = vi.fn(async () => result("waiting_input"));
+		const supervisor = new SemanticSupervisor({
+			session, sessionId: "session-1", mode: "monitor", config: { attention: true, minIntervalMs: 250, quietIntervalMs: 2_000 },
+			client: { evaluate }, model: "jev-1.13.0", requestTimeoutMs: 1_000,
+			startedAt: Date.now(), bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] },
+			isEpochCurrent: () => true, isActionOwner: () => true, onDecision: (decision) => decisions.push(decision),
+		});
+		session.mutate("Which environment?"); supervisor.handleOutput("Which environment?");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		const decision = decisions[0]!;
+		const binding = { sessionId: "session-1", decisionId: 1, observationHash: decision.observationHash, generation: decision.generation };
+		await vi.advanceTimersByTimeAsync(1_999); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(2);
+		expect(decisions[1]).toMatchObject({ observationHash: binding.observationHash, generation: binding.generation });
+		expect(supervisor.submitReply(binding, "staging", () => true)).toEqual({ ok: true });
+		expect(session.writes).toEqual(["staging\r"]);
+		expect(supervisor.submitReply(binding, "staging", () => true)).toMatchObject({ ok: false });
+		expect(session.writes).toEqual(["staging\r"]);
+		await vi.advanceTimersByTimeAsync(1_999); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(3);
+		await vi.advanceTimersByTimeAsync(60_000); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(3);
+		supervisor.dispose();
+	});
+
+	it("invalidates quiet timers across pause, epoch loss, exit, and disposal", async () => {
+		for (const invalidate of ["pause", "epoch", "exit", "dispose"] as const) {
+			const session = new FakeSession(); let epoch = true;
+			const evaluate = vi.fn(async () => result());
+			const supervisor = createSupervisor(session, { evaluate }, [], { epoch: () => epoch });
+			session.mutate("working"); supervisor.handleOutput("working");
+			await vi.advanceTimersByTimeAsync(0); await flush();
+			expect(evaluate, invalidate).toHaveBeenCalledTimes(1);
+
+			if (invalidate === "pause") supervisor.pause();
+			if (invalidate === "epoch") epoch = false;
+			if (invalidate === "exit") session.exited = true;
+			if (invalidate === "dispose") supervisor.dispose();
+			await vi.advanceTimersByTimeAsync(2_000); await flush();
+			expect(evaluate, invalidate).toHaveBeenCalledTimes(1);
+			supervisor.dispose();
+		}
 	});
 
 	it("invalidates on visual mutation and suppresses late results after pause, disposal, and epoch change", async () => {

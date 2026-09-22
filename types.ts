@@ -83,6 +83,7 @@ export interface SemanticConfig {
 	attention?: boolean;
 	watches?: SemanticWatchConfig[];
 	minIntervalMs?: number;
+	quietIntervalMs?: number;
 	uncertain?: "continue" | "notify";
 	actions?: SemanticActionsConfig;
 	dynamicChoices?: {
@@ -212,6 +213,10 @@ export interface MonitorEventPayload {
 		attentionState?: SemanticAttentionState;
 		watchId?: string;
 		controlChoice?: "notify_pi";
+		handoffIdentity?: string;
+		observedAt?: string;
+		reason?: string;
+		lifecycle?: "running" | "exited" | "cancelled";
 	};
 }
 

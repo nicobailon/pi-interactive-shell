@@ -7,7 +7,8 @@ export type SemanticPermissionDecision = "allow" | "ask" | "deny";
 export type SemanticPermissionOperation =
 	| Readonly<{ kind: "launch-command"; command: string }>
 	| Readonly<{ kind: "dynamic-terminal-choice" }>
-	| Readonly<{ kind: "dynamic-terminal-confirmation" }>;
+	| Readonly<{ kind: "dynamic-terminal-confirmation" }>
+	| Readonly<{ kind: "semantic-reply" }>;
 
 export type SemanticPermissionRule = Readonly<{
 	decision: SemanticPermissionDecision;
@@ -22,7 +23,8 @@ export type CompiledSemanticPermissions = Readonly<{
 type OwnedOperation =
 	| { kind: "launch-command"; command: string }
 	| { kind: "dynamic-terminal-choice" }
-	| { kind: "dynamic-terminal-confirmation" };
+	| { kind: "dynamic-terminal-confirmation" }
+	| { kind: "semantic-reply" };
 
 const DECISION_RANK: Readonly<Record<SemanticPermissionDecision, number>> = Object.freeze({
 	allow: 1,
@@ -50,6 +52,7 @@ const readOperation = (value: unknown): OwnedOperation | undefined => {
 			return { kind: value.kind, command: value.command };
 		case "dynamic-terminal-choice":
 		case "dynamic-terminal-confirmation":
+		case "semantic-reply":
 			if (!hasExactKeys(value, ["kind"])) return undefined;
 			return { kind: value.kind };
 		default:
