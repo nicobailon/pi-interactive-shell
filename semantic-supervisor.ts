@@ -161,7 +161,7 @@ export class SemanticSupervisor {
 	}
 
 	submitReply(binding: SemanticReplyBinding, response: string, permissionAllowed: () => boolean): { ok: true } | { ok: false; reason: string } {
-		const observation = this.buildObservation();
+		const observation = this.buildObservation(true);
 		const validated = validateSemanticReply({
 			binding,
 			response,
@@ -179,6 +179,8 @@ export class SemanticSupervisor {
 		// Permission is deliberately the final check before the only write.
 		if (!permissionAllowed()) return { ok: false, reason: "permission-denied" };
 		if (this.options.session.writeIfActive?.(`${validated.text}\r`) !== true) return { ok: false, reason: "write-failed" };
+		this.awaitingVisualGeneration = binding.generation;
+		this.lastActionGeneration = binding.generation;
 		this.currentObservationHash = undefined;
 		this.armQuietReassessment();
 		return { ok: true };
@@ -202,6 +204,7 @@ export class SemanticSupervisor {
 	}
 
 	private armQuietReassessment(): void {
+		if (this.quietTimer) clearTimeout(this.quietTimer);
 		const episode = ++this.quietEpisode;
 		this.quietPending = false;
 		this.quietTimer = setTimeout(() => {
@@ -216,6 +219,7 @@ export class SemanticSupervisor {
 	}
 
 	private scheduleQuietReassessment(episode: number): void {
+		if (this.quietTimer) clearTimeout(this.quietTimer);
 		const delay = Math.max(0, this.minIntervalMs - (Date.now() - this.lastRequestAt));
 		if (delay === 0) {
 			this.quietPending = false;

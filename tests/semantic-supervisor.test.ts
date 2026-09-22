@@ -9,8 +9,10 @@ class FakeSession implements SemanticObservationSession {
 	visualGeneration = 0;
 	lines: string[] = [];
 	private listeners: Array<() => void> = [];
+	writes: string[] = [];
 	getViewportLines() { return this.lines; }
 	addVisualChangeListener(listener: () => void) { this.listeners.push(listener); return () => { this.listeners = this.listeners.filter((item) => item !== listener); }; }
+	writeIfActive(data: string) { if (this.exited) return false; this.writes.push(data); return true; }
 	mutate(line: string | string[]) { this.lines = Array.isArray(line) ? line : [line]; this.visualGeneration += 1; for (const listener of [...this.listeners]) listener(); }
 }
 
@@ -290,6 +292,33 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		await vi.advanceTimersByTimeAsync(0); await flush();
 		expect(evaluate).toHaveBeenCalledTimes(1);
 		await vi.advanceTimersByTimeAsync(999); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(60_000); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(2);
+		supervisor.dispose();
+	});
+
+	it("writes one exact reply from the evaluated observation and replaces its quiet deadline", async () => {
+		const session = new FakeSession(); const decisions: SemanticDecisionInput[] = [];
+		const evaluate = vi.fn(async () => result("waiting_input"));
+		const supervisor = new SemanticSupervisor({
+			session, sessionId: "session-1", mode: "monitor", config: { attention: true, minIntervalMs: 250, quietIntervalMs: 2_000 },
+			client: { evaluate }, model: "jev-1.13.0", requestTimeoutMs: 1_000,
+			startedAt: Date.now(), bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] },
+			isEpochCurrent: () => true, isActionOwner: () => true, onDecision: (decision) => decisions.push(decision),
+		});
+		session.mutate("Which environment?"); supervisor.handleOutput("Which environment?");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		const decision = decisions[0]!;
+		const binding = { sessionId: "session-1", decisionId: 1, observationHash: decision.observationHash, generation: decision.generation };
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(supervisor.submitReply(binding, "staging", () => true)).toEqual({ ok: true });
+		expect(session.writes).toEqual(["staging\r"]);
+		expect(supervisor.submitReply(binding, "staging", () => true)).toMatchObject({ ok: false });
+		expect(session.writes).toEqual(["staging\r"]);
+		await vi.advanceTimersByTimeAsync(1_999); await flush();
 		expect(evaluate).toHaveBeenCalledTimes(1);
 		await vi.advanceTimersByTimeAsync(1); await flush();
 		expect(evaluate).toHaveBeenCalledTimes(2);
