@@ -184,6 +184,7 @@ export class SemanticSupervisor {
 	}
 
 	submitReply(binding: SemanticReplyBinding, response: string, permissionAllowed: () => boolean): { ok: true } | { ok: false; reason: string } {
+		if (this.actionInFlight || this.approvalInFlight || this.multiSelect) return { ok: false, reason: "transaction-in-flight" };
 		if (this.awaitingVisualGeneration === this.options.session.visualGeneration) return { ok: false, reason: "awaiting-visual-change" };
 		const observation = this.buildObservation(true);
 		const validated = validateSemanticReply({
@@ -218,6 +219,10 @@ export class SemanticSupervisor {
 
 	private schedule(): void {
 		if (this.disposed || this.paused || this.timer || this.inFlight || !this.options.isEpochCurrent()) return;
+		if (this.approvalInFlight || this.actionInFlight || this.multiSelect) {
+			this.pending = true;
+			return;
+		}
 		if (this.resumeGeneration === this.options.session.visualGeneration) return;
 		if (this.awaitingVisualGeneration === this.options.session.visualGeneration) return;
 		const delay = Math.max(0, this.minIntervalMs - (Date.now() - this.lastRequestAt));
@@ -270,7 +275,8 @@ export class SemanticSupervisor {
 	}
 
 	private async evaluate(quiet = false): Promise<void> {
-		if (this.disposed || this.paused || this.multiSelect || this.options.session.exited || !this.options.isEpochCurrent()) return;
+		if (this.disposed || this.paused || this.approvalInFlight || this.actionInFlight || this.multiSelect
+			|| this.options.session.exited || !this.options.isEpochCurrent()) return;
 		const generation = this.options.session.visualGeneration;
 		const snapshot = this.buildObservation();
 		if (!quiet && !snapshot.observation.terminal.changed) return;
@@ -486,6 +492,7 @@ export class SemanticSupervisor {
 			this.multiSelect = undefined;
 			this.actionInFlight = false;
 			this.currentObservationHash = undefined;
+			this.resumeDeferredQuiet();
 			return;
 		}
 		state.transaction = advanced.transaction;
@@ -530,6 +537,7 @@ export class SemanticSupervisor {
 		this.actionInFlight = false;
 		this.awaitingVisualGeneration = undefined;
 		state.emit({ ...this.multiSelectAction(state.answer), outcome, reason, budgetCount: 1 });
+		this.resumeDeferredQuiet();
 	}
 
 	private multiSelectAction(answer: ParsedMultiSelectAnswer) {
@@ -537,6 +545,7 @@ export class SemanticSupervisor {
 	}
 
 	private resumeDeferredQuiet(): void {
+		if (this.pending && !this.disposed && !this.paused) this.schedule();
 		if (!this.quietPending) return;
 		this.scheduleQuietReassessment(this.quietEpisode);
 	}
