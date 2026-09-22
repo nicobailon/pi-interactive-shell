@@ -28,9 +28,16 @@ const CLAUDE_ASK_USER_VIEWPORT = [
 describe("semantic option extraction", () => {
 	it("never downgrades multi-select evidence into an ordinary menu", () => {
 		expect(extractSemanticOptions(["Choose:", "❯ [x] Alpha", "  [ ] Beta", "↑ ↓ navigate • space select • ⏎ submit"])).toEqual([]);
+		expect(extractSemanticOptions(["Choose:", "❯ [X] Alpha", "  [X] Beta", "↑/↓ move • enter to select"])).toEqual([]);
+		expect(extractSemanticOptions(["Choose:", "❯ [X] Alpha", "  [ ] Beta", "↑/↓ move • enter to select"])).toEqual([]);
+		expect(extractSemanticOptions(["Choose:", "❯ [X] Alpha", "  malformed Beta", "↑/↓ move • enter to select"])).toEqual([]);
 		expect(extractSemanticOptions(["Choose:", "❯ [x] Alpha", "  malformed Beta", "↑/↓ move • enter to select"])).toEqual([]);
 		expect(extractSemanticOptions(["Choose:", "❯ Alpha", "  Beta", "↑ ↓ navigate • space select • ⏎ submit"])).toEqual([]);
 		expect(extractSemanticOptions(["Choose:", "❯◯ Alpha", " ◉ Beta", "↑↓ navigate • space select • a all • i invert • ⏎ submit"])).toEqual([]);
+	});
+
+	it("keeps bracketed numeric menus distinct from checkbox evidence", () => {
+		expect(extractSemanticOptions(["[1] Alpha", "[2] Beta"]).map(({ label }) => label)).toEqual(["Alpha", "Beta"]);
 	});
 	it("binds sequential numbered and lettered choices to their exact visible selector", () => {
 		const numbered = extractSemanticOptions(["Choose a color:", "1. Red", "2. Blue"]);

@@ -69,11 +69,12 @@ function createMultiSupervisor(session: FakeSession, decisions: SemanticDecision
 	owner?: () => boolean;
 	epoch?: () => boolean;
 	interactive?: () => boolean;
+	maxViewportLines?: number;
 } = {}) {
 	return new SemanticSupervisor({
 		session, sessionId: "multi", mode: "hands-free", config: { goal: "Only Beta", minIntervalMs: 250, dynamicChoices: { enabled: true } },
 		client: { evaluate: options.evaluate ?? vi.fn(async () => multiResult()) }, model: "jev-1.13.0", requestTimeoutMs: 1_000, startedAt: Date.now(),
-		bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] }, isEpochCurrent: options.epoch ?? (() => true),
+		bounds: { maxViewportLines: options.maxViewportLines ?? 10, maxRecentChars: 100, redactionPatterns: [] }, isEpochCurrent: options.epoch ?? (() => true),
 		onDecision: (decision) => decisions.push(decision), isActionOwner: options.owner ?? (() => true), reserveGlobalAction: options.reserve ?? (() => true),
 		dynamicChoices: { sessionId: "multi", isInteractive: options.interactive ?? (() => true), authorization: {
 			request: (_binding, option, complete) => {
@@ -582,6 +583,61 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		expect(requestAuthorization).toHaveBeenCalledOnce();
 		expect(decisions).toHaveLength(1);
 		expect(decisions[0]?.action).toMatchObject({ reason: "multi-select-transaction-started", budgetCount: 1 });
+		supervisor.dispose();
+	});
+
+	it("does not offer a valid suffix when a visible secret prompt is above the configured observation bound", async () => {
+		const session = new FakeSession();
+		session.lines = ["Password:", "", ...MULTI_SCREENS[0]];
+		const decisions: SemanticDecisionInput[] = [];
+		const evaluate = vi.fn(async () => multiResult());
+		const authorize = vi.fn();
+		const reserve = vi.fn(() => true);
+		const supervisor = createMultiSupervisor(session, decisions, { evaluate, authorize, reserve, maxViewportLines: 5 });
+		supervisor.handleOutput("menu"); await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(evaluate).not.toHaveBeenCalled();
+		expect(authorize).not.toHaveBeenCalled();
+		expect(reserve).not.toHaveBeenCalled();
+		expect(session.writes).toEqual([]);
+		expect(decisions).toEqual([expect.objectContaining({ kind: "skipped", route: "continue", reason: "secret-prompt" })]);
+		supervisor.dispose();
+	});
+
+	it("offers a complete safe multi-select wider than the configured observation bound", async () => {
+		const session = new FakeSession();
+		session.lines = [
+			"Choose features:", "❯ [ ] Alpha", "  [ ] Beta", "  [ ] Gamma", "  [ ] Delta",
+			"4 choices total • ↑ ↓ navigate • space select • ⏎ submit",
+		];
+		const decisions: SemanticDecisionInput[] = [];
+		const raw = multiResult() as any;
+		raw.answers["selected:multi_3"] = { type: "noul", noul: 0.05 };
+		raw.answers["selected:multi_4"] = { type: "noul", noul: 0.05 };
+		const evaluate = vi.fn(async (_request: unknown) => raw);
+		const authorize = vi.fn((done: (approved: boolean) => void) => done(false));
+		const supervisor = createMultiSupervisor(session, decisions, { evaluate, authorize, maxViewportLines: 5 });
+		supervisor.handleOutput("menu"); await vi.advanceTimersByTimeAsync(0); await flush();
+		const questions = (evaluate.mock.calls[0]?.[0] as any).questions;
+		expect(Object.keys(questions)).toEqual(expect.arrayContaining(["apply_selection", "selected:multi_4"]));
+		expect(authorize).toHaveBeenCalledOnce();
+		expect(session.writes).toEqual([]);
+		supervisor.dispose();
+	});
+
+	it("does not offer a valid suffix when the complete physical viewport exceeds 40 meaningful rows", async () => {
+		const session = new FakeSession();
+		session.lines = [...Array.from({ length: 41 }, (_, index) => `visible row ${index + 1}`), "", ...MULTI_SCREENS[0]];
+		const decisions: SemanticDecisionInput[] = [];
+		const evaluate = vi.fn(async (_request: unknown) => result());
+		const authorize = vi.fn();
+		const reserve = vi.fn(() => true);
+		const supervisor = createMultiSupervisor(session, decisions, { evaluate, authorize, reserve, maxViewportLines: 5 });
+		supervisor.handleOutput("menu"); await vi.advanceTimersByTimeAsync(0); await flush();
+		const questions = (evaluate.mock.calls[0]?.[0] as any).questions;
+		expect(Object.keys(questions)).not.toContain("apply_selection");
+		expect(authorize).not.toHaveBeenCalled();
+		expect(reserve).not.toHaveBeenCalled();
+		expect(session.writes).toEqual([]);
 		supervisor.dispose();
 	});
 

@@ -279,10 +279,11 @@ export class SemanticSupervisor {
 			|| this.options.session.exited || !this.options.isEpochCurrent()) return;
 		const generation = this.options.session.visualGeneration;
 		const snapshot = this.buildObservation();
+		const multiViewport = this.multiSelectViewport();
 		if (!quiet && !snapshot.observation.terminal.changed) return;
 		this.lastEvaluatedGeneration = generation;
 		this.currentObservationHash = snapshot.hash;
-		if (snapshot.secretPrompt) {
+		if (snapshot.secretPrompt || classifyTerminalSecretPrompt(this.multiSelectViewport(false), "").secretPrompt) {
 			this.options.onDecision({
 				kind: "skipped", route: "continue", reason: "secret-prompt", model: this.options.model,
 				observationHash: snapshot.hash, generation, latencyMs: 0,
@@ -296,7 +297,7 @@ export class SemanticSupervisor {
 		const started = Date.now();
 		try {
 			const registry = this.activeRegistry();
-			const multiPrompt = this.activeMultiSelect(snapshot.observation.terminal.viewport);
+			const multiPrompt = this.activeMultiSelect(multiViewport);
 			const dynamicOptions = multiPrompt ? [] : this.activeDynamicOptions(snapshot.observation.terminal.viewport);
 			const multiItems = multiPrompt?.items.map(({ id, label }) => ({ id, label })) ?? [];
 			const raw = await this.options.client.evaluate(buildSemanticRequest(snapshot.observation, this.options.config, this.options.model, registry, dynamicOptions, multiItems), {
@@ -367,6 +368,18 @@ export class SemanticSupervisor {
 			.map((line) => sanitizeTerminalTextBuiltIn(line).slice(0, 500));
 	}
 
+	/** Complete physical screen evidence reserved for fail-closed multi-select handling. */
+	private multiSelectViewport(redact = true): string[] {
+		const lines = this.options.session.getViewportLines({ ansi: false })
+			.map((line) => sanitizeTerminalTextBuiltIn(line))
+			.map((line) => redact ? this.retainedRedactor(line) : line);
+		let start = 0;
+		let end = lines.length;
+		while (start < end && !lines[start]!.trim()) start++;
+		while (end > start && !lines[end - 1]!.trim()) end--;
+		return lines.slice(start, end);
+	}
+
 	private activeRegistry(): SemanticActionRegistry | undefined {
 		if (this.actionsStopped || this.actionCount >= (this.options.actionRegistry?.maxActions ?? 0)) return undefined;
 		return this.options.actionRegistry;
@@ -422,7 +435,7 @@ export class SemanticSupervisor {
 			if (!approved) { emit({ ...base, outcome: "blocked", reason: "permission-or-approval", budgetCount: 0 }); this.resumeDeferredQuiet(); return; }
 			const recheck = this.checkMultiSelectAction(generation, hash);
 			if (recheck) { emit({ ...base, outcome: "blocked", reason: recheck, budgetCount: 0 }); this.resumeDeferredQuiet(); return; }
-			const trusted = extractSemanticMultiSelect(this.trustedViewport());
+			const trusted = extractSemanticMultiSelect(this.multiSelectViewport());
 			if (!trusted || !sameMultiPrompt(answer.prompt, trusted)) {
 				emit({ ...base, outcome: "blocked", reason: "invalid-transaction", budgetCount: 0 }); this.resumeDeferredQuiet(); return;
 			}
@@ -452,7 +465,8 @@ export class SemanticSupervisor {
 		if (this.options.isActionOwner?.() !== true) return "ownership";
 		if (this.options.session.visualGeneration !== generation || this.currentObservationHash !== hash) return "stale";
 		const current = this.buildObservation(true);
-		if (!current.observation.terminal.changed || current.hash !== hash || current.secretPrompt) return "changed-hash-or-secret";
+		if (!current.observation.terminal.changed || current.hash !== hash || current.secretPrompt
+			|| classifyTerminalSecretPrompt(this.multiSelectViewport(false), "").secretPrompt) return "changed-hash-or-secret";
 		if (this.dynamicActionUsed || this.actionCount >= 10) return "session-budget";
 		if (!this.options.session.writeIfActive) return "invalid-bytes-or-session";
 		return undefined;
@@ -479,7 +493,7 @@ export class SemanticSupervisor {
 		const generation = this.options.session.visualGeneration;
 		const inactive = this.multiSelectWriteBlock(state, generation);
 		if (inactive) { this.failMultiSelect(state, "refused", inactive); return; }
-		const viewport = this.trustedViewport();
+		const viewport = this.multiSelectViewport();
 		const extracted = extractSemanticMultiSelect(viewport);
 		const observed = extracted ? multiSnapshot(extracted)
 			: (hasMultiSelectEvidence(viewport) ? undefined : Object.freeze({ before: Object.freeze([...viewport]), prompt: null, after: Object.freeze([]) }));
@@ -522,7 +536,7 @@ export class SemanticSupervisor {
 			|| !this.options.isEpochCurrent()) return "multi-select-inactive";
 		if (!dynamic?.isInteractive() || this.options.isActionOwner?.() !== true) return "multi-select-ownership";
 		if (this.options.session.visualGeneration !== generation) return "multi-select-stale";
-		const viewport = this.trustedViewport();
+		const viewport = this.multiSelectViewport(false);
 		if (this.secretPromptFence || classifyTerminalSecretPrompt(viewport, "").secretPrompt) return "multi-select-secret";
 		if (state.transaction.steps > state.transaction.maxSteps) return "multi-select-step-overflow";
 		return undefined;
@@ -918,7 +932,7 @@ function multiSnapshot(prompt: SemanticMultiSelectPrompt): SemanticMultiSelectSn
 }
 
 function hasMultiSelectEvidence(viewport: readonly string[]): boolean {
-	return viewport.some((line) => /(?:^|\s)(?:\[x\]|\[ \]|◉|◯)(?:\s|$)/u.test(line)
+	return viewport.some((line) => /(?:^|\s)(?:\[(?:x| )\]|◉|◯)(?:\s|$)/iu.test(line)
 		|| /\bspace\s+(?:to\s+)?select\b/i.test(line));
 }
 
