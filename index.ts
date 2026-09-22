@@ -1664,6 +1664,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					&& candidate.semantic?.handoffIdentity === semanticReply.handoffIdentity);
 				const decision = coordinator.getSemanticDecisions(semanticReply.sessionId, { limit: 200 }).decisions.find((candidate) => candidate.decisionId === semanticReply.decisionId);
 				if (!monitor || !state || state.status !== "running" || !event || !decision || decision.generation !== semanticReply.generation) return { content: [{ type: "text", text: "Semantic reply binding is unavailable or stale; no input was sent." }], isError: true };
+				if (event.eventType !== "input-required" || event.semantic?.kind !== "attention" || event.semantic.attentionState !== "waiting_input") return { content: [{ type: "text", text: "Semantic replies are limited to ordinary input-required handoffs; no input was sent." }], isError: true };
 				const initialConfig = loadRuntimeConfig(ctx.cwd);
 				const authorization = await authorizeSemanticReply(initialConfig, ctx);
 				if (!authorization.allowed) return { content: [{ type: "text", text: `Semantic reply blocked (${authorization.reason}); no input was sent.` }], isError: true };

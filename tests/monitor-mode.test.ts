@@ -369,7 +369,7 @@ describe("monitor mode", () => {
 		expect(eventsEmit).toHaveBeenCalledWith("interactive-shell:monitor-event", expect.objectContaining({ triggerId: "semantic:watch:ready" }));
 	});
 
-	it("accepts one exact delivered handoff binding through the state-bound reply path", async () => {
+	it("accepts an exact input handoff binding and excludes approval handoffs from replies", async () => {
 		const launchRules: SemanticPermissionRule[] = [
 			{ decision: "allow", operation: { kind: "launch-command", command: "agent" } },
 			{ decision: "allow", operation: { kind: "semantic-reply" } },
@@ -391,6 +391,17 @@ describe("monitor mode", () => {
 			{ hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
 		expect(result.isError).toBeUndefined();
 		expect(submitSemanticReply).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "monitor-1", observationHash: observed.hash, generation: 3 }), "staging", expect.any(Function));
+
+		getMonitorOptions()!.semantic!.onDecision({ kind: "observation", route: "notify", model: "jev-1.13.0", latencyMs: 1, observationHash: observed.hash, generation: 4,
+			answers: { requestsInput: 0, requestsApproval: 0.99, presentsResult: 0, requiresIntervention: 0, meaningfulProgress: 0, watches: {}, attention: { value: "waiting_approval", confidence: 0.99, probabilities: { working: 0, waiting_input: 0, waiting_approval: 0.99, presenting_result: 0, blocked: 0, other: 0.01 } } } });
+		await Promise.resolve(); await Promise.resolve();
+		const approvalHistory = await toolDef.execute("approval-events", { monitorEvents: true, monitorSessionId: "monitor-1" }, undefined, undefined, { cwd: "/tmp/project" } as any);
+		const approval = approvalHistory.details.events.find((event: any) => event.semantic?.generation === 4).semantic;
+		const rejected = await toolDef.execute("approval-reply", { semanticReply: { sessionId: "monitor-1", decisionId: approval.decisionId, generation: approval.generation, handoffIdentity: approval.handoffIdentity, response: "yes" } }, undefined, undefined,
+			{ hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(rejected).toMatchObject({ isError: true });
+		expect(rejected.content[0].text).toContain("ordinary input-required handoffs");
+		expect(submitSemanticReply).toHaveBeenCalledTimes(1);
 	});
 
 	it("records fixed agent incidents and returns a content-free diagnostic summary", async () => {
