@@ -56,6 +56,10 @@ export function extractSemanticOptions(viewport: unknown): readonly SemanticOpti
 	const lines = viewport as string[];
 	const screen = lines.join("\n");
 	if (screen.length > MAX_VIEWPORT_LENGTH) return EMPTY_OPTIONS;
+	// Multi-select evidence is owned by the stricter structural extractor. Even
+	// malformed/unsupported variants must not be reinterpreted as one-choice menus.
+	if (lines.some((line) => /(?:^|\s)(?:\[x\]|\[ \]|◉|◯)(?:\s|$)/u.test(line))
+		|| lines.some((line) => /\bspace\s+(?:to\s+)?select\b/i.test(line))) return EMPTY_OPTIONS;
 
 	return extractInlineConfirmation(lines) ?? extractSelected(lines) ?? extractEnumerated(lines) ?? EMPTY_OPTIONS;
 }

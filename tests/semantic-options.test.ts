@@ -26,6 +26,11 @@ const CLAUDE_ASK_USER_VIEWPORT = [
 ];
 
 describe("semantic option extraction", () => {
+	it("never downgrades multi-select evidence into an ordinary menu", () => {
+		expect(extractSemanticOptions(["Choose:", "❯ [x] Alpha", "  [ ] Beta", "↑ ↓ navigate • space select • ⏎ submit"])).toEqual([]);
+		expect(extractSemanticOptions(["Choose:", "❯ [x] Alpha", "  malformed Beta", "↑/↓ move • enter to select"])).toEqual([]);
+		expect(extractSemanticOptions(["Choose:", "❯ Alpha", "  Beta", "↑ ↓ navigate • space select • ⏎ submit"])).toEqual([]);
+	});
 	it("binds sequential numbered and lettered choices to their exact visible selector", () => {
 		const numbered = extractSemanticOptions(["Choose a color:", "1. Red", "2. Blue"]);
 		expect(numbered).toEqual([

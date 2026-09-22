@@ -177,11 +177,15 @@ describe("config + docs parity", () => {
 		const project = join(root, "project"); const agentDir = join(root, "agent");
 		mkdirSync(agentDir, { recursive: true }); mkdirSync(join(project, ".pi"), { recursive: true });
 		const globalPath = join(agentDir, "interactive-shell.json"); const projectPath = join(project, ".pi", "interactive-shell.json");
-		writeFileSync(globalPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } }] } }));
+		writeFileSync(globalPath, JSON.stringify({ jev: { semanticPermissions: [
+			{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } },
+			{ decision: "deny", operation: { kind: "dynamic-terminal-multi-select" } },
+		] } }));
 		writeFileSync(projectPath, JSON.stringify({}));
 		const { loadConfig } = await loadConfigModule(agentDir);
 		expect(loadConfig(project).jev).toMatchObject({ launchPermissionsEnabled: true });
 		expect(loadConfig(project).jev?.semanticPermissions.evaluate({ kind: "dynamic-terminal-choice" })).toBe("allow");
+		expect(loadConfig(project).jev?.semanticPermissions.evaluate({ kind: "dynamic-terminal-multi-select" })).toBe("deny");
 		writeFileSync(projectPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } }] } }));
 		expect(() => loadConfig(project)).toThrow("Project config cannot define trusted semantic permissions.");
 		writeFileSync(projectPath, JSON.stringify({}));

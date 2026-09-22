@@ -498,6 +498,61 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		expect(parseSemanticResult(withWatch, { watches: [{ id: "db", condition: "asks for database" }] }, "jev-1.13.0").answers.watches.db).toBe(0.9);
 	});
 
+	it("uses provider-compatible opaque multi-select questions and preserves empty apply", () => {
+		const observation = { task: "choose", session: { mode: "monitor" as const, lifecycle: "running" as const, elapsedMsBucket: "<1s", quietMsBucket: "<1s" }, terminal: { viewport: [] as string[], recentOutput: "", changed: true }, actions: [], recentActionIds: [] };
+		const items = [{ id: "multi_1", label: "Alpha" }, { id: "multi_2", label: "Beta" }];
+		const request = buildSemanticRequest(observation, {}, "jev-1.13.0", undefined, [], items);
+		expect(Object.keys(request.questions)).toEqual(expect.arrayContaining(["apply_selection", "selected:multi_1", "selected:multi_2"]));
+		const serialized = JSON.stringify(request.questions);
+		expect(serialized).not.toMatch(/bytes|checked|Arrow|Enter/);
+		const raw = result() as any;
+		raw.answers.apply_selection = { type: "choice", choice: "apply", confidence: 0.95, probabilities: { apply: 0.95, none: 0.05 } };
+		raw.answers["selected:multi_1"] = { type: "noul", noul: 0.1 };
+		raw.answers["selected:multi_2"] = { type: "noul", noul: 0.05 };
+		expect(parseSemanticResult(raw, {}, "jev-1.13.0", undefined, [], items).multiSelection).toEqual({ kind: "apply", target: [] });
+	});
+
+	it("serializes a verified multi-select redraw transaction and submits once", async () => {
+		const session = new FakeSession();
+		const screens = [
+			["Choose features:", "❯ [x] Alpha", "  [ ] Beta", "↑ ↓ navigate • space select • ⏎ submit"],
+			["Choose features:", "❯ [ ] Alpha", "  [ ] Beta", "↑ ↓ navigate • space select • ⏎ submit"],
+			["Choose features:", "  [ ] Alpha", "❯ [ ] Beta", "↑ ↓ navigate • space select • ⏎ submit"],
+			["Choose features:", "  [ ] Alpha", "❯ [x] Beta", "↑ ↓ navigate • space select • ⏎ submit"],
+			["Done"],
+		];
+		session.lines = screens[0]!;
+		const expectedWrites = [" ", "\x1b[B", " ", "\r"];
+		session.writeIfActive = (data: string) => {
+			expect(data).toBe(expectedWrites[session.writes.length]);
+			session.writes.push(data);
+			session.mutate(screens[session.writes.length]!);
+			return true;
+		};
+		const raw = result() as any;
+		raw.answers.apply_selection = { type: "choice", choice: "apply", confidence: 0.95, probabilities: { apply: 0.95, none: 0.05 } };
+		raw.answers["selected:multi_1"] = { type: "noul", noul: 0.05 };
+		raw.answers["selected:multi_2"] = { type: "noul", noul: 0.95 };
+		const decisions: SemanticDecisionInput[] = [];
+		const reserve = vi.fn(() => true);
+		const supervisor = new SemanticSupervisor({
+			session, sessionId: "multi", mode: "hands-free", config: { goal: "Only Beta", minIntervalMs: 250, dynamicChoices: { enabled: true } },
+			client: { evaluate: vi.fn(async () => raw) }, model: "jev-1.13.0", requestTimeoutMs: 1_000, startedAt: Date.now(),
+			bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] }, isEpochCurrent: () => true,
+			onDecision: (decision) => decisions.push(decision), isActionOwner: () => true, reserveGlobalAction: reserve,
+			dynamicChoices: { sessionId: "multi", isInteractive: () => true, authorization: { request: (_binding, option, complete) => {
+				expect(option.operation).toEqual({ kind: "dynamic-terminal-multi-select" }); complete(true);
+			}, dispose() {} } },
+		});
+		supervisor.handleOutput("menu");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(session.writes).toEqual(expectedWrites);
+		expect(reserve).toHaveBeenCalledOnce();
+		expect(decisions).toHaveLength(1);
+		expect(decisions[0]?.action).toMatchObject({ reason: "multi-select-transaction-started", budgetCount: 1 });
+		supervisor.dispose();
+	});
+
 	it("routes confident attention directly and treats confident other as uncertain", () => {
 		for (const attention of ["waiting_input", "waiting_approval", "presenting_result", "blocked"] as const) {
 			const answers = parseSemanticResult(result(attention), {}, "jev-1.13.0").answers;

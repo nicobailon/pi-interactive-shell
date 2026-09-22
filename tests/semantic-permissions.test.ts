@@ -4,6 +4,7 @@ import { compileSemanticPermissions, type SemanticPermissionRule } from "../sema
 const launch = (command: string) => ({ kind: "launch-command" as const, command });
 const choice = { kind: "dynamic-terminal-choice" as const };
 const confirmation = { kind: "dynamic-terminal-confirmation" as const };
+const multiSelect = { kind: "dynamic-terminal-multi-select" as const };
 const reply = { kind: "semantic-reply" as const };
 
 const rule = (decision: "allow" | "ask" | "deny", operation: SemanticPermissionRule["operation"]): SemanticPermissionRule => ({ decision, operation });
@@ -25,14 +26,16 @@ describe("semantic permission policy", () => {
 		expect(policy.evaluate(launch("rm -rf build"))).toBe("deny");
 	});
 
-	it("uses code-owned identities for dynamic choices and confirmations", () => {
+	it("uses distinct code-owned identities for dynamic choices, confirmations, and multi-selects", () => {
 		const policy = compileSemanticPermissions([
 			rule("allow", choice),
 			rule("deny", confirmation),
+			rule("ask", multiSelect),
 		]);
 
 		expect(policy.evaluate(choice)).toBe("allow");
 		expect(policy.evaluate(confirmation)).toBe("deny");
+		expect(policy.evaluate(multiSelect)).toBe("ask");
 	});
 
 	it("applies deterministic deny then ask then allow precedence", () => {
@@ -61,11 +64,12 @@ describe("semantic permission policy", () => {
 		["ambiguous extra launch data", { kind: "launch-command", command: "npm test", projectAllows: true }],
 		["model-provided choice identity", { kind: "dynamic-terminal-choice", choiceId: "safe" }],
 		["terminal content", { kind: "dynamic-terminal-confirmation", terminal: "approved" }],
+		["model-provided multi-select target", { kind: "dynamic-terminal-multi-select", selected: ["multi_1"] }],
 		["symbol metadata", Object.assign(launch("npm test"), { [Symbol("model-data")]: true })],
 		["hostile accessor", Object.defineProperty({}, "kind", { enumerable: true, get: () => { throw new Error("untrusted getter"); } })],
 		["non-object", "launch-command"],
 	] as const)("fails closed to ask for %s operations", (_label, operation) => {
-		const policy = compileSemanticPermissions([rule("allow", launch("npm test")), rule("allow", choice), rule("allow", confirmation)]);
+		const policy = compileSemanticPermissions([rule("allow", launch("npm test")), rule("allow", choice), rule("allow", confirmation), rule("allow", multiSelect)]);
 		expect(policy.evaluate(operation)).toBe("ask");
 	});
 
