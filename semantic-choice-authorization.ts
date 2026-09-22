@@ -1,10 +1,12 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { createSemanticApprovalState, type SemanticApprovalBinding, type TrustedUiApprovalDecision } from "./semantic-approval.ts";
 import type { CompiledSemanticPermissions } from "./semantic-permissions.ts";
-import type { SemanticOption } from "./semantic-options.ts";
+import type { SemanticPermissionOperation } from "./semantic-permissions.ts";
+
+type SemanticAuthorizationTarget = Readonly<{ label: string; operation: SemanticPermissionOperation }>;
 
 export interface SemanticChoiceAuthorization {
-	request(binding: SemanticApprovalBinding, option: Pick<SemanticOption, "label" | "operation">, complete: (approved: boolean) => void): void;
+	request(binding: SemanticApprovalBinding, option: SemanticAuthorizationTarget, complete: (approved: boolean) => void): void;
 	dispose(): void;
 }
 
