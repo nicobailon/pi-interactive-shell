@@ -515,10 +515,10 @@ describe("SemanticSupervisor observe-only state machine", () => {
 	it("serializes a verified multi-select redraw transaction and submits once", async () => {
 		const session = new FakeSession();
 		const screens = [
-			["Choose features:", "❯ [x] Alpha", "  [ ] Beta", "↑ ↓ navigate • space select • ⏎ submit"],
-			["Choose features:", "❯ [ ] Alpha", "  [ ] Beta", "↑ ↓ navigate • space select • ⏎ submit"],
-			["Choose features:", "  [ ] Alpha", "❯ [ ] Beta", "↑ ↓ navigate • space select • ⏎ submit"],
-			["Choose features:", "  [ ] Alpha", "❯ [x] Beta", "↑ ↓ navigate • space select • ⏎ submit"],
+			["Choose features:", "❯ [x] Alpha", "  [ ] Beta", "2 choices total • ↑ ↓ navigate • space select • ⏎ submit"],
+			["Choose features:", "❯ [ ] Alpha", "  [ ] Beta", "2 choices total • ↑ ↓ navigate • space select • ⏎ submit"],
+			["Choose features:", "  [ ] Alpha", "❯ [ ] Beta", "2 choices total • ↑ ↓ navigate • space select • ⏎ submit"],
+			["Choose features:", "  [ ] Alpha", "❯ [x] Beta", "2 choices total • ↑ ↓ navigate • space select • ⏎ submit"],
 			["Done"],
 		];
 		session.lines = screens[0]!;

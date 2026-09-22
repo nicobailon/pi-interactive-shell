@@ -30,6 +30,7 @@ describe("semantic option extraction", () => {
 		expect(extractSemanticOptions(["Choose:", "❯ [x] Alpha", "  [ ] Beta", "↑ ↓ navigate • space select • ⏎ submit"])).toEqual([]);
 		expect(extractSemanticOptions(["Choose:", "❯ [x] Alpha", "  malformed Beta", "↑/↓ move • enter to select"])).toEqual([]);
 		expect(extractSemanticOptions(["Choose:", "❯ Alpha", "  Beta", "↑ ↓ navigate • space select • ⏎ submit"])).toEqual([]);
+		expect(extractSemanticOptions(["Choose:", "❯◯ Alpha", " ◉ Beta", "↑↓ navigate • space select • a all • i invert • ⏎ submit"])).toEqual([]);
 	});
 	it("binds sequential numbered and lettered choices to their exact visible selector", () => {
 		const numbered = extractSemanticOptions(["Choose a color:", "1. Red", "2. Blue"]);

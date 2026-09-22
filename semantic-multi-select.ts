@@ -46,7 +46,7 @@ const BINDINGS: SemanticMultiSelectBindings = Object.freeze({
 
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\p{Cf}]/u;
 const ROW = /^(\s*)(?:(❯|>)\s*)?(\[x\]|\[ \]|◉|◯)\s+(.+?)\s*$/u;
-const FOOTER = /^\s*↑\s*↓\s+navigate\s*[•·⋅]\s*space\s+select\s*[•·⋅]\s*⏎\s+submit\s*$/iu;
+const FOOTER = /^\s*(\d{1,2})\s+choices\s+total\s*[•·⋅]\s*↑\s*↓\s+navigate\s*[•·⋅]\s*space\s+select\s*[•·⋅]\s*⏎\s+submit\s*$/iu;
 const FORBIDDEN_TEXT = /\b(?:password|passphrase|credential|secret|token|api[ _-]?key|auth(?:entication)?|mfa|2fa|otp|one[- ]time|recovery code|pin|payment|credit card|shell|command|exec(?:ute)?|sudo|kill|signal|exit|quit|logout|shutdown|reboot|terminate|dispose|background|transfer|disown|suspend|job[ _-]?control|process control|abort|cancel|delete|remove|overwrite|drop|reset|erase|destroy|format|purge|start|stop|pause|resume|restart|reload|disabled?|unavailable|separator|search|filter)\b/i;
 const SHELL_SYNTAX = /(?:&&|\|\||[;`$<>]|\$\(|\b(?:sh|bash|zsh|fish|powershell|cmd\.exe)\b)/i;
 const PAGINATION = /(?:\.{3}|…|⋯|\b(?:page\s+\d+|\d+\s+(?:of|\/)\s+\d+|(?:load|show|scroll for) more|more (?:choices|items|options))\b)/i;
@@ -61,8 +61,9 @@ type ParsedRow = Readonly<{
 }>;
 
 /**
- * Extracts one complete menu only when its visible structure proves the exact
- * ArrowUp/ArrowDown, Space, and Enter bindings. Unsupported input is undefined.
+ * Extracts one complete menu only when a visible exact total proves completeness
+ * and the footer proves the ArrowUp/ArrowDown, Space, and Enter bindings.
+ * Unsupported input is undefined.
  */
 export function extractSemanticMultiSelect(viewport: unknown): SemanticMultiSelectPrompt | undefined {
 	const lines = validateViewport(viewport);
@@ -87,6 +88,8 @@ export function extractSemanticMultiSelect(viewport: unknown): SemanticMultiSele
 		parsedRows.push({ ...parsed, index });
 	}
 	if (parsedRows.length < MIN_SEMANTIC_MULTI_SELECT_ITEMS || parsedRows.length > MAX_SEMANTIC_MULTI_SELECT_ITEMS) return undefined;
+	const advertisedCount = Number(footer.line.match(FOOTER)?.[1]);
+	if (advertisedCount !== parsedRows.length) return undefined;
 	if (lastRow - firstRow + 1 !== parsedRows.length) return undefined;
 
 	const headerLines = nonblank.filter(({ index }) => index < firstRow);

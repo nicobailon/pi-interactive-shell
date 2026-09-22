@@ -4,10 +4,11 @@ import {
 	MAX_SEMANTIC_MULTI_SELECT_ITEMS,
 } from "../semantic-multi-select.ts";
 
-const FOOTER = "↑↓ navigate • space select • ⏎ submit";
+const footer = (count: number) => `${count} choices total • ↑↓ navigate • space select • ⏎ submit`;
+const FOOTER = footer(3);
 
 function bracketViewport(rows: readonly string[] = ["❯ [x] Alpha", "  [ ] Beta", "  [x] Gamma"]): string[] {
-	return ["Choose release channels:", ...rows, FOOTER];
+	return ["Choose release channels:", ...rows, footer(rows.length)];
 }
 
 describe("semantic multi-select extraction", () => {
@@ -27,9 +28,9 @@ describe("semantic multi-select extraction", () => {
 		});
 	});
 
-	it("supports the current Inquirer circle markers when every marker is exact", () => {
+	it("accepts current Inquirer circle glyphs only under the counted protocol", () => {
 		const result = extractSemanticMultiSelect([
-			"Select packages", " ◉ Core", "❯◯ Extras", " ◉ Docs", "↑ ↓ navigate · space select · ⏎ submit",
+			"Select packages", " ◉ Core", "❯◯ Extras", " ◉ Docs", "3 choices total · ↑ ↓ navigate · space select · ⏎ submit",
 		]);
 		expect(result?.markerFamily).toBe("circle");
 		expect(result?.cursorIndex).toBe(1);
@@ -57,48 +58,55 @@ describe("semantic multi-select extraction", () => {
 	it.each([
 		["missing footer", ["Pick:", "❯ [x] Alpha", "  [ ] Beta"]],
 		["checkboxes without footer", ["Pick:", "❯ [x] Alpha", "  [ ] Beta", "Done"]],
-		["navigation synonym", ["Pick:", "❯ [x] Alpha", "  [ ] Beta", "↑↓ move • space select • ⏎ submit"]],
-		["toggle synonym", ["Pick:", "❯ [x] Alpha", "  [ ] Beta", "↑↓ navigate • space toggle • ⏎ submit"]],
-		["submit synonym", ["Pick:", "❯ [x] Alpha", "  [ ] Beta", "↑↓ navigate • space select • enter submit"]],
-		["extra advertised binding", ["Pick:", "❯ [x] Alpha", "  [ ] Beta", `${FOOTER} • a select all`]],
-		["unknown shortcut", ["Pick (a all):", "❯ [x] Alpha", "  [ ] Beta", FOOTER]],
-		["multiple footers", ["Pick:", "❯ [x] Alpha", FOOTER, "  [ ] Beta", FOOTER]],
+		["missing total count", ["Pick:", "❯ [x] Alpha", "  [ ] Beta", "↑↓ navigate • space select • ⏎ submit"]],
+		["wrong total count", ["Pick:", "❯ [x] Alpha", "  [ ] Beta", footer(3)]],
+		["navigation synonym", ["Pick:", "❯ [x] Alpha", "  [ ] Beta", "2 choices total • ↑↓ move • space select • ⏎ submit"]],
+		["toggle synonym", ["Pick:", "❯ [x] Alpha", "  [ ] Beta", "2 choices total • ↑↓ navigate • space toggle • ⏎ submit"]],
+		["submit synonym", ["Pick:", "❯ [x] Alpha", "  [ ] Beta", "2 choices total • ↑↓ navigate • space select • enter submit"]],
+		["extra advertised binding", ["Pick:", "❯ [x] Alpha", "  [ ] Beta", `${footer(2)} • a select all`]],
+		["unknown shortcut", ["Pick (a all):", "❯ [x] Alpha", "  [ ] Beta", footer(2)]],
+		["multiple footers", ["Pick:", "❯ [x] Alpha", footer(1), "  [ ] Beta", footer(2)]],
 		["nonblank tail", [...bracketViewport(), "Ready"]],
 	])("rejects %s", (_name, viewport) => {
 		expect(extractSemanticMultiSelect(viewport)).toBeUndefined();
 	});
 
 	it.each([
-		["only one item", ["Pick:", "❯ [x] Alpha", FOOTER]],
+		["only one item", ["Pick:", "❯ [x] Alpha", footer(1)]],
 		["duplicate labels", bracketViewport(["❯ [x] Alpha", "  [ ] alpha"])],
 		["no cursor", bracketViewport(["  [x] Alpha", "  [ ] Beta"])],
 		["multiple cursors", bracketViewport(["❯ [x] Alpha", "> [ ] Beta"])],
 		["mixed families", bracketViewport(["❯ [x] Alpha", "  ◯ Beta"])],
 		["uppercase bracket marker", bracketViewport(["❯ [X] Alpha", "  [ ] Beta"])],
 		["partial row", bracketViewport(["❯ [x] Alpha", "  [ Beta"])],
-		["description", ["Pick:", "❯ [x] Alpha", "    primary package", "  [ ] Beta", FOOTER]],
-		["blank inside list", ["Pick:", "❯ [x] Alpha", "", "  [ ] Beta", FOOTER]],
-		["separator", ["Pick:", "❯ [x] Alpha", "────", "  [ ] Beta", FOOTER]],
-		["second header", ["Pick:", "Required packages", "❯ [x] Alpha", "  [ ] Beta", FOOTER]],
+		["description", ["Pick:", "❯ [x] Alpha", "    primary package", "  [ ] Beta", footer(2)]],
+		["blank inside list", ["Pick:", "❯ [x] Alpha", "", "  [ ] Beta", footer(2)]],
+		["separator", ["Pick:", "❯ [x] Alpha", "────", "  [ ] Beta", footer(2)]],
+		["second header", ["Pick:", "Required packages", "❯ [x] Alpha", "  [ ] Beta", footer(2)]],
 	])("rejects ambiguous or incomplete structure: %s", (_name, viewport) => {
 		expect(extractSemanticMultiSelect(viewport)).toBeUndefined();
 	});
 
 	it.each([
 		["pagination", bracketViewport(["❯ [x] Alpha", "  [ ] Beta ... more choices"])],
-		["filtering", ["Filter packages", "❯ [x] Alpha", "  [ ] Beta", FOOTER]],
+		["filtering", ["Filter packages", "❯ [x] Alpha", "  [ ] Beta", footer(2)]],
 		["disabled choice", bracketViewport(["❯ [x] Alpha", "  [ ] Beta (disabled)"])],
-		["secret", ["Choose token storage:", "❯ [x] Alpha", "  [ ] Beta", FOOTER]],
-		["authentication", ["Choose auth method:", "❯ [x] Alpha", "  [ ] Beta", FOOTER]],
+		["secret", ["Choose token storage:", "❯ [x] Alpha", "  [ ] Beta", footer(2)]],
+		["authentication", ["Choose auth method:", "❯ [x] Alpha", "  [ ] Beta", footer(2)]],
 		["payment", bracketViewport(["❯ [x] Free", "  [ ] Payment plan"])],
 		["shell syntax", bracketViewport(["❯ [x] Build", "  [ ] sudo deploy"])],
 		["destructive", bracketViewport(["❯ [x] Keep", "  [ ] Delete data"])],
 		["lifecycle", bracketViewport(["❯ [x] Keep", "  [ ] Restart worker"])],
-		["process control", ["Choose process control:", "❯ [x] Alpha", "  [ ] Beta", FOOTER]],
+		["process control", ["Choose process control:", "❯ [x] Alpha", "  [ ] Beta", footer(2)]],
 		["terminal controls", bracketViewport(["❯ [x] Alpha", "  [ ] Be\u001b[31mta"])],
 		["invisible controls", bracketViewport(["❯ [x] Alpha", "  [ ] Be\u202eta"])],
 	])("rejects unsupported or unsafe context: %s", (_name, viewport) => {
 		expect(extractSemanticMultiSelect(viewport)).toBeUndefined();
+	});
+
+	it("rejects a default Inquirer paginated window because no visible total proves completeness", () => {
+		const visible = Array.from({ length: 7 }, (_, index) => `${index === 0 ? "❯" : " "}◯ Item ${index + 1}`);
+		expect(extractSemanticMultiSelect(["Select items", ...visible, "↑↓ navigate • space select • a all • i invert • ⏎ submit"])).toBeUndefined();
 	});
 
 	it("enforces item and viewport bounds", () => {
