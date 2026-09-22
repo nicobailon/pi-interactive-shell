@@ -335,6 +335,7 @@ describe("bounded inline confirmation transactions", () => {
 	it.each([
 		["ambiguous protocol", ["Continue? (y/n)"]],
 		["destructive adjacent context", ["Delete production resources", "details", "review", "Continue? (Y/n)"]],
+		["lifecycle restart", ["Restart the server? (Y/n)"]],
 	] as const)("wakes Pi with zero terminal bytes for %s", async (_name, viewport) => {
 		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
 		const authorization = { request: vi.fn(), dispose() {} };
@@ -348,6 +349,32 @@ describe("bounded inline confirmation transactions", () => {
 		expect(session.writes).toEqual([]);
 		expect(authorization.request).not.toHaveBeenCalled();
 		expect(decisions[0]).toMatchObject({ kind: "observation", route: "notify" });
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it.each([
+		["refuses", false, "refused", "inline-submit-refused"],
+		["throws", "throw", "error", "inline-submit-failed"],
+	] as const)("reports when the synchronous echo Enter write %s without a second budget charge", async (_name, enterResult, outcome, reason) => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const decisions: SemanticDecisionInput[] = [];
+		const reserveGlobalAction = vi.fn(() => true);
+		session.writeIfActive = (data: string) => {
+			session.writes.push(data);
+			if (data === "y") { session.show(["Continue? (Y/n)y"]); return true; }
+			if (enterResult === "throw") throw new Error("terminal unavailable");
+			return enterResult;
+		};
+		const supervisor = await runInitial({ session, decisions, authorization: approved(), reserveGlobalAction,
+			client: { evaluate: vi.fn(async () => inlineAnswers("dynamic:inline_yes")) } });
+		await flush();
+		expect(session.writes).toEqual(["y", "\r"]);
+		expect(decisions.map((decision) => decision.action && {
+			outcome: decision.action.outcome, reason: decision.action.reason, budgetCount: decision.action.budgetCount,
+		})).toEqual([
+			{ outcome: "executed", reason: "inline-selection-written", budgetCount: 1 },
+			{ outcome, reason, budgetCount: 1 },
+		]);
+		expect(reserveGlobalAction).toHaveBeenCalledOnce();
 		supervisor.dispose(); vi.useRealTimers();
 	});
 

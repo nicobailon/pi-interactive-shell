@@ -75,7 +75,11 @@ export class SemanticSupervisor {
 	private actionsStopped = false;
 	private actionCount = 0;
 	private dynamicActionUsed = false;
-	private inlineConfirmation: { plan: InlineConfirmationPlan; generation: number } | undefined;
+	private inlineConfirmation: {
+		plan: InlineConfirmationPlan;
+		generation: number;
+		reportFailure: (outcome: "refused" | "error", reason: string) => void;
+	} | undefined;
 	private readonly actionCounts = new Map<string, number>();
 	private readonly actionLastAt = new Map<string, number>();
 	private readonly consumedActionHashes = new Set<string>();
@@ -365,7 +369,7 @@ export class SemanticSupervisor {
 			if (!approved) { complete(this.blockDynamic(answer, "permission-or-approval")); this.resumeDeferredQuiet(); return; }
 			const recheck = this.checkDynamicAction(answer, generation, hash);
 			if (recheck) { complete(recheck); this.resumeDeferredQuiet(); return; }
-			complete(this.writeDynamicAction(answer, generation));
+			complete(this.writeDynamicAction(answer, generation, complete));
 			this.resumeDeferredQuiet();
 		});
 	}
@@ -391,7 +395,8 @@ export class SemanticSupervisor {
 		return undefined;
 	}
 
-	private writeDynamicAction(answer: ParsedActionAnswer, generation: number): NonNullable<SemanticDecisionInput["action"]> {
+	private writeDynamicAction(answer: ParsedActionAnswer, generation: number,
+		complete: (action: NonNullable<SemanticDecisionInput["action"]>) => void): NonNullable<SemanticDecisionInput["action"]> {
 		const input = answer.option!.input;
 		let plan: InlineConfirmationPlan | undefined;
 		if (input.kind === "inline-confirmation") {
@@ -407,7 +412,12 @@ export class SemanticSupervisor {
 		this.dynamicActionUsed = true;
 		this.awaitingVisualGeneration = generation;
 		this.lastActionGeneration = generation;
-		if (plan) this.inlineConfirmation = { plan, generation };
+		if (plan) this.inlineConfirmation = { plan, generation, reportFailure: (failureOutcome, failureReason) => {
+			queueMicrotask(() => complete({
+				choice: answer.choice, actionId: answer.choice, confidence: answer.confidence, probability: answer.probability,
+				readiness: answer.readiness, outcome: failureOutcome, reason: failureReason, budgetCount: 1,
+			}));
+		} };
 		let outcome: "executed" | "refused" | "error";
 		let reason: string;
 		try {
@@ -427,7 +437,11 @@ export class SemanticSupervisor {
 			readiness: answer.readiness, outcome, reason, budgetCount: 1 };
 	}
 
-	private finishInlineConfirmation(transaction: { plan: InlineConfirmationPlan; generation: number }): void {
+	private finishInlineConfirmation(transaction: {
+		plan: InlineConfirmationPlan;
+		generation: number;
+		reportFailure: (outcome: "refused" | "error", reason: string) => void;
+	}): void {
 		if (this.inlineConfirmation !== transaction) return;
 		const generation = this.options.session.visualGeneration;
 		const viewport = this.trustedViewport();
@@ -442,8 +456,12 @@ export class SemanticSupervisor {
 			|| classifyTerminalSecretPrompt(viewport, "").secretPrompt
 			|| transaction.generation >= generation || this.options.session.visualGeneration !== generation) return;
 		try {
-			if (this.options.session.writeIfActive?.("\r") !== true) return;
+			if (this.options.session.writeIfActive?.("\r") !== true) {
+				transaction.reportFailure("refused", "inline-submit-refused");
+				return;
+			}
 		} catch {
+			transaction.reportFailure("error", "inline-submit-failed");
 			return;
 		}
 		this.awaitingVisualGeneration = generation;

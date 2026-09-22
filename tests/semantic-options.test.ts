@@ -228,6 +228,17 @@ describe("semantic option extraction", () => {
 		]);
 	});
 
+	it.each([
+		"Restart the server? (Y/n)",
+		"Reload the service? (Y/n)",
+		"Pause the worker? (Y/n)",
+		"Resume the worker? (Y/n)",
+		"Stop the worker? (Y/n)",
+		"Start the daemon? (Y/n)",
+	])("rejects lifecycle inline confirmation: %s", (prompt) => {
+		expect(extractSemanticOptions([prompt])).toEqual([]);
+	});
+
 	it("rejects destructive context anywhere in the viewport without falling back to a generic menu", () => {
 		expect(extractSemanticOptions([
 			"Delete production resources", "1. Continue", "2. Go back", "details", "more details", "review", "Continue? (Y/n)",
