@@ -161,6 +161,7 @@ export class SemanticSupervisor {
 	}
 
 	submitReply(binding: SemanticReplyBinding, response: string, permissionAllowed: () => boolean): { ok: true } | { ok: false; reason: string } {
+		if (this.awaitingVisualGeneration === this.options.session.visualGeneration) return { ok: false, reason: "awaiting-visual-change" };
 		const observation = this.buildObservation(true);
 		const validated = validateSemanticReply({
 			binding,

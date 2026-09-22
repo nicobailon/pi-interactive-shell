@@ -1671,7 +1671,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				const result = monitor.submitSemanticReply({ sessionId: semanticReply.sessionId, decisionId: semanticReply.decisionId, observationHash: decision.observationHash, generation: semanticReply.generation }, semanticReply.response, () => {
 					try {
 						const current = coordinator.getSemanticDecisions(semanticReply.sessionId, { limit: 1 }).decisions[0];
-						if (!current || current.decisionId !== decision.decisionId || current.observationHash !== decision.observationHash || current.generation !== decision.generation) return false;
+						if (!current || current.observationHash !== decision.observationHash || current.generation !== decision.generation) return false;
 						const currentDecision = loadRuntimeConfig(ctx.cwd).jev?.semanticPermissions.evaluate({ kind: "semantic-reply" }) ?? "ask";
 						return currentDecision === "allow" || (currentDecision === "ask" && authorization.acceptedDecision === "ask");
 					} catch { return false; }

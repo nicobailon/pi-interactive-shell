@@ -233,6 +233,7 @@ export function buildTerminalObservation(options: {
 	const approvalIdentity = {
 		...observation,
 		session: { mode: observation.session.mode, lifecycle: observation.session.lifecycle },
+		terminal: { viewport: observation.terminal.viewport, recentOutput: observation.terminal.recentOutput },
 	};
 	const hash = createHash("sha256").update(JSON.stringify(approvalIdentity)).digest("hex").slice(0, 24);
 	const handoff = buildTerminalHandoffContext(observation, secretPrompt);

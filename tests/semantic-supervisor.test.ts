@@ -313,17 +313,21 @@ describe("SemanticSupervisor observe-only state machine", () => {
 		await vi.advanceTimersByTimeAsync(0); await flush();
 		const decision = decisions[0]!;
 		const binding = { sessionId: "session-1", decisionId: 1, observationHash: decision.observationHash, generation: decision.generation };
-		await vi.advanceTimersByTimeAsync(1_000);
+		await vi.advanceTimersByTimeAsync(1_999); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(2);
+		expect(decisions[1]).toMatchObject({ observationHash: binding.observationHash, generation: binding.generation });
 		expect(supervisor.submitReply(binding, "staging", () => true)).toEqual({ ok: true });
 		expect(session.writes).toEqual(["staging\r"]);
 		expect(supervisor.submitReply(binding, "staging", () => true)).toMatchObject({ ok: false });
 		expect(session.writes).toEqual(["staging\r"]);
 		await vi.advanceTimersByTimeAsync(1_999); await flush();
-		expect(evaluate).toHaveBeenCalledTimes(1);
+		expect(evaluate).toHaveBeenCalledTimes(2);
 		await vi.advanceTimersByTimeAsync(1); await flush();
-		expect(evaluate).toHaveBeenCalledTimes(2);
+		expect(evaluate).toHaveBeenCalledTimes(3);
 		await vi.advanceTimersByTimeAsync(60_000); await flush();
-		expect(evaluate).toHaveBeenCalledTimes(2);
+		expect(evaluate).toHaveBeenCalledTimes(3);
 		supervisor.dispose();
 	});
 

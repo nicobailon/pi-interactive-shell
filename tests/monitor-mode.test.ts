@@ -387,6 +387,10 @@ describe("monitor mode", () => {
 		await waitForMonitorNotification();
 		const history = await toolDef.execute("reply-events", { monitorEvents: true, monitorSessionId: "monitor-1" }, undefined, undefined, { cwd: "/tmp/project" } as any);
 		const semantic = history.details.events.find((event: any) => event.semantic?.generation === 3).semantic;
+		// The one-shot quiet reassessment records a newer decision for the same
+		// trusted screen while its duplicate handoff remains suppressed.
+		getMonitorOptions()!.semantic!.onDecision({ kind: "observation", route: "notify", model: "jev-1.13.0", latencyMs: 1, observationHash: observed.hash, generation: 3,
+			answers: { requestsInput: 0.99, requestsApproval: 0, presentsResult: 0, requiresIntervention: 0, meaningfulProgress: 0, watches: {}, attention: { value: "waiting_input", confidence: 0.99, probabilities: { working: 0, waiting_input: 0.99, waiting_approval: 0, presenting_result: 0, blocked: 0, other: 0.01 } } } });
 		const result = await toolDef.execute("reply", { semanticReply: { sessionId: "monitor-1", decisionId: semantic.decisionId, generation: semantic.generation, handoffIdentity: semantic.handoffIdentity, response: "staging" } }, undefined, undefined,
 			{ hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
 		expect(result.isError).toBeUndefined();
@@ -402,6 +406,11 @@ describe("monitor mode", () => {
 		expect(rejected).toMatchObject({ isError: true });
 		expect(rejected.content[0].text).toContain("ordinary input-required handoffs");
 		expect(submitSemanticReply).toHaveBeenCalledTimes(1);
+		const stale = await toolDef.execute("stale-input-reply", { semanticReply: { sessionId: "monitor-1", decisionId: semantic.decisionId, generation: semantic.generation, handoffIdentity: semantic.handoffIdentity, response: "staging" } }, undefined, undefined,
+			{ hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(stale).toMatchObject({ isError: true });
+		expect(submitSemanticReply).toHaveBeenCalledTimes(2);
+		expect(submitSemanticReply.mock.results.map((entry) => entry.value.ok)).toEqual([true, false]);
 	});
 
 	it("records fixed agent incidents and returns a content-free diagnostic summary", async () => {

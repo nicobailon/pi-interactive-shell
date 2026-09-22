@@ -5,9 +5,9 @@ function session(lines: string[]) {
 	return { exited: false, getViewportLines: () => lines };
 }
 
-function build(lines: string[], recentOutput = lines.join("\n")) {
+function build(lines: string[], recentOutput = lines.join("\n"), changed = true) {
 	return buildTerminalObservation({
-		session: session(lines), mode: "monitor", recentOutput, changed: true,
+		session: session(lines), mode: "monitor", recentOutput, changed,
 		startedAt: 0, lastOutputAt: 0, actions: [], recentActionIds: [],
 		bounds: { maxViewportLines: 20, maxRecentChars: 4_000, redactionPatterns: [] },
 	});
@@ -36,6 +36,10 @@ describe("terminal contextual handoff", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("keeps the trusted observation hash stable across scheduler changed-state bookkeeping", () => {
+		expect(build(["Which environment?"], undefined, false).hash).toBe(build(["Which environment?"]).hash);
 	});
 
 	it("changes identity for a genuinely new question of the same type", () => {
