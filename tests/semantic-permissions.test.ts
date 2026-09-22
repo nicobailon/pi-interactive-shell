@@ -4,10 +4,15 @@ import { compileSemanticPermissions, type SemanticPermissionRule } from "../sema
 const launch = (command: string) => ({ kind: "launch-command" as const, command });
 const choice = { kind: "dynamic-terminal-choice" as const };
 const confirmation = { kind: "dynamic-terminal-confirmation" as const };
+const reply = { kind: "semantic-reply" as const };
 
 const rule = (decision: "allow" | "ask" | "deny", operation: SemanticPermissionRule["operation"]): SemanticPermissionRule => ({ decision, operation });
 
 describe("semantic permission policy", () => {
+	it("uses ask by default and deny wins for state-bound replies", () => {
+		expect(compileSemanticPermissions([]).evaluate(reply)).toBe("ask");
+		expect(compileSemanticPermissions([rule("allow", reply), rule("deny", reply)]).evaluate(reply)).toBe("deny");
+	});
 	it("matches opaque launch commands exactly without parsing or normalization", () => {
 		const policy = compileSemanticPermissions([
 			rule("allow", launch("npm test")),

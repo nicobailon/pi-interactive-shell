@@ -38,6 +38,8 @@ async function setupHarness(options: { detectorStdout?: string; diagnostics?: bo
 		if (message.customType === "interactive-shell-monitor-event") resolveMonitorNotification();
 	});
 	const eventsEmit = vi.fn();
+	const submitSemanticReply = vi.fn((_binding: unknown, _response: string, permissionAllowed: () => boolean) =>
+		permissionAllowed() ? ({ ok: true as const }) : ({ ok: false as const, reason: "permission-denied" }));
 
 	vi.resetModules();
 	vi.doMock("@earendil-works/pi-coding-agent", () => ({
@@ -175,6 +177,7 @@ async function setupHarness(options: { detectorStdout?: string; diagnostics?: bo
 			rebindSemanticEpoch() {}
 			pauseSemantic() {}
 			resumeSemantic() {}
+			submitSemanticReply(binding: unknown, response: string, permissionAllowed: () => boolean) { return submitSemanticReply(binding, response, permissionAllowed); }
 			submitMonitorCandidate(event: unknown) { void this.options?.onMonitorEvent?.(event); return true; }
 		},
 	}));
@@ -223,6 +226,7 @@ async function setupHarness(options: { detectorStdout?: string; diagnostics?: bo
 		setActiveSession: (session: unknown) => { activeSession = session; },
 		sendMessage,
 		eventsEmit,
+		submitSemanticReply,
 	};
 }
 
@@ -363,6 +367,30 @@ describe("monitor mode", () => {
 		expect(sendMessage.mock.calls[0]?.[0].content).toContain("Message: Semantic watch matched: ready");
 		expect(JSON.stringify(sendMessage.mock.calls[0]?.[0])).not.toContain("not-forwarded");
 		expect(eventsEmit).toHaveBeenCalledWith("interactive-shell:monitor-event", expect.objectContaining({ triggerId: "semantic:watch:ready" }));
+	});
+
+	it("accepts one exact delivered handoff binding through the state-bound reply path", async () => {
+		const launchRules: SemanticPermissionRule[] = [
+			{ decision: "allow", operation: { kind: "launch-command", command: "agent" } },
+			{ decision: "allow", operation: { kind: "semantic-reply" } },
+		];
+		const { toolDef, getMonitorOptions, submitSemanticReply, waitForMonitorNotification } = await setupHarness({ launchRules });
+		await toolDef.execute("reply-launch", { command: "agent", mode: "monitor", monitor: { strategy: "semantic", semantic: { attention: true } } }, undefined, undefined,
+			{ hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		const { buildTerminalObservation } = await import("../terminal-observation.ts");
+		const observed = buildTerminalObservation({
+			session: { exited: false, getViewportLines: () => ["Which environment?"] }, mode: "monitor", recentOutput: "Which environment?", changed: true,
+			startedAt: Date.now(), lastOutputAt: Date.now(), actions: [], recentActionIds: [], bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] },
+		});
+		getMonitorOptions()!.semantic!.onDecision({ kind: "observation", route: "notify", model: "jev-1.13.0", latencyMs: 1, observationHash: observed.hash, generation: 3,
+			answers: { requestsInput: 0.99, requestsApproval: 0, presentsResult: 0, requiresIntervention: 0, meaningfulProgress: 0, watches: {}, attention: { value: "waiting_input", confidence: 0.99, probabilities: { working: 0, waiting_input: 0.99, waiting_approval: 0, presenting_result: 0, blocked: 0, other: 0.01 } } } });
+		await waitForMonitorNotification();
+		const history = await toolDef.execute("reply-events", { monitorEvents: true, monitorSessionId: "monitor-1" }, undefined, undefined, { cwd: "/tmp/project" } as any);
+		const semantic = history.details.events.find((event: any) => event.semantic?.generation === 3).semantic;
+		const result = await toolDef.execute("reply", { semanticReply: { sessionId: "monitor-1", decisionId: semantic.decisionId, generation: semantic.generation, handoffIdentity: semantic.handoffIdentity, response: "staging" } }, undefined, undefined,
+			{ hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(result.isError).toBeUndefined();
+		expect(submitSemanticReply).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "monitor-1", observationHash: observed.hash, generation: 3 }), "staging", expect.any(Function));
 	});
 
 	it("records fixed agent incidents and returns a content-free diagnostic summary", async () => {

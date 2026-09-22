@@ -33,9 +33,9 @@ function result(choice = "working", confidence = 0.95) {
 	};
 }
 
-function createSupervisor(session: FakeSession, client: JevClient, decisions: SemanticDecisionInput[], overrides: { watches?: Array<{ id: string; condition: string }>; epoch?: () => boolean; onDiagnostic?: (outcome: "stale-response" | "cancelled-response") => void } = {}) {
+function createSupervisor(session: FakeSession, client: JevClient, decisions: SemanticDecisionInput[], overrides: { watches?: Array<{ id: string; condition: string }>; epoch?: () => boolean; onDiagnostic?: (outcome: "stale-response" | "cancelled-response") => void; minIntervalMs?: number; quietIntervalMs?: number } = {}) {
 	return new SemanticSupervisor({
-		session, mode: "monitor", config: { goal: "test", minIntervalMs: 250, watches: overrides.watches }, client,
+		session, mode: "monitor", config: { goal: "test", minIntervalMs: overrides.minIntervalMs ?? 250, quietIntervalMs: overrides.quietIntervalMs, watches: overrides.watches }, client,
 		model: "jev-1.13.0", requestTimeoutMs: 1000, startedAt: Date.now(), isEpochCurrent: overrides.epoch ?? (() => true),
 		bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] }, onDecision: (decision) => decisions.push(decision),
 		onDiagnostic: overrides.onDiagnostic,
@@ -280,6 +280,21 @@ describe("SemanticSupervisor observe-only state machine", () => {
 
 		await vi.advanceTimersByTimeAsync(60_000); await flush();
 		expect(requests).toHaveLength(2);
+		supervisor.dispose();
+	});
+
+	it("honors the bounded quiet setting while retaining the minimum request interval", async () => {
+		const session = new FakeSession(); const evaluate = vi.fn(async () => result());
+		const supervisor = createSupervisor(session, { evaluate }, [], { quietIntervalMs: 500, minIntervalMs: 1_000 });
+		session.mutate("working"); supervisor.handleOutput("working");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(999); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(60_000); await flush();
+		expect(evaluate).toHaveBeenCalledTimes(2);
 		supervisor.dispose();
 	});
 

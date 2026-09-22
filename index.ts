@@ -232,7 +232,7 @@ function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatc
 		const diagnostics = jev.diagnostics?.enabled
 			? createSemanticDiagnosticsSession({ config: jev.diagnostics, sessionId, mode, model: jev.model })
 			: undefined;
-		let lastAttentionTriggerId: string | undefined;
+		let lastAttentionIdentity: string | undefined;
 		return {
 			ok: true as const,
 			runtime: {
@@ -245,16 +245,17 @@ function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatc
 					const deliveries: SemanticDeliveryDiagnostic[] = [];
 					for (const candidate of candidates) {
 						if ((candidate.semantic?.kind === "attention" || candidate.semantic?.kind === "uncertain")
-							&& candidate.triggerId === lastAttentionTriggerId) {
+							&& (candidate.semantic.handoffIdentity ?? candidate.triggerId) === lastAttentionIdentity) {
 							deliveries.push({ eventType: diagnosticEventType(candidate), outcome: "suppressed-unchanged" });
 							continue;
 						}
-						const delivered = coordinator.getMonitor(sessionId)?.submitMonitorCandidate(candidate, `${recorded.generation}:${candidate.triggerId}`) === true;
+						const delivered = coordinator.getMonitor(sessionId)?.submitMonitorCandidate(candidate, candidate.semantic?.handoffIdentity ?? `${recorded.generation}:${candidate.triggerId}`) === true;
 						deliveries.push({ eventType: diagnosticEventType(candidate), outcome: delivered ? "delivered" : "suppressed-monitor" });
 					}
 					diagnostics?.recordDecision(recorded, deliveries);
 					if (recorded.kind === "observation") {
-						lastAttentionTriggerId = candidates.find((candidate) => candidate.semantic?.kind === "attention" || candidate.semantic?.kind === "uncertain")?.triggerId;
+						const attention = candidates.find((candidate) => candidate.semantic?.kind === "attention" || candidate.semantic?.kind === "uncertain");
+						lastAttentionIdentity = attention?.semantic?.handoffIdentity ?? attention?.triggerId;
 					}
 				},
 				onDiagnostic: (outcome: "stale-response" | "cancelled-response") => diagnostics?.recordRequest(outcome),
@@ -289,6 +290,22 @@ async function authorizeLaunchCommand(
 			`Launch this exact command once?\n\n${JSON.stringify(command)}`,
 		);
 		return approved ? { allowed: true } : { allowed: false, reason: "rejected" };
+	} catch {
+		return { allowed: false, reason: "ui-unavailable" };
+	}
+}
+
+async function authorizeSemanticReply(
+	config: InteractiveShellConfig,
+	ctx: Pick<ExtensionContext, "ui"> & { hasUI?: boolean },
+): Promise<{ allowed: true; acceptedDecision: "allow" | "ask" } | { allowed: false; reason: "denied" | "ui-unavailable" | "rejected" }> {
+	const decision = config.jev?.semanticPermissions.evaluate({ kind: "semantic-reply" }) ?? "ask";
+	if (decision === "allow") return { allowed: true, acceptedDecision: "allow" };
+	if (decision === "deny") return { allowed: false, reason: "denied" };
+	if (ctx.hasUI === false || typeof ctx.ui.confirm !== "function") return { allowed: false, reason: "ui-unavailable" };
+	try {
+		const approved = await ctx.ui.confirm("Allow semantic reply?", "Send this one state-bound response to the currently visible terminal prompt?");
+		return approved ? { allowed: true, acceptedDecision: "ask" } : { allowed: false, reason: "rejected" };
 	} catch {
 		return { allowed: false, reason: "ui-unavailable" };
 	}
@@ -1616,6 +1633,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				semanticDiagnosticDays,
 				semanticDiagnosticLimit,
 				semanticIncident,
+				semanticReply,
 				handsFree,
 				handoffPreview,
 				handoffSnapshot,
@@ -1629,12 +1647,36 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				? { text: input, keys: inputKeys, hex: inputHex, paste: inputPaste }
 				: input;
 			const normalizedSpawn = normalizeSpawnRequest(spawn);
-			const hasExistingSessionAction = Boolean(sessionId || sourceId || outputView || attach || listBackground || dismissBackground || monitorEvents || monitorStatus || semanticDecisions || semanticDiagnostics || semanticIncident);
+			const hasExistingSessionAction = Boolean(sessionId || sourceId || outputView || attach || listBackground || dismissBackground || monitorEvents || monitorStatus || semanticDecisions || semanticDiagnostics || semanticIncident || semanticReply);
 			if (outputSelection && hasExistingSessionAction) {
 				return { content: [{ type: "text", text: "outputSelection is launch-only and cannot be combined with an existing-session action." }], isError: true };
 			}
 			if (semanticDiagnostics && semanticIncident) {
 				return { content: [{ type: "text", text: "Choose semanticDiagnostics or semanticIncident, not both." }], isError: true };
+			}
+			if (semanticReply) {
+				if (sessionId || effectiveInput !== undefined || submit) return { content: [{ type: "text", text: "semanticReply cannot be combined with ordinary session input." }], isError: true };
+				const monitor = coordinator.getMonitor(semanticReply.sessionId);
+				const state = coordinator.getSemanticSessionState(semanticReply.sessionId);
+				const event = coordinator.getMonitorEvents(semanticReply.sessionId, { limit: 200 }).events.find((candidate) =>
+					candidate.semantic?.decisionId === semanticReply.decisionId
+					&& candidate.semantic?.generation === semanticReply.generation
+					&& candidate.semantic?.handoffIdentity === semanticReply.handoffIdentity);
+				const decision = coordinator.getSemanticDecisions(semanticReply.sessionId, { limit: 200 }).decisions.find((candidate) => candidate.decisionId === semanticReply.decisionId);
+				if (!monitor || !state || state.status !== "running" || !event || !decision || decision.generation !== semanticReply.generation) return { content: [{ type: "text", text: "Semantic reply binding is unavailable or stale; no input was sent." }], isError: true };
+				const initialConfig = loadRuntimeConfig(ctx.cwd);
+				const authorization = await authorizeSemanticReply(initialConfig, ctx);
+				if (!authorization.allowed) return { content: [{ type: "text", text: `Semantic reply blocked (${authorization.reason}); no input was sent.` }], isError: true };
+				const result = monitor.submitSemanticReply({ sessionId: semanticReply.sessionId, decisionId: semanticReply.decisionId, observationHash: decision.observationHash, generation: semanticReply.generation }, semanticReply.response, () => {
+					try {
+						const current = coordinator.getSemanticDecisions(semanticReply.sessionId, { limit: 1 }).decisions[0];
+						if (!current || current.decisionId !== decision.decisionId || current.observationHash !== decision.observationHash || current.generation !== decision.generation) return false;
+						const currentDecision = loadRuntimeConfig(ctx.cwd).jev?.semanticPermissions.evaluate({ kind: "semantic-reply" }) ?? "ask";
+						return currentDecision === "allow" || (currentDecision === "ask" && authorization.acceptedDecision === "ask");
+					} catch { return false; }
+				});
+				if (!result.ok) return { content: [{ type: "text", text: `Semantic reply rejected (${result.reason}); no input was sent.` }], isError: true };
+				return { content: [{ type: "text", text: `State-bound reply sent to session ${semanticReply.sessionId}; semantic supervision remains active.` }], details: { sessionId: semanticReply.sessionId, decisionId: semanticReply.decisionId } };
 			}
 			const spawnForAction = (command || hasExistingSessionAction) && isEmptySpawnPlaceholder(spawn)
 				? undefined

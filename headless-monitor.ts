@@ -7,6 +7,7 @@ import type { JevClient } from "./jev-client.ts";
 import { SemanticSupervisor } from "./semantic-supervisor.ts";
 import type { SemanticActionRegistry } from "./semantic-actions.ts";
 import type { SemanticChoiceAuthorization } from "./semantic-choice-authorization.ts";
+import type { SemanticReplyBinding } from "./semantic-reply.ts";
 
 export interface MonitorMatchInfo {
 	strategy: MonitorStrategy;
@@ -418,6 +419,9 @@ export class HeadlessDispatchMonitor {
 
 	pauseSemantic(): void { this.semanticSupervisor?.pause(); }
 	resumeSemantic(): void { this.semanticSupervisor?.resume(); }
+	submitSemanticReply(binding: SemanticReplyBinding, response: string, permissionAllowed: () => boolean): { ok: true } | { ok: false; reason: string } {
+		return this.semanticSupervisor?.submitReply(binding, response, permissionAllowed) ?? { ok: false, reason: "semantic-supervision-unavailable" };
+	}
 	rebindSemanticEpoch(isEpochCurrent: () => boolean): void { this.semanticSupervisor?.rebindEpoch(isEpochCurrent); }
 
 	activateBackgroundLifecycle(options: { autoExitOnQuiet: boolean; timeout?: number; onComplete: (info: HeadlessCompletionInfo) => void }): void {

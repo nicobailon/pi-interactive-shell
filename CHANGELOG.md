@@ -9,10 +9,12 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 - Enforce separate policy for extracted Yes/No and comma-qualified Yes/No confirmations, stop pending and later dynamic choices after automation stops, and keep unchanged-screen approvals valid across elapsed/quiet time drift (#72).
 
 ### Added
+- Add one bounded quiet semantic reassessment per inactivity episode, contextual redacted handoffs with content-sensitive dedupe, and a state-bound single-line reply action guarded by fresh runtime state and trusted global permission (#75).
 - Add opt-in goal-driven selection among conservative choices discovered in fresh visible CLI output, with code-owned exact inputs, trusted global allow/ask/deny policy, and a one-time Pi confirmation prompt for `ask` (#71).
 - Add explicitly activated global exact-command policy for launches through `interactive_shell`; deny blocks before construction, ask requires Pi confirmation, and allow proceeds without changing existing-session controls (#71).
 
 ### Security
+- Fail semantic replies closed on stale identity, changed observation, takeover/reload/exit, secret prompts, restricted text, deny/rejection, or unavailable confirmation UI; quiet reassessment remains non-actionable (#75).
 - Fail dynamic terminal choices closed on headless/background operation, unavailable UI, rejection, stale state, reload/takeover/exit, secret or lifecycle content, ambiguity, and evaluator failure. Project and tool configuration cannot weaken the global user policy (#71).
 - Reject file-watch requests that also supply a raw command or structured spawn, so only the generated watcher command can satisfy launch authorization and no unused spawn can create a worktree (#71).
 

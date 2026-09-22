@@ -12,8 +12,9 @@ describe("semantic tool schema bounds", () => {
 		expect(Value.Check(toolParameters, actionParams(validText))).toBe(true);
 		expect(Value.Check(toolParameters, actionParams(validKeys))).toBe(true);
 		expect(Value.Check(toolParameters, actionParams({ ...validText, description: "visible\u2028" }))).toBe(true);
-		expect(Value.Check(toolParameters, params({ goal: "observe", minIntervalMs: 250, watches: [{ id: "build.ready", condition: "build is visibly ready", threshold: 0.8 }] }))).toBe(true);
+		expect(Value.Check(toolParameters, params({ goal: "observe", minIntervalMs: 250, quietIntervalMs: 2000, watches: [{ id: "build.ready", condition: "build is visibly ready", threshold: 0.8 }] }))).toBe(true);
 		expect(Value.Check(toolParameters, params({ goal: "choose a release", dynamicChoices: { enabled: true } }))).toBe(true);
+		expect(Value.Check(toolParameters, { semanticReply: { sessionId: "s", decisionId: 1, generation: 2, handoffIdentity: "a".repeat(24), response: "Continue" } })).toBe(true);
 	});
 
 	it("emits provider-compatible patterns without lookaround", () => {
@@ -33,6 +34,8 @@ describe("semantic tool schema bounds", () => {
 		["blank condition", params({ watches: [{ id: "safe", condition: "   " }] })],
 		["watch threshold", params({ watches: [{ id: "safe", condition: "visible", threshold: 1.01 }] })],
 		["interval low", params({ minIntervalMs: 249 })], ["interval integer", params({ minIntervalMs: 250.5 })],
+		["quiet interval low", params({ quietIntervalMs: 249 })], ["quiet interval high", params({ quietIntervalMs: 60001 })],
+		["reply newline", { semanticReply: { sessionId: "s", decisionId: 1, generation: 2, handoffIdentity: "a".repeat(24), response: "yes\nno" } }],
 		["session budget", actionParams(validText, { maxActions: 11 })], ["session budget integer", actionParams(validText, { maxActions: 1.5 })],
 		["action id", actionParams({ ...validText, id: "bad id" })], ["description blank", actionParams({ ...validText, description: "" })],
 		["reserved dynamic id namespace", actionParams({ ...validText, id: "dynamic:number_1" })],
@@ -66,6 +69,7 @@ describe("semantic tool schema bounds", () => {
 		expect(semantic.properties.watches.items.additionalProperties).toBe(false);
 		expect(semantic.properties.goal.maxLength).toBe(1000);
 		expect(semantic.properties.minIntervalMs).toMatchObject({ type: "integer", minimum: 250, maximum: 60000 });
+		expect(semantic.properties.quietIntervalMs).toMatchObject({ type: "integer", minimum: 250, maximum: 60000 });
 		const actions = semantic.properties.actions;
 		expect(actions.properties.maxActions).toMatchObject({ type: "integer", minimum: 1, maximum: 10 });
 		expect(actions.properties.items).toMatchObject({ minItems: 1, maxItems: 10 });

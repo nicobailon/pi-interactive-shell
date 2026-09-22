@@ -187,6 +187,7 @@ export const toolParameters = Type.Object({
 					threshold: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
 				}, { additionalProperties: false }))),
 				minIntervalMs: Type.Optional(Type.Integer({ minimum: 250, maximum: 60000, description: "Minimum interval between coalesced semantic requests (250-60000ms)." })),
+				quietIntervalMs: Type.Optional(Type.Integer({ minimum: 250, maximum: 60000, description: "One-shot inactivity reassessment delay (default 2000ms, 250-60000ms). The minimum request interval still applies." })),
 				uncertain: Type.Optional(Type.Union([Type.Literal("continue"), Type.Literal("notify")], { description: "Emit semantic-uncertain events or continue silently (default: continue)." })),
 				actions: Type.Optional(Type.Object({
 					enabled: Type.Literal(true, { description: "Explicitly authorize only the listed immutable terminal inputs." }),
@@ -293,6 +294,13 @@ export const toolParameters = Type.Object({
 			Type.Literal("uncertain"), Type.Literal("watch"), Type.Literal("evaluator-error"), Type.Literal("action-control"),
 		])),
 	}, { additionalProperties: false, description: "Record a structured Jev discrepancy naturally observed by the agent. Requires semanticSessionId or sessionId. No free-form terminal content is accepted." })),
+	semanticReply: Type.Optional(Type.Object({
+		sessionId: Type.String({ minLength: 1 }),
+		decisionId: Type.Integer({ minimum: 1 }),
+		generation: Type.Integer({ minimum: 0 }),
+		handoffIdentity: Type.String({ minLength: 24, maxLength: 24, pattern: "^[a-f0-9]{24}$" }),
+		response: Type.String({ minLength: 1, maxLength: 2000, pattern: SEMANTIC_NONCONTROL_PATTERN, description: "One bounded single-line response for the exact current semantic handoff." }),
+	}, { additionalProperties: false, description: "Submit one state-bound reply to a current semantic handoff. Requires trusted global semantic-reply permission; stale or secret state writes no bytes." })),
 	monitorSessionId: Type.Optional(
 		Type.String({
 			description: "Target monitor session for monitorStatus/monitorEvents queries.",
