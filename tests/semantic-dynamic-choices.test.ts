@@ -306,6 +306,32 @@ describe("bounded inline confirmation transactions", () => {
 		supervisor.dispose(); vi.useRealTimers();
 	});
 
+	it("handles a synchronous exact echo as the same single transaction", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession();
+		session.writeIfActive = (data: string) => {
+			session.writes.push(data);
+			if (data === "y") session.show(["Continue? (Y/n)y"]);
+			return true;
+		};
+		const supervisor = await runInitial({ session, authorization: approved(),
+			client: { evaluate: vi.fn(async () => inlineAnswers("dynamic:inline_yes")) } });
+		expect(session.writes).toEqual(["y", "\r"]);
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
+	it("does not interleave a second dynamic approval while one is pending", async () => {
+		vi.useFakeTimers(); const session = new ChoiceSession(); const authorization = { request: vi.fn(), dispose() {} };
+		const supervisor = createSupervisor({ session, authorization,
+			client: { evaluate: vi.fn(async () => inlineAnswers("dynamic:inline_yes")) } });
+		session.show(["Continue? (Y/n)"]); supervisor.handleOutput("first");
+		await vi.advanceTimersByTimeAsync(0); await flush();
+		session.show(["Proceed? (Y/n)"]); supervisor.handleOutput("second");
+		await vi.advanceTimersByTimeAsync(250); await flush();
+		expect(authorization.request).toHaveBeenCalledOnce();
+		expect(session.writes).toEqual([]);
+		supervisor.dispose(); vi.useRealTimers();
+	});
+
 	it.each([
 		["ambiguous protocol", ["Continue? (y/n)"]],
 		["destructive adjacent context", ["Delete production resources", "details", "review", "Continue? (Y/n)"]],

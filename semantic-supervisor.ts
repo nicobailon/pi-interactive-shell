@@ -357,9 +357,8 @@ export class SemanticSupervisor {
 		const option = answer.option!;
 		const blocked = this.checkDynamicAction(answer, generation, hash);
 		if (blocked) { complete(blocked); return; }
-		const dynamic = this.options.dynamicChoices;
-		if (!dynamic) { complete(this.blockDynamic(answer, "ui-unavailable")); return; }
 		this.approvalInFlight = true;
+		const dynamic = this.options.dynamicChoices!;
 		dynamic.authorization.request({ sessionId: dynamic.sessionId, operationId: option.id,
 			observationGeneration: generation, observationHash: hash }, option, (approved) => {
 			this.approvalInFlight = false;
@@ -382,7 +381,7 @@ export class SemanticSupervisor {
 		if (this.actionsStopped) return this.blockDynamic(answer, "session-actions-disabled");
 		if (!dynamic || !dynamic.isInteractive()) return this.blockDynamic(answer, "ui-unavailable");
 		if (this.disposed || this.paused || this.options.session.exited || !this.options.isEpochCurrent()) return this.blockDynamic(answer, "inactive");
-		if (this.actionInFlight || this.awaitingVisualGeneration === generation) return this.blockDynamic(answer, "in-flight-or-awaiting-change");
+		if (this.actionInFlight || this.approvalInFlight || this.awaitingVisualGeneration === generation) return this.blockDynamic(answer, "in-flight-or-awaiting-change");
 		if (this.options.isActionOwner?.() !== true) return this.blockDynamic(answer, "ownership");
 		if (this.options.session.visualGeneration !== generation || this.currentObservationHash !== hash) return this.blockDynamic(answer, "stale");
 		const current = this.buildObservation(true);
@@ -405,21 +404,23 @@ export class SemanticSupervisor {
 		}
 		if (this.options.reserveGlobalAction?.() !== true) return this.blockDynamic(answer, "global-budget");
 		this.actionInFlight = true;
+		this.dynamicActionUsed = true;
+		this.awaitingVisualGeneration = generation;
+		this.lastActionGeneration = generation;
+		if (plan) this.inlineConfirmation = { plan, generation };
 		let outcome: "executed" | "refused" | "error";
 		let reason: string;
 		try {
 			const written = this.options.session.writeIfActive!(answer.option!.input.bytes);
 			outcome = written ? "executed" : "refused";
 			reason = written ? (plan ? "inline-selection-written" : "written-once") : "inactive-session";
-			if (written && plan) this.inlineConfirmation = { plan, generation };
+			if (!written) this.inlineConfirmation = undefined;
 		} catch {
 			outcome = "error";
 			reason = "write-failed";
+			this.inlineConfirmation = undefined;
 		}
 		finally {
-			this.dynamicActionUsed = true;
-			this.awaitingVisualGeneration = generation;
-			this.lastActionGeneration = generation;
 			this.actionInFlight = false;
 		}
 		return { choice: answer.choice, actionId: answer.choice, confidence: answer.confidence, probability: answer.probability,
@@ -428,24 +429,25 @@ export class SemanticSupervisor {
 
 	private finishInlineConfirmation(transaction: { plan: InlineConfirmationPlan; generation: number }): void {
 		if (this.inlineConfirmation !== transaction) return;
-		const identityCurrent = this.awaitingVisualGeneration === transaction.generation && this.dynamicActionUsed;
+		const generation = this.options.session.visualGeneration;
+		const viewport = this.trustedViewport();
+		const identityCurrent = this.awaitingVisualGeneration === transaction.generation;
 		this.inlineConfirmation = undefined;
 		this.awaitingVisualGeneration = undefined;
-		const transition = verifyInlineConfirmationTransition(transaction.plan, this.trustedViewport());
+		const transition = verifyInlineConfirmationTransition(transaction.plan, viewport);
 		if (transition.kind !== "submit") return;
-		const current = this.buildObservation(true);
 		const dynamic = this.options.dynamicChoices;
 		if (this.disposed || this.paused || this.actionsStopped || this.options.session.exited || !this.options.isEpochCurrent()
-			|| !dynamic?.isInteractive() || this.options.isActionOwner?.() !== true || !identityCurrent || current.secretPrompt
-			|| classifyTerminalSecretPrompt(this.trustedViewport(), "").secretPrompt
-			|| transaction.generation >= this.options.session.visualGeneration) return;
+			|| !dynamic?.isInteractive() || this.options.isActionOwner?.() !== true || !identityCurrent || this.secretPromptFence
+			|| classifyTerminalSecretPrompt(viewport, "").secretPrompt
+			|| transaction.generation >= generation || this.options.session.visualGeneration !== generation) return;
 		try {
 			if (this.options.session.writeIfActive?.("\r") !== true) return;
 		} catch {
 			return;
 		}
-		this.awaitingVisualGeneration = this.options.session.visualGeneration;
-		this.lastActionGeneration = this.options.session.visualGeneration;
+		this.awaitingVisualGeneration = generation;
+		this.lastActionGeneration = generation;
 		this.currentObservationHash = undefined;
 	}
 
