@@ -4,22 +4,18 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
-### Fixed
-- Recognize wrapped keyboard menus with navigation help and non-executable custom-input/chat siblings, and select dynamic options through a dedicated opaque-ID-or-`none` confidence gate.
-- Enforce separate policy for extracted Yes/No and comma-qualified Yes/No confirmations, stop pending and later dynamic choices after automation stops, and keep unchanged-screen approvals valid across elapsed/quiet time drift (#72).
-
 ### Added
-- Add bounded semantic multi-select desired-set execution for protocols that visibly assert the exact total choice count, with opaque provider questions, a distinct trusted permission identity, exact redraw verification, one global reservation, and one submit after the verified final set (#75).
-- Add bounded inline `(Y/n)` confirmation transactions that write one selected character and submit only after its exact trusted echo, with no second model or permission decision (#75).
-- Add one bounded quiet semantic reassessment per inactivity episode, contextual redacted handoffs with content-sensitive dedupe, and a state-bound single-line reply action guarded by fresh runtime state and trusted global permission (#75).
-- Add opt-in goal-driven selection among conservative choices discovered in fresh visible CLI output, with code-owned exact inputs, trusted global allow/ask/deny policy, and a one-time Pi confirmation prompt for `ask` (#71).
+- Add one observe-only Jev check after each quiet period (`quietIntervalMs`, default 2s), including sessions that print nothing. A quiet check can wake Pi but never types into the session (#75).
+- Include a short redacted excerpt of the evaluated screen in semantic events, so Pi can see the question or result without querying the session (#75).
 - Add explicitly activated global exact-command policy for launches through `interactive_shell`; deny blocks before construction, ask requires Pi confirmation, and allow proceeds without changing existing-session controls (#71).
 
+### Changed
+- Typing into a session re-arms attention events, so a follow-up question of the same type wakes Pi. Screen churn such as token counters and timers still does not repeat an event.
+
+### Fixed
+- Keep configured semantic actions from being rejected as stale when only elapsed-time buckets change on an unchanged screen.
+
 ### Security
-- Prevent malformed, silently paginated, or unsupported multi-select viewports from downgrading into ordinary choices; fail interrupted transactions closed without submit, rollback, retry, or replay (#75).
-- Fail inline confirmation submission closed on wrong or absent echo, unrelated redraw, replay, ownership/epoch/takeover/exit interruption, or secret state; initial denial, ambiguity, and staleness write nothing (#75).
-- Fail semantic replies closed on stale identity, changed observation, takeover/reload/exit, secret prompts, restricted text, deny/rejection, or unavailable confirmation UI; quiet reassessment remains non-actionable (#75).
-- Fail dynamic terminal choices closed on headless/background operation, unavailable UI, rejection, stale state, reload/takeover/exit, secret or lifecycle content, ambiguity, and evaluator failure. Project and tool configuration cannot weaken the global user policy (#71).
 - Reject file-watch requests that also supply a raw command or structured spawn, so only the generated watcher command can satisfy launch authorization and no unused spawn can create a worktree (#71).
 
 ## [0.16.1] - 2026-09-21

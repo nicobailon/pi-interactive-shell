@@ -209,9 +209,6 @@ export const toolParameters = Type.Object({
 						}, { additionalProperties: false }),
 					]), { minItems: 1, maxItems: 10 }),
 				}, { additionalProperties: false })),
-				dynamicChoices: Type.Optional(Type.Object({
-					enabled: Type.Literal(true, { description: "Opt in to goal-driven selection among conservative choices extracted from fresh visible terminal output. Requires semantic.goal and trusted global permission." }),
-				}, { additionalProperties: false, description: "Visible choices are code-extracted; Jev receives opaque IDs and labels and never generates terminal input. Ask permission requires a one-time Pi confirmation prompt." })),
 			}, { additionalProperties: false, description: "Optional per-session Jev supervision. Bounded terminal text is sent to TypeSafe AI only with global jev.enabled and TYPESAFE_API_KEY in Pi's environment. Attention/watches notify; actions require a separate explicit immutable allowlist." })),
 			fileWatch: Type.Optional(Type.Object({
 				path: Type.String({ description: "Path to watch for strategy='file-watch'. Relative paths resolve from cwd. File-watch generates its own command, so top-level command and spawn must be omitted." }),
@@ -294,13 +291,6 @@ export const toolParameters = Type.Object({
 			Type.Literal("uncertain"), Type.Literal("watch"), Type.Literal("evaluator-error"), Type.Literal("action-control"),
 		])),
 	}, { additionalProperties: false, description: "Record a structured Jev discrepancy naturally observed by the agent. Requires semanticSessionId or sessionId. No free-form terminal content is accepted." })),
-	semanticReply: Type.Optional(Type.Object({
-		sessionId: Type.String({ minLength: 1 }),
-		decisionId: Type.Integer({ minimum: 1 }),
-		generation: Type.Integer({ minimum: 0 }),
-		handoffIdentity: Type.String({ minLength: 24, maxLength: 24, pattern: "^[a-f0-9]{24}$" }),
-		response: Type.String({ minLength: 1, maxLength: 2000, pattern: SEMANTIC_NONCONTROL_PATTERN, description: "One bounded single-line response for the exact current semantic handoff." }),
-	}, { additionalProperties: false, description: "Submit one state-bound reply to a current semantic handoff. Requires trusted global semantic-reply permission; stale or secret state writes no bytes." })),
 	monitorSessionId: Type.Optional(
 		Type.String({
 			description: "Target monitor session for monitorStatus/monitorEvents queries.",

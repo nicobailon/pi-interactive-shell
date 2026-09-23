@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifySemanticEvents } from "../semantic-events.ts";
-import type { TerminalHandoffContext } from "../terminal-observation.ts";
+import { buildTerminalObservation } from "../terminal-observation.ts";
 import type { SemanticDecision, SemanticAttentionState } from "../types.ts";
 
 function observation(options: {
@@ -90,28 +90,16 @@ describe("semantic event classification", () => {
 		expect(classifySemanticEvents(skipped, { attention: true, uncertain: "notify", watches: [{ id: "x", condition: "x" }] })).toEqual([]);
 	});
 
-	it("carries stable contextual identity and lifecycle metadata without private observation hashes", () => {
-		const context: TerminalHandoffContext = { relevantExcerpt: "Proceed with deployment?", contentIdentity: "content-a", lifecycle: "running" };
-		const first = classifySemanticEvents(observation({ attention: "waiting_input" }), { attention: true }, context)[0]!;
-		const later = observation({ attention: "waiting_input" });
-		later.decisionId = 99;
-		later.generation = 100;
-		later.timestamp = "2026-09-14T00:02:00Z";
-		const second = classifySemanticEvents(later, { attention: true }, context)[0]!;
+	it("uses the evaluated screen's redacted excerpt as the event message without exposing its hash", () => {
+		const observed = buildTerminalObservation({
+			session: { exited: false, getViewportLines: () => ["Proceed with deployment?"] }, mode: "monitor", recentOutput: "", changed: true,
+			startedAt: 0, lastOutputAt: 0, actions: [], recentActionIds: [], bounds: { maxViewportLines: 10, maxRecentChars: 100, redactionPatterns: [] },
+		});
+		const decision = observation({ attention: "waiting_input" });
+		decision.observationHash = observed.hash;
+		const [event] = classifySemanticEvents(decision, { attention: true });
 
-		expect(first.lineOrDiff).toBe("Proceed with deployment?");
-		expect(first.semantic).toMatchObject({ lifecycle: "running", reason: "input-required", observedAt: "2026-09-14T00:00:00Z" });
-		expect(second.semantic?.handoffIdentity).toBe(first.semantic?.handoffIdentity);
-		expect(JSON.stringify(first)).not.toContain("must-not-leak");
-	});
-
-	it("changes contextual identity when a same-type question has new content", () => {
-		const first = classifySemanticEvents(observation({ attention: "waiting_input" }), { attention: true }, {
-			relevantExcerpt: "Deploy alpha?", contentIdentity: "alpha", lifecycle: "running",
-		})[0]!;
-		const second = classifySemanticEvents(observation({ attention: "waiting_input" }), { attention: true }, {
-			relevantExcerpt: "Deploy beta?", contentIdentity: "beta", lifecycle: "running",
-		})[0]!;
-		expect(second.semantic?.handoffIdentity).not.toBe(first.semantic?.handoffIdentity);
+		expect(event?.lineOrDiff).toBe("Proceed with deployment?");
+		expect(JSON.stringify(event)).not.toContain(observed.hash);
 	});
 });

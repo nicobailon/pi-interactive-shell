@@ -61,7 +61,7 @@ describe("Jev foundation", () => {
 		expect(result.hash).toMatch(/^[a-f0-9]{24}$/);
 	});
 
-	it("keeps approval identity stable when only elapsed and quiet time buckets advance", () => {
+	it("keeps the observation hash stable when only elapsed and quiet time buckets advance", () => {
 		vi.useFakeTimers();
 		try {
 			const startedAt = Date.UTC(2026, 0, 1);
@@ -85,7 +85,7 @@ describe("Jev foundation", () => {
 		}
 	});
 
-	it("changes approval identity for meaningful terminal and session state changes", () => {
+	it("changes the observation hash for meaningful terminal and session state changes", () => {
 		vi.useFakeTimers();
 		try {
 			const now = Date.UTC(2026, 0, 1);

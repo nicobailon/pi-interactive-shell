@@ -13,8 +13,6 @@ describe("semantic tool schema bounds", () => {
 		expect(Value.Check(toolParameters, actionParams(validKeys))).toBe(true);
 		expect(Value.Check(toolParameters, actionParams({ ...validText, description: "visible\u2028" }))).toBe(true);
 		expect(Value.Check(toolParameters, params({ goal: "observe", minIntervalMs: 250, quietIntervalMs: 2000, watches: [{ id: "build.ready", condition: "build is visibly ready", threshold: 0.8 }] }))).toBe(true);
-		expect(Value.Check(toolParameters, params({ goal: "choose a release", dynamicChoices: { enabled: true } }))).toBe(true);
-		expect(Value.Check(toolParameters, { semanticReply: { sessionId: "s", decisionId: 1, generation: 2, handoffIdentity: "a".repeat(24), response: "Continue" } })).toBe(true);
 	});
 
 	it("emits provider-compatible patterns without lookaround", () => {
@@ -35,10 +33,9 @@ describe("semantic tool schema bounds", () => {
 		["watch threshold", params({ watches: [{ id: "safe", condition: "visible", threshold: 1.01 }] })],
 		["interval low", params({ minIntervalMs: 249 })], ["interval integer", params({ minIntervalMs: 250.5 })],
 		["quiet interval low", params({ quietIntervalMs: 249 })], ["quiet interval high", params({ quietIntervalMs: 60001 })],
-		["reply newline", { semanticReply: { sessionId: "s", decisionId: 1, generation: 2, handoffIdentity: "a".repeat(24), response: "yes\nno" } }],
+		["removed dynamic choices", params({ goal: "choose a release", dynamicChoices: { enabled: true } })],
 		["session budget", actionParams(validText, { maxActions: 11 })], ["session budget integer", actionParams(validText, { maxActions: 1.5 })],
 		["action id", actionParams({ ...validText, id: "bad id" })], ["description blank", actionParams({ ...validText, description: "" })],
-		["reserved dynamic id namespace", actionParams({ ...validText, id: "dynamic:number_1" })],
 		["description whitespace", actionParams({ ...validText, description: "   " })],
 		["description length", actionParams({ ...validText, description: "x".repeat(501) })], ["description control", actionParams({ ...validText, description: "bad\ntext" })],
 		["description null", actionParams({ ...validText, description: "\u0000" })],
@@ -51,8 +48,6 @@ describe("semantic tool schema bounds", () => {
 		["key item length", actionParams({ ...validKeys, inputKeys: ["x".repeat(65)] })],
 		["unknown watch property", params({ watches: [{ id: "safe", condition: "visible", extra: true }] })],
 		["unknown semantic property", params({ attention: true, extra: true })],
-		["dynamic enabled", params({ goal: "choose", dynamicChoices: { enabled: false } })],
-		["unknown dynamic property", params({ goal: "choose", dynamicChoices: { enabled: true, maxActions: 2 } })],
 		["cooldown low", actionParams({ ...validText, cooldownMs: -1 })], ["cooldown high", actionParams({ ...validText, cooldownMs: 86400001 })],
 		["cooldown integer", actionParams({ ...validText, cooldownMs: 1.5 })], ["execution budget", actionParams({ ...validText, maxExecutions: 11 })],
 		["execution integer", actionParams({ ...validText, maxExecutions: 1.5 })],

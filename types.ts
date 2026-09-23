@@ -86,9 +86,6 @@ export interface SemanticConfig {
 	quietIntervalMs?: number;
 	uncertain?: "continue" | "notify";
 	actions?: SemanticActionsConfig;
-	dynamicChoices?: {
-		enabled: true;
-	};
 }
 
 export type SemanticAttentionState = "working" | "waiting_input" | "waiting_approval" | "presenting_result" | "blocked" | "other";
@@ -213,10 +210,6 @@ export interface MonitorEventPayload {
 		attentionState?: SemanticAttentionState;
 		watchId?: string;
 		controlChoice?: "notify_pi";
-		handoffIdentity?: string;
-		observedAt?: string;
-		reason?: string;
-		lifecycle?: "running" | "exited" | "cancelled";
 	};
 }
 

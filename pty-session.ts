@@ -166,6 +166,7 @@ export class PtyTerminalSession {
 	private additionalExitListeners: Array<(exitCode: number, signal?: number) => void> = [];
 	private visualChangeListeners: Array<() => void> = [];
 	private _visualGeneration = 0;
+	private _inputGeneration = 0;
 	private forceKillTimer: ReturnType<typeof setTimeout> | null = null;
 	private outputCapture: OutputCapture | undefined;
 
@@ -398,10 +399,15 @@ export class PtyTerminalSession {
 	get visualGeneration(): number {
 		return this._visualGeneration;
 	}
+	/** Counts writes from the user, Pi, or a semantic action; automatic terminal query replies are excluded. */
+	get inputGeneration(): number {
+		return this._inputGeneration;
+	}
 
 	write(data: string): void {
 		if (!this._disposed && !this._completing) {
 			this.ptyProcess.write(data);
+			this._inputGeneration += 1;
 		}
 	}
 
@@ -409,6 +415,7 @@ export class PtyTerminalSession {
 	writeIfActive(data: string): boolean {
 		if (this._disposed || this._completing || this._exited || !data) return false;
 		this.ptyProcess.write(data);
+		this._inputGeneration += 1;
 		return true;
 	}
 
