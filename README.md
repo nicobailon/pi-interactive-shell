@@ -507,7 +507,6 @@ Example global opt-in (the default is `false`):
 | `maxViewportLines` | `40` | 5–80; project may only lower the global value |
 | `maxRecentChars` | `4000` | 500–8,000; project may only lower the global value |
 | `redactionPatterns` | `[]` | Up to 50 global-first, project-added RE2-compatible patterns; each source is 1–512 characters |
-| `semanticPermissions` | omitted | Global config only; enables launch policy when present. Exact rules use `allow`, `ask`, or `deny`, with `deny > ask > allow`; unmatched commands ask |
 | `diagnostics.enabled` | `false` | Global config only; records local structured metadata without another model call |
 | `diagnostics.retentionDays` | `14` | 1–90 days; global config only |
 | `diagnostics.maxBytes` | `20000000` | 1–100 MB per process across its retained journals; global config only |
@@ -515,21 +514,6 @@ Example global opt-in (the default is `false`):
 Per-session `monitor.semantic` supports: `goal` (optional task context, sent bounded to 1,000 characters), `attention` (built-in events, default `false`), `watches` (safe unique IDs, nonempty conditions, optional threshold 0–1 with default `0.8`), `minIntervalMs` (default `1000`, clamped 250–60,000), `quietIntervalMs` (below), `uncertain` (`"continue"` by default or `"notify"`), and optional `actions`. Actions require literal `enabled: true`, 1–10 items, session `maxActions` default 1/max 10, safe unique IDs, descriptions up to 500 characters, exactly one text input (1–2,000 characters, optional `submit`) or strict key array (1–32 keys), encoded bytes up to 4,096, cooldown 0–86,400,000 ms, and per-action executions 1–10. A code-owned process-wide cap permits at most 10 semantic action attempts across all sessions; refused or throwing writes consume an attempt, and the cap is not caller-configurable.
 
 Quiet-state integration adds `quietIntervalMs`: one observe-only reassessment per inactivity episode (default 2,000ms, bounded 250–60,000 and still subject to `minIntervalMs`). It also covers sessions that produce no output. An unchanged quiet observation can notify but cannot execute actions or write terminal bytes.
-
-`semanticPermissions` is also the explicit opt-in boundary for commands launched through `interactive_shell`. Omitting the field preserves existing launch behavior. Once present, each raw command or resolved structured-spawn command is matched exactly before PTY, session, process, or worktree creation. `deny` blocks, `ask` requires Pi's confirmation dialog, and `allow` proceeds; an empty array asks for every launch. Unavailable UI, rejection, or dialog failure blocks an `ask`. Query, input, attach, and lifecycle calls for existing sessions are unaffected. This is an `interactive_shell` launch policy, not a shell, Bash, Pi, or operating-system sandbox.
-
-```json
-{
-  "jev": {
-    "semanticPermissions": [
-      { "decision": "allow", "operation": { "kind": "launch-command", "command": "npm test" } },
-      { "decision": "deny", "operation": { "kind": "launch-command", "command": "deploy --production" } }
-    ]
-  }
-}
-```
-
-Launch policy is local and does not require `jev.enabled`, an API key, or a model call. Structured spawn rules match the final resolved command, including configured default arguments and prompt.
 
 Bounded viewport/recent terminal text is sent to TypeSafe AI. ANSI/control text is stripped and built-in plus configured redaction runs first, but redaction is defense in depth—not a promise to identify every secret. Custom patterns use linear-time RE2-compatible syntax (no backreferences, lookaround, or nested repetition), are validated at config load, and replace every case-insensitive match with literal `[REDACTED]`. Invalid selected patterns reject configuration rather than being skipped. Full scrollback, request bodies, exact action input/bytes, and the API key are not stored in semantic history. Provider failures, uncertainty, stale responses, or a visible result never imply process completion or permission to act; PTY exit remains deterministic authority.
 
@@ -626,6 +610,23 @@ TypeSafe states that customer requests/responses are not used to train Jev; see 
 Configuration files (project overrides global):
 - **Global:** `~/.pi/agent/interactive-shell.json`
 - **Project:** `.pi/interactive-shell.json`
+
+### Launch policy
+
+Global `launchPolicy` lets you allow, deny, or require confirmation for commands launched through `interactive_shell` and `/spawn`. It is off unless the field is present, and only the global config can set it; a project config that defines it is rejected.
+
+```json
+{
+  "launchPolicy": [
+    { "command": "npm test", "decision": "allow" },
+    { "command": "deploy --production", "decision": "deny" }
+  ]
+}
+```
+
+Each raw command, or the final resolved structured-spawn command including configured default arguments and prompt, is matched exactly before any PTY, session, process, or worktree is created. `deny` blocks, `ask` requires Pi's confirmation dialog, and `allow` proceeds. Unmatched commands ask, and when several rules match, `deny` wins over `ask`, which wins over `allow`. An empty array asks for every launch. Unavailable UI, rejection, or dialog failure blocks an `ask`. Queries, input, attach, and lifecycle calls for existing sessions are unaffected.
+
+The policy is local and needs no Jev setup, API key, or model call. It is an `interactive_shell` launch check, not a shell, Bash, Pi, or operating-system sandbox.
 
 ### Shell selection
 

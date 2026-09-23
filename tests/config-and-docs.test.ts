@@ -172,25 +172,24 @@ describe("config + docs parity", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("loads semantic permissions only from trusted global config and rejects malformed or project rules", async () => {
+	it("loads launchPolicy only from trusted global config and rejects malformed or project rules", async () => {
 		const root = mkdtempSync(join(tmpdir(), "interactive-shell-permissions-"));
 		const project = join(root, "project"); const agentDir = join(root, "agent");
 		mkdirSync(agentDir, { recursive: true }); mkdirSync(join(project, ".pi"), { recursive: true });
 		const globalPath = join(agentDir, "interactive-shell.json"); const projectPath = join(project, ".pi", "interactive-shell.json");
-		writeFileSync(globalPath, JSON.stringify({ jev: { semanticPermissions: [
-			{ decision: "allow", operation: { kind: "launch-command", command: "npm test" } },
-			{ decision: "deny", operation: { kind: "launch-command", command: "deploy" } },
-		] } }));
+		writeFileSync(globalPath, JSON.stringify({ launchPolicy: [
+			{ command: "npm test", decision: "allow" },
+			{ command: "deploy", decision: "deny" },
+		] }));
 		writeFileSync(projectPath, JSON.stringify({}));
 		const { loadConfig } = await loadConfigModule(agentDir);
-		expect(loadConfig(project).jev).toMatchObject({ launchPermissionsEnabled: true });
-		expect(loadConfig(project).jev?.semanticPermissions.evaluate({ kind: "launch-command", command: "npm test" })).toBe("allow");
-		expect(loadConfig(project).jev?.semanticPermissions.evaluate({ kind: "launch-command", command: "deploy" })).toBe("deny");
-		writeFileSync(projectPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "allow", operation: { kind: "launch-command", command: "deploy" } }] } }));
-		expect(() => loadConfig(project)).toThrow("Project config cannot define trusted semantic permissions.");
+		expect(loadConfig(project).launchPolicy?.evaluate("npm test")).toBe("allow");
+		expect(loadConfig(project).launchPolicy?.evaluate("deploy")).toBe("deny");
+		writeFileSync(projectPath, JSON.stringify({ launchPolicy: [{ command: "deploy", decision: "allow" }] }));
+		expect(() => loadConfig(project)).toThrow("Project config cannot define launchPolicy");
 		writeFileSync(projectPath, JSON.stringify({}));
-		writeFileSync(globalPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "maybe", operation: { kind: "launch-command", command: "npm test" } }] } }));
-		expect(() => loadConfig(project)).toThrow("Invalid global Jev semantic permissions");
+		writeFileSync(globalPath, JSON.stringify({ launchPolicy: [{ command: "npm test", decision: "maybe" }] }));
+		expect(() => loadConfig(project)).toThrow("Invalid global launchPolicy");
 		rmSync(root, { recursive: true, force: true });
 	});
 
@@ -203,7 +202,7 @@ describe("config + docs parity", () => {
 		const toolSchema = readFileSync("tool-schema.ts", "utf-8");
 
 		expect(defaults.defer).toBe(false);
-		expect(defaults.jev?.launchPermissionsEnabled).toBe(false);
+		expect(defaults.launchPolicy).toBeUndefined();
 		expect(defaults.handsFreeQuietThreshold).toBe(8000);
 		expect(defaults.autoExitGracePeriod).toBe(15000);
 		expect(defaults.overlayAnchor).toBe("center");
@@ -271,7 +270,7 @@ describe("config + docs parity", () => {
 
 	it("packages the semantic runtime, corpus evaluator, command, and accurate key-free documentation", () => {
 		const pkg = JSON.parse(readFileSync("package.json", "utf-8")) as { files: string[]; scripts: Record<string, string>; dependencies: Record<string, string> };
-		for (const asset of ["jev-client.ts", "terminal-observation.ts", "semantic-supervisor.ts", "semantic-events.ts", "semantic-actions.ts", "semantic-permissions.ts", "semantic-corpus.ts", "semantic-evaluator.ts", "semantic-diagnostics.ts", "scripts/evaluate-jev.ts"]) {
+		for (const asset of ["jev-client.ts", "terminal-observation.ts", "semantic-supervisor.ts", "semantic-events.ts", "semantic-actions.ts", "launch-policy.ts", "semantic-corpus.ts", "semantic-evaluator.ts", "semantic-diagnostics.ts", "scripts/evaluate-jev.ts"]) {
 			expect(pkg.files).toContain(asset);
 		}
 		expect(pkg.scripts["eval:jev"]).toBe("node --experimental-strip-types scripts/evaluate-jev.ts");

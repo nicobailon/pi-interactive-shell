@@ -7,7 +7,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 ### Added
 - Add one observe-only Jev check after each quiet period (`quietIntervalMs`, default 2s), including sessions that print nothing. A quiet check can wake Pi but never types into the session (#75).
 - Include a short redacted excerpt of the evaluated screen in semantic events, so Pi can see the question or result without querying the session (#75).
-- Add explicitly activated global exact-command policy for launches through `interactive_shell`; deny blocks before construction, ask requires Pi confirmation, and allow proceeds without changing existing-session controls (#71).
+- Add an optional global `launchPolicy` for commands launched through `interactive_shell` and `/spawn`. Rules match exact commands: `deny` blocks before anything is created, `ask` requires Pi confirmation, and `allow` proceeds. Existing-session controls are unchanged, and project config cannot set it (#71).
 
 ### Changed
 - Typing into a session re-arms attention events, so a follow-up question of the same type wakes Pi. Screen churn such as token counters and timers still does not repeat an event.

@@ -272,9 +272,8 @@ async function authorizeLaunchCommand(
 	command: string,
 	ctx: Pick<ExtensionContext, "ui"> & { hasUI?: boolean },
 ): Promise<{ allowed: true } | { allowed: false; reason: "denied" | "ui-unavailable" | "rejected" }> {
-	const jev = config.jev;
-	if (!jev?.launchPermissionsEnabled) return { allowed: true };
-	const decision = jev.semanticPermissions.evaluate({ kind: "launch-command", command });
+	if (!config.launchPolicy) return { allowed: true };
+	const decision = config.launchPolicy.evaluate(command);
 	if (decision === "allow") return { allowed: true };
 	if (decision === "deny") return { allowed: false, reason: "denied" };
 	if (ctx.hasUI === false || typeof ctx.ui.confirm !== "function") return { allowed: false, reason: "ui-unavailable" };

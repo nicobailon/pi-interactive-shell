@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { compileSemanticPermissions, type SemanticPermissionRule } from "../semantic-permissions.ts";
+import { compileLaunchPolicy, type LaunchPolicyRule } from "../launch-policy.ts";
 
 type MonitorOptionsCapture = {
 	monitor?: {
@@ -24,7 +24,7 @@ type DetectorLaunchCapture = {
 	stdin: string;
 } | null;
 
-async function setupHarness(options: { detectorStdout?: string; diagnostics?: boolean; agentDir?: string; launchRules?: readonly SemanticPermissionRule[] } = {}) {
+async function setupHarness(options: { detectorStdout?: string; diagnostics?: boolean; agentDir?: string; launchRules?: readonly LaunchPolicyRule[] } = {}) {
 	let toolDef: any;
 	let monitorOptions: MonitorOptionsCapture = null;
 	let detectorLaunch: DetectorLaunchCapture = null;
@@ -117,7 +117,8 @@ async function setupHarness(options: { detectorStdout?: string; diagnostics?: bo
 				handsFreeUpdateMaxChars: 1500,
 				handsFreeMaxTotalChars: 100000,
 				minQueryIntervalSeconds: 60,
-				jev: { enabled: true, model: "jev-1.13.0", requestTimeoutMs: 1000, maxRetries: 0, maxViewportLines: 20, maxRecentChars: 1000, redactionPatterns: [], diagnostics: { enabled: options.diagnostics === true, retentionDays: 14, maxBytes: 1_000_000 }, semanticPermissions: compileSemanticPermissions(options.launchRules ?? []), launchPermissionsEnabled: options.launchRules !== undefined },
+				launchPolicy: options.launchRules === undefined ? undefined : compileLaunchPolicy(options.launchRules),
+				jev: { enabled: true, model: "jev-1.13.0", requestTimeoutMs: 1000, maxRetries: 0, maxViewportLines: 20, maxRecentChars: 1000, redactionPatterns: [], diagnostics: { enabled: options.diagnostics === true, retentionDays: 14, maxBytes: 1_000_000 } },
 			})),
 		};
 	});
@@ -262,12 +263,12 @@ describe("monitor mode", () => {
 
 	it("blocks denied launch commands before constructing a terminal session", async () => {
 		const { toolDef, getLaunchedCommand } = await setupHarness({ launchRules: [
-			{ decision: "deny", operation: { kind: "launch-command", command: "npm test" } },
+			{ command: "npm test", decision: "deny" },
 		] });
 		const confirm = vi.fn(async () => true);
 		const result = await toolDef.execute("denied-launch", {
 			command: "npm test", mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "done", literal: "done" }] },
-			semanticPermissions: [{ decision: "allow" }],
+			launchPolicy: [{ command: "npm test", decision: "allow" }],
 		}, undefined, undefined, { hasUI: true, cwd: "/tmp/project", ui: { confirm }, sessionManager: { getSessionFile: () => undefined } } as any);
 		expect(result).toMatchObject({ isError: true, details: { error: "launch_not_authorized", reason: "denied" } });
 		expect(getLaunchedCommand()).toBeUndefined();
@@ -275,9 +276,9 @@ describe("monitor mode", () => {
 	});
 
 	it("requires an explicit Pi confirmation for ask and binds it to the exact command", async () => {
-		const rules: SemanticPermissionRule[] = [
-			{ decision: "allow", operation: { kind: "launch-command", command: "npm test" } },
-			{ decision: "ask", operation: { kind: "launch-command", command: "npm test -- --runInBand" } },
+		const rules: LaunchPolicyRule[] = [
+			{ command: "npm test", decision: "allow" },
+			{ command: "npm test -- --runInBand", decision: "ask" },
 		];
 		const allowed = await setupHarness({ launchRules: rules });
 		const allowedResult = await allowed.toolDef.execute("exact-allow", {
@@ -304,7 +305,7 @@ describe("monitor mode", () => {
 		["dialog error", true, async (): Promise<boolean> => { throw new Error("ui failed"); }, "ui-unavailable"],
 		["headless", false, undefined, "ui-unavailable"],
 	] as const)("fails ask closed on %s", async (_label, hasUI, confirm, reason) => {
-		const harness = await setupHarness({ launchRules: [{ decision: "ask", operation: { kind: "launch-command", command: "npm test" } }] });
+		const harness = await setupHarness({ launchRules: [{ command: "npm test", decision: "ask" }] });
 		const result = await harness.toolDef.execute("ask-failure", {
 			command: "npm test", mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "done", literal: "done" }] },
 		}, undefined, undefined, { hasUI, cwd: "/tmp/project", ui: confirm ? { confirm: vi.fn(confirm) } : {}, sessionManager: { getSessionFile: () => undefined } } as any);
@@ -313,7 +314,7 @@ describe("monitor mode", () => {
 	});
 
 	it("applies launch policy to the exact resolved structured spawn command", async () => {
-		const denied = await setupHarness({ launchRules: [{ decision: "deny", operation: { kind: "launch-command", command: "codex" } }] });
+		const denied = await setupHarness({ launchRules: [{ command: "codex", decision: "deny" }] });
 		const deniedResult = await denied.toolDef.execute("spawn-deny", {
 			spawn: { agent: "codex", worktree: true }, mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "done", literal: "done" }] },
 		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
@@ -321,7 +322,7 @@ describe("monitor mode", () => {
 		expect(denied.getLaunchedCommand()).toBeUndefined();
 		expect(denied.getSpawnResolutionOptions()).toEqual([{ createWorktree: false }]);
 
-		const allowed = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "codex" } }] });
+		const allowed = await setupHarness({ launchRules: [{ command: "codex", decision: "allow" }] });
 		const allowedResult = await allowed.toolDef.execute("spawn-allow", {
 			spawn: { agent: "codex" }, mode: "monitor", monitor: { strategy: "stream", triggers: [{ id: "done", literal: "done" }] },
 		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
@@ -775,7 +776,7 @@ describe("monitor mode", () => {
 	});
 
 	it("rejects raw command mixed with file-watch before authorizing an unused identity", async () => {
-		const harness = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "npm test" } }] });
+		const harness = await setupHarness({ launchRules: [{ command: "npm test", decision: "allow" }] });
 		const confirm = vi.fn(async () => true);
 		const result = await harness.toolDef.execute("mixed-file-watch-command", {
 			command: "npm test", mode: "monitor",
@@ -789,7 +790,7 @@ describe("monitor mode", () => {
 	});
 
 	it("rejects a present empty command mixed with file-watch before authorization or construction", async () => {
-		const harness = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "other" } }] });
+		const harness = await setupHarness({ launchRules: [{ command: "other", decision: "allow" }] });
 		const confirm = vi.fn(async () => true);
 		const result = await harness.toolDef.execute("mixed-file-watch-empty-command", {
 			command: "", mode: "monitor",
@@ -803,7 +804,7 @@ describe("monitor mode", () => {
 	});
 
 	it("rejects structured spawn mixed with file-watch before worktree resolution", async () => {
-		const harness = await setupHarness({ launchRules: [{ decision: "allow", operation: { kind: "launch-command", command: "codex" } }] });
+		const harness = await setupHarness({ launchRules: [{ command: "codex", decision: "allow" }] });
 		const result = await harness.toolDef.execute("mixed-file-watch-spawn", {
 			spawn: { agent: "codex", worktree: true }, mode: "monitor",
 			monitor: { strategy: "file-watch", fileWatch: { path: "./uploads" }, triggers: [{ id: "changed", literal: "CHANGE" }] },
