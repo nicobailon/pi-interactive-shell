@@ -4,19 +4,24 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-23
+
+### Highlights
+- Decide which interactive shell commands can launch automatically, which need confirmation, and which are blocked.
+- Get notified when a quiet terminal needs attention, even if it has not printed anything.
+- See a short redacted excerpt with each notification and avoid repeated alerts from changing timers or counters.
+
 ### Added
-- Add one observe-only Jev check after each quiet period (`quietIntervalMs`, default 2s), including sessions that print nothing. A quiet check can wake Pi but never types into the session (#75).
-- Include a short redacted excerpt of the evaluated screen in semantic events, so Pi can see the question or result without querying the session (#75).
-- Add an optional global `launchPolicy` for commands launched through `interactive_shell` and `/spawn`. Rules match exact commands: `deny` blocks before anything is created, `ask` requires Pi confirmation, and `allow` proceeds. Existing-session controls are unchanged, and project config cannot set it (#71).
+- Add an optional global `launchPolicy` for exact commands launched through `interactive_shell` and `/spawn`. Rules can allow, deny, or ask for confirmation; unmatched commands ask. The policy is off unless configured and does not affect existing sessions (#71).
+- Check a quiet session once after an inactivity period, including sessions with no output. The check can notify Pi but cannot type into the terminal. Configure the delay with `quietIntervalMs` (default 2 seconds) (#75).
+- Include a short redacted screen excerpt in semantic notifications, so Pi can see what needs attention without querying the session (#75).
 
 ### Changed
-- Typing into a session re-arms attention events, so a follow-up question of the same type wakes Pi. Screen churn such as token counters and timers still does not repeat an event.
+- Stop repeating attention notifications when only timers or token counters change. After input is sent, a follow-up question can notify Pi again even if it asks for the same kind of response.
 
 ### Fixed
-- Keep configured semantic actions from being rejected as stale when only elapsed-time buckets change on an unchanged screen.
-
-### Security
-- Reject file-watch requests that also supply a raw command or structured spawn, so only the generated watcher command can satisfy launch authorization and no unused spawn can create a worktree (#71).
+- Keep configured semantic actions available when only elapsed time changes on an otherwise unchanged screen.
+- Reject file-watch requests that also specify a command or spawn. File watches use only their generated watcher command, and rejected requests cannot create a worktree (#71).
 
 ## [0.16.1] - 2026-09-21
 
