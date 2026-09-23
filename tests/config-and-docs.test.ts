@@ -178,18 +178,18 @@ describe("config + docs parity", () => {
 		mkdirSync(agentDir, { recursive: true }); mkdirSync(join(project, ".pi"), { recursive: true });
 		const globalPath = join(agentDir, "interactive-shell.json"); const projectPath = join(project, ".pi", "interactive-shell.json");
 		writeFileSync(globalPath, JSON.stringify({ jev: { semanticPermissions: [
-			{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } },
-			{ decision: "deny", operation: { kind: "dynamic-terminal-multi-select" } },
+			{ decision: "allow", operation: { kind: "launch-command", command: "npm test" } },
+			{ decision: "deny", operation: { kind: "launch-command", command: "deploy" } },
 		] } }));
 		writeFileSync(projectPath, JSON.stringify({}));
 		const { loadConfig } = await loadConfigModule(agentDir);
 		expect(loadConfig(project).jev).toMatchObject({ launchPermissionsEnabled: true });
-		expect(loadConfig(project).jev?.semanticPermissions.evaluate({ kind: "dynamic-terminal-choice" })).toBe("allow");
-		expect(loadConfig(project).jev?.semanticPermissions.evaluate({ kind: "dynamic-terminal-multi-select" })).toBe("deny");
-		writeFileSync(projectPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "allow", operation: { kind: "dynamic-terminal-choice" } }] } }));
+		expect(loadConfig(project).jev?.semanticPermissions.evaluate({ kind: "launch-command", command: "npm test" })).toBe("allow");
+		expect(loadConfig(project).jev?.semanticPermissions.evaluate({ kind: "launch-command", command: "deploy" })).toBe("deny");
+		writeFileSync(projectPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "allow", operation: { kind: "launch-command", command: "deploy" } }] } }));
 		expect(() => loadConfig(project)).toThrow("Project config cannot define trusted semantic permissions.");
 		writeFileSync(projectPath, JSON.stringify({}));
-		writeFileSync(globalPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "maybe", operation: { kind: "dynamic-terminal-choice" } }] } }));
+		writeFileSync(globalPath, JSON.stringify({ jev: { semanticPermissions: [{ decision: "maybe", operation: { kind: "launch-command", command: "npm test" } }] } }));
 		expect(() => loadConfig(project)).toThrow("Invalid global Jev semantic permissions");
 		rmSync(root, { recursive: true, force: true });
 	});
@@ -271,7 +271,7 @@ describe("config + docs parity", () => {
 
 	it("packages the semantic runtime, corpus evaluator, command, and accurate key-free documentation", () => {
 		const pkg = JSON.parse(readFileSync("package.json", "utf-8")) as { files: string[]; scripts: Record<string, string>; dependencies: Record<string, string> };
-		for (const asset of ["jev-client.ts", "terminal-observation.ts", "semantic-supervisor.ts", "semantic-inline-confirmation.ts", "semantic-events.ts", "semantic-actions.ts", "semantic-corpus.ts", "semantic-evaluator.ts", "semantic-diagnostics.ts", "scripts/evaluate-jev.ts"]) {
+		for (const asset of ["jev-client.ts", "terminal-observation.ts", "semantic-supervisor.ts", "semantic-events.ts", "semantic-actions.ts", "semantic-permissions.ts", "semantic-corpus.ts", "semantic-evaluator.ts", "semantic-diagnostics.ts", "scripts/evaluate-jev.ts"]) {
 			expect(pkg.files).toContain(asset);
 		}
 		expect(pkg.scripts["eval:jev"]).toBe("node --experimental-strip-types scripts/evaluate-jev.ts");

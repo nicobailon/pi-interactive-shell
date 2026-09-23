@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { buildTerminalObservation, MAX_HANDOFF_EXCERPT_CHARS } from "../terminal-observation.ts";
+import { describe, expect, it } from "vitest";
+import { buildTerminalObservation, getTerminalHandoffExcerpt, MAX_HANDOFF_EXCERPT_CHARS } from "../terminal-observation.ts";
 
 function session(lines: string[]) {
 	return { exited: false, getViewportLines: () => lines };
@@ -16,42 +16,21 @@ function build(lines: string[], recentOutput = lines.join("\n"), changed = true)
 describe("terminal contextual handoff", () => {
 	it("produces a deterministic bounded redacted source excerpt", () => {
 		const rawSecret = "ghp_abcdefghijklmnop";
-		const result = build(["Deploy failed", `credential ${rawSecret}`, "Retry deployment?"]);
+		const excerpt = getTerminalHandoffExcerpt(build(["Deploy failed", `credential ${rawSecret}`, "Retry deployment?"]).hash)!;
 
-		expect(result.handoff.relevantExcerpt).toContain("Retry deployment?");
-		expect(result.handoff.relevantExcerpt).toContain("[REDACTED]");
-		expect(result.handoff.relevantExcerpt).not.toContain(rawSecret);
-		expect(result.handoff.relevantExcerpt.length).toBeLessThanOrEqual(MAX_HANDOFF_EXCERPT_CHARS);
-		expect(JSON.stringify(result.handoff)).not.toContain(rawSecret);
-	});
-
-	it("keeps identity stable across clock buckets and progress-only churn", () => {
-		vi.useFakeTimers();
-		try {
-			vi.setSystemTime(500);
-			const first = build(["Continue deployment?", "10/100"]);
-			vi.setSystemTime(70_000);
-			const second = build(["Continue deployment?", "11/100"]);
-			expect(second.handoff.contentIdentity).toBe(first.handoff.contentIdentity);
-		} finally {
-			vi.useRealTimers();
-		}
+		expect(excerpt).toContain("Retry deployment?");
+		expect(excerpt).toContain("[REDACTED]");
+		expect(excerpt).not.toContain(rawSecret);
+		expect(excerpt.length).toBeLessThanOrEqual(MAX_HANDOFF_EXCERPT_CHARS);
 	});
 
 	it("keeps the trusted observation hash stable across scheduler changed-state bookkeeping", () => {
 		expect(build(["Which environment?"], undefined, false).hash).toBe(build(["Which environment?"]).hash);
 	});
 
-	it("changes identity for a genuinely new question of the same type", () => {
-		const first = build(["Deploy service alpha?"]);
-		const second = build(["Deploy service beta?"]);
-		expect(second.handoff.contentIdentity).not.toBe(first.handoff.contentIdentity);
-	});
-
 	it("fences secret prompts from contextual evidence", () => {
 		const result = build(["Password:", "hunter2"]);
 		expect(result.secretPrompt).toBe(true);
-		expect(result.handoff).toMatchObject({ relevantExcerpt: "[SECRET PROMPT REDACTED]", contentIdentity: "secret-prompt" });
-		expect(JSON.stringify(result.handoff)).not.toContain("hunter2");
+		expect(getTerminalHandoffExcerpt(result.hash)).toBe("[SECRET PROMPT REDACTED]");
 	});
 });

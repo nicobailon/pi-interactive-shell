@@ -21,13 +21,6 @@ export interface TerminalObservation {
 	recentActionIds: string[];
 }
 
-/** Bounded, display-safe terminal evidence for a contextual monitor handoff. */
-export interface TerminalHandoffContext {
-	relevantExcerpt: string;
-	contentIdentity: string;
-	lifecycle: TerminalObservation["session"]["lifecycle"];
-}
-
 export interface ObservationBounds {
 	maxViewportLines: number;
 	maxRecentChars: number;
@@ -48,12 +41,12 @@ interface RedactorCacheEntry {
 	redactor: TerminalRedactor;
 }
 const redactorCache = new WeakMap<readonly string[], RedactorCacheEntry>();
-const handoffByObservationHash = new Map<string, TerminalHandoffContext>();
+const excerptByObservationHash = new Map<string, string>();
 const MAX_CACHED_HANDOFFS = 128;
 
-/** Resolves a recently-built observation without retaining any unredacted terminal text. */
-export function getTerminalHandoffContext(observationHash: string): TerminalHandoffContext | undefined {
-	return handoffByObservationHash.get(observationHash);
+/** Resolves the redacted excerpt of a recently-built observation; no unredacted text is retained. */
+export function getTerminalHandoffExcerpt(observationHash: string): string | undefined {
+	return excerptByObservationHash.get(observationHash);
 }
 
 function hasNestedRepetition(source: string): boolean {
@@ -164,18 +157,9 @@ function timeBucket(ms: number): string {
 	return ">5m";
 }
 
-function normalizeHandoffIdentityLine(line: string): string {
-	const compact = line.trim().replace(/\s+/g, " ");
-	// A line made only of a spinner/progress indicator is presentation churn, not new state.
-	if (/^(?:[|/\\\-⠋-⠿]\s*)?(?:\[?[=#>.\-\s]+\]?\s*)?(?:\d{1,3}%|\d+\s*\/\s*\d+)(?:\s+(?:elapsed|remaining|items?|files?))?$/iu.test(compact)) return "[progress]";
-	return compact;
-}
-
 /** Derives source-grounded evidence only from the already-redacted observation. */
-export function buildTerminalHandoffContext(observation: TerminalObservation, secretPrompt = false): TerminalHandoffContext {
-	if (secretPrompt) {
-		return { relevantExcerpt: "[SECRET PROMPT REDACTED]", contentIdentity: "secret-prompt", lifecycle: observation.session.lifecycle };
-	}
+function buildHandoffExcerpt(observation: TerminalObservation, secretPrompt: boolean): string {
+	if (secretPrompt) return "[SECRET PROMPT REDACTED]";
 	const sourceLines = [...observation.terminal.recentOutput.split("\n"), ...observation.terminal.viewport]
 		.map((line) => line.trimEnd())
 		.filter((line) => line.trim().length > 0);
@@ -184,16 +168,7 @@ export function buildTerminalHandoffContext(observation: TerminalObservation, se
 		if (unique[unique.length - 1] !== line) unique.push(line);
 	}
 	const excerpt = unique.slice(-MAX_HANDOFF_EXCERPT_LINES).join("\n").slice(-MAX_HANDOFF_EXCERPT_CHARS);
-	const normalized = unique.slice(-MAX_HANDOFF_EXCERPT_LINES)
-		.map(normalizeHandoffIdentityLine)
-		.filter((line, index, lines) => line !== "[progress]" || lines[index - 1] !== "[progress]")
-		.join("\n");
-	const identityInput = JSON.stringify({ lifecycle: observation.session.lifecycle, mode: observation.session.mode, text: normalized });
-	return {
-		relevantExcerpt: excerpt || "[no terminal excerpt]",
-		contentIdentity: createHash("sha256").update(identityInput).digest("hex").slice(0, 24),
-		lifecycle: observation.session.lifecycle,
-	};
+	return excerpt || "[no terminal excerpt]";
 }
 
 export function buildTerminalObservation(options: {
@@ -208,7 +183,7 @@ export function buildTerminalObservation(options: {
 	actions: Array<{ id: string; description: string }>;
 	recentActionIds: string[];
 	bounds: ObservationBounds;
-}): { observation: TerminalObservation; hash: string; secretPrompt: boolean; handoff: TerminalHandoffContext } {
+}): { observation: TerminalObservation; hash: string; secretPrompt: boolean } {
 	const redact = options.bounds.redactor ?? createTerminalRedactor(options.bounds.redactionPatterns);
 	const normalizedViewport = options.session.getViewportLines({ ansi: false })
 		.slice(-options.bounds.maxViewportLines)
@@ -230,21 +205,21 @@ export function buildTerminalObservation(options: {
 		actions: options.actions.map((action) => ({ id: action.id, description: action.description.slice(0, 500) })),
 		recentActionIds: options.recentActionIds.slice(-10),
 	};
-	const approvalIdentity = {
+	// Time buckets and scheduler bookkeeping are excluded so an unchanged screen keeps one hash.
+	const identity = {
 		...observation,
 		session: { mode: observation.session.mode, lifecycle: observation.session.lifecycle },
 		terminal: { viewport: observation.terminal.viewport, recentOutput: observation.terminal.recentOutput },
 	};
-	const hash = createHash("sha256").update(JSON.stringify(approvalIdentity)).digest("hex").slice(0, 24);
-	const handoff = buildTerminalHandoffContext(observation, secretPrompt);
-	handoffByObservationHash.delete(hash);
-	handoffByObservationHash.set(hash, handoff);
-	while (handoffByObservationHash.size > MAX_CACHED_HANDOFFS) {
-		const oldest = handoffByObservationHash.keys().next().value as string | undefined;
+	const hash = createHash("sha256").update(JSON.stringify(identity)).digest("hex").slice(0, 24);
+	excerptByObservationHash.delete(hash);
+	excerptByObservationHash.set(hash, buildHandoffExcerpt(observation, secretPrompt));
+	while (excerptByObservationHash.size > MAX_CACHED_HANDOFFS) {
+		const oldest = excerptByObservationHash.keys().next().value as string | undefined;
 		if (oldest === undefined) break;
-		handoffByObservationHash.delete(oldest);
+		excerptByObservationHash.delete(oldest);
 	}
-	return { observation, hash, secretPrompt, handoff };
+	return { observation, hash, secretPrompt };
 }
 
 export function containsSecretPrompt(observation: TerminalObservation): boolean {

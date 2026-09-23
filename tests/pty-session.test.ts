@@ -99,6 +99,20 @@ describe("PtyTerminalSession cleanup", () => {
 		expect(session.visualGeneration).toBe(generation + 2);
 	});
 
+	it.runIf(process.platform !== "win32")("counts written input but not automatic terminal query replies", async () => {
+		let resolveDone!: () => void;
+		const done = new Promise<void>((resolve) => { resolveDone = resolve; });
+		const session = new PtyTerminalSession({
+			command: "printf 'query\\033[6n'; sleep 0.2; printf 'after'; sleep 5",
+			shellConfig: resolvePiShell(process.cwd(), true),
+		}, { onData: (data) => { if (data.includes("after")) resolveDone(); } });
+		sessions.push(session);
+		await done;
+		expect(session.inputGeneration).toBe(0);
+		session.write("x");
+		expect(session.inputGeneration).toBe(1);
+	});
+
 	it("executes commands through the resolved Pi shell argv", async () => {
 		if (process.platform === "win32") return;
 		const previousShell = process.env.SHELL;

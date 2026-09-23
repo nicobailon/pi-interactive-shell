@@ -507,14 +507,14 @@ Example global opt-in (the default is `false`):
 | `maxViewportLines` | `40` | 5–80; project may only lower the global value |
 | `maxRecentChars` | `4000` | 500–8,000; project may only lower the global value |
 | `redactionPatterns` | `[]` | Up to 50 global-first, project-added RE2-compatible patterns; each source is 1–512 characters |
-| `semanticPermissions` | omitted | Global config only; enables launch policy when present. Exact rules use `allow`, `ask`, or `deny`, with `deny > ask > allow`; unmatched operations ask |
+| `semanticPermissions` | omitted | Global config only; enables launch policy when present. Exact rules use `allow`, `ask`, or `deny`, with `deny > ask > allow`; unmatched commands ask |
 | `diagnostics.enabled` | `false` | Global config only; records local structured metadata without another model call |
 | `diagnostics.retentionDays` | `14` | 1–90 days; global config only |
 | `diagnostics.maxBytes` | `20000000` | 1–100 MB per process across its retained journals; global config only |
 
-Per-session `monitor.semantic` supports: `goal` (optional task context, sent bounded to 1,000 characters), `attention` (built-in events, default `false`), `watches` (safe unique IDs, nonempty conditions, optional threshold 0–1 with default `0.8`), `minIntervalMs` (default `1000`, clamped 250–60,000), `uncertain` (`"continue"` by default or `"notify"`), optional configured `actions`, and optional `dynamicChoices`. Dynamic choices require literal `enabled: true` and a nonblank `goal`; they are unavailable in headless/background supervision and can execute at most once per session. Actions require literal `enabled: true`, 1–10 items, session `maxActions` default 1/max 10, safe unique IDs, descriptions up to 500 characters, exactly one text input (1–2,000 characters, optional `submit`) or strict key array (1–32 keys), encoded bytes up to 4,096, cooldown 0–86,400,000 ms, and per-action executions 1–10. A code-owned process-wide cap permits at most 10 semantic action attempts across all sessions; refused or throwing writes consume an attempt, and the cap is not caller-configurable.
+Per-session `monitor.semantic` supports: `goal` (optional task context, sent bounded to 1,000 characters), `attention` (built-in events, default `false`), `watches` (safe unique IDs, nonempty conditions, optional threshold 0–1 with default `0.8`), `minIntervalMs` (default `1000`, clamped 250–60,000), `quietIntervalMs` (below), `uncertain` (`"continue"` by default or `"notify"`), and optional `actions`. Actions require literal `enabled: true`, 1–10 items, session `maxActions` default 1/max 10, safe unique IDs, descriptions up to 500 characters, exactly one text input (1–2,000 characters, optional `submit`) or strict key array (1–32 keys), encoded bytes up to 4,096, cooldown 0–86,400,000 ms, and per-action executions 1–10. A code-owned process-wide cap permits at most 10 semantic action attempts across all sessions; refused or throwing writes consume an attempt, and the cap is not caller-configurable.
 
-Quiet-state integration adds `quietIntervalMs`: one observe-only reassessment per inactivity episode (default 2,000ms, bounded 250–60,000 and still subject to `minIntervalMs`). It also covers sessions that produce no output. An unchanged quiet observation can notify but cannot execute fixed/dynamic actions or write terminal bytes.
+Quiet-state integration adds `quietIntervalMs`: one observe-only reassessment per inactivity episode (default 2,000ms, bounded 250–60,000 and still subject to `minIntervalMs`). It also covers sessions that produce no output. An unchanged quiet observation can notify but cannot execute actions or write terminal bytes.
 
 `semanticPermissions` is also the explicit opt-in boundary for commands launched through `interactive_shell`. Omitting the field preserves existing launch behavior. Once present, each raw command or resolved structured-spawn command is matched exactly before PTY, session, process, or worktree creation. `deny` blocks, `ask` requires Pi's confirmation dialog, and `allow` proceeds; an empty array asks for every launch. Unavailable UI, rejection, or dialog failure blocks an `ask`. Query, input, attach, and lifecycle calls for existing sessions are unaffected. This is an `interactive_shell` launch policy, not a shell, Bash, Pi, or operating-system sandbox.
 
@@ -523,8 +523,7 @@ Quiet-state integration adds `quietIntervalMs`: one observe-only reassessment pe
   "jev": {
     "semanticPermissions": [
       { "decision": "allow", "operation": { "kind": "launch-command", "command": "npm test" } },
-      { "decision": "deny", "operation": { "kind": "launch-command", "command": "deploy --production" } },
-      { "decision": "ask", "operation": { "kind": "dynamic-terminal-choice" } }
+      { "decision": "deny", "operation": { "kind": "launch-command", "command": "deploy --production" } }
     ]
   }
 }
@@ -534,7 +533,7 @@ Launch policy is local and does not require `jev.enabled`, an API key, or a mode
 
 Bounded viewport/recent terminal text is sent to TypeSafe AI. ANSI/control text is stripped and built-in plus configured redaction runs first, but redaction is defense in depth—not a promise to identify every secret. Custom patterns use linear-time RE2-compatible syntax (no backreferences, lookaround, or nested repetition), are validated at config load, and replace every case-insensitive match with literal `[REDACTED]`. Invalid selected patterns reject configuration rather than being skipped. Full scrollback, request bodies, exact action input/bytes, and the API key are not stored in semantic history. Provider failures, uncertainty, stale responses, or a visible result never imply process completion or permission to act; PTY exit remains deterministic authority.
 
-Built-in attention notifications use the model's confident, mutually exclusive primary state. Confident `working` continues silently, confident `other` remains uncertain, and confident input, approval, result, or blocked states emit their corresponding bounded event. The same attention event is suppressed until the primary state changes; independent watches and action-control events retain their own delivery semantics. Independent Noul answers remain inspectable metadata and drive watches or action readiness where configured; they do not duplicate-veto the primary attention event. This routing never grants terminal-action authority.
+Built-in attention notifications use the model's confident, mutually exclusive primary state. Confident `working` continues silently, confident `other` remains uncertain, and confident input, approval, result, or blocked states emit their corresponding bounded event. The same attention event is suppressed until the primary state changes or new input is written to the session, so screen churn such as token counters or timers does not wake Pi again while a follow-up question after an answer does. Independent watches and action-control events retain their own delivery semantics. Independent Noul answers remain inspectable metadata and drive watches or action readiness where configured; they do not duplicate-veto the primary attention event. This routing never grants terminal-action authority.
 
 Observe a hands-free or dispatch session without authorizing input:
 
@@ -585,23 +584,7 @@ interactive_shell({
 
 Actions are predeclared immutable `input` (+ optional `submit`) or strict `inputKeys`, never generated text, hex, paste, credentials, secret/payment entry, or lifecycle commands. Confidence is one required safety gate, not authorization. User takeover pauses supervision; returning control requires fresh rendered output before evaluation/action resumes. Semantic events never mark a process exited.
 
-Goal-driven choices are a separate opt-in for foreground hands-free/dispatch overlays:
-
-```typescript
-interactive_shell({
-  command: "release-tool", mode: "hands-free",
-  monitor: { semantic: {
-    goal: "Select the stable release channel",
-    dynamicChoices: { enabled: true }
-  } }
-})
-```
-
-The extension conservatively extracts a fresh bounded multi-select before attempting a sequential numbered/lettered menu, an explicitly keyboard-navigable menu, or one strict inline `(Y/n)`/`(y/N)` confirmation. A multi-select requires 2–8 fully visible `[x]`/`[ ]` or `◉`/`◯` rows, one cursor, and an exact counted footer such as `3 choices total • ↑↓ navigate • space select • ⏎ submit`; the visible total must equal the contiguous row count. Default Inquirer checkbox output is deliberately unsupported because its paginator can hide choices without rendering an overflow marker or total. Missing/wrong counts, malformed structures, and unsupported multi-select evidence never downgrade to a single-choice menu. This foreground-only feature can execute one dynamic interaction per session. Multi-select question metadata contains ordered opaque IDs/labels, one apply-or-abstain question, and one desired-state question per item; it contains no terminal bytes or executable bindings. An intentionally empty desired set differs from abstention; apply confidence and each selected item require 0.90, while unselected items require at most 0.10. A provider cache for these questions must include the exact ordered descriptors and be invalidated when the question schema changes. Yes/No menus and inline confirmations are `dynamic-terminal-confirmation`, multi-selects are `dynamic-terminal-multi-select`, and other supported menus use `dynamic-terminal-choice`.
-
-An approved multi-select is one serialized transaction and one global reservation. Immediately before starting, the supervisor re-extracts the exact full trusted viewport, then writes one code-owned ArrowUp, ArrowDown, Space, or final Enter per verified transition (at most `3*N+1`). Every redraw before submit must exactly match the expected cursor/check mutation; completion requires the prompt to disappear after Enter. Any mismatch, refused write, takeover, reload, pause, exit, secret state, ownership/epoch change, or automation stop clears the transaction without retry, rollback, replay, or blind byte sequence and reports an incomplete follow-up after a started transaction. Pre-action denial, unavailable ask UI, stale state, malformed targets, and unsupported structure write nothing. Inline confirmations retain their existing bounded echo transaction. Global `jev.semanticPermissions` rules are trusted and project/tool configuration cannot weaken them. Prefer `ask` for all three dynamic operation kinds; deny wins, unmatched asks, and allow skips the dialog while retaining runtime checks. Existing configured fixed actions and budgets are unchanged.
-
-Semantic events carry a bounded, source-grounded, already-redacted terminal excerpt and a content-sensitive `handoffIdentity`; the same unresolved state dedupes while a new same-type question wakes Pi. For an ordinary input handoff, Pi may send one `semanticReply` with that event's exact session, decision, generation, identity, and one bounded single-line response. Immediately before writing, runtime rechecks ownership, current observation, reload/takeover/exit state, secret state, response restrictions, and trusted global `semantic-reply` permission. Unmatched permission asks, deny wins, and unavailable UI fails closed. Ordinary manual `input` is unchanged.
+Semantic events carry a bounded, already-redacted excerpt of the screen Jev evaluated. Answer a question with ordinary `input` or `inputKeys` on the session.
 
 Inspect semantic decisions with `interactive_shell({ semanticDecisions: true, semanticSessionId: sessionId })`. Inspect delivered events with `interactive_shell({ monitorEvents: true, monitorSessionId: sessionId })`; `monitorStatus: true` returns monitor lifecycle state.
 

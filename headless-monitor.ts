@@ -6,8 +6,6 @@ import type { SemanticConfig, SemanticDecisionInput } from "./types.ts";
 import type { JevClient } from "./jev-client.ts";
 import { SemanticSupervisor } from "./semantic-supervisor.ts";
 import type { SemanticActionRegistry } from "./semantic-actions.ts";
-import type { SemanticChoiceAuthorization } from "./semantic-choice-authorization.ts";
-import type { SemanticReplyBinding } from "./semantic-reply.ts";
 
 export interface MonitorMatchInfo {
 	strategy: MonitorStrategy;
@@ -58,7 +56,6 @@ export interface HeadlessMonitorOptions {
 		actionRegistry?: SemanticActionRegistry;
 		isOwner?: (monitor: HeadlessDispatchMonitor) => boolean;
 		reserveGlobalAction?: () => boolean;
-		dynamicChoices?: { sessionId: string; authorization: SemanticChoiceAuthorization };
 	};
 }
 
@@ -99,6 +96,7 @@ export class HeadlessDispatchMonitor {
 	private semanticSupervisor: SemanticSupervisor | undefined;
 
 	get disposed(): boolean { return this._disposed; }
+	get inputGeneration(): number { return this.session.inputGeneration; }
 
 	constructor(
 		private session: PtyTerminalSession,
@@ -115,7 +113,6 @@ export class HeadlessDispatchMonitor {
 				isEpochCurrent: options.semantic.isEpochCurrent, onDecision: options.semantic.onDecision,
 				actionRegistry: options.semantic.actionRegistry, isActionOwner: () => options.semantic?.isOwner?.(this) === true,
 				reserveGlobalAction: options.semantic.reserveGlobalAction,
-				dynamicChoices: options.semantic.dynamicChoices ? { ...options.semantic.dynamicChoices, isInteractive: () => this.options.deferLifecycle === true } : undefined,
 			});
 		}
 		this.subscribe();
@@ -419,9 +416,6 @@ export class HeadlessDispatchMonitor {
 
 	pauseSemantic(): void { this.semanticSupervisor?.pause(); }
 	resumeSemantic(): void { this.semanticSupervisor?.resume(); }
-	submitSemanticReply(binding: SemanticReplyBinding, response: string, permissionAllowed: () => boolean): { ok: true } | { ok: false; reason: string } {
-		return this.semanticSupervisor?.submitReply(binding, response, permissionAllowed) ?? { ok: false, reason: "semantic-supervision-unavailable" };
-	}
 	rebindSemanticEpoch(isEpochCurrent: () => boolean): void { this.semanticSupervisor?.rebindEpoch(isEpochCurrent); }
 
 	activateBackgroundLifecycle(options: { autoExitOnQuiet: boolean; timeout?: number; onComplete: (info: HeadlessCompletionInfo) => void }): void {
