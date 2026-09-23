@@ -74,6 +74,58 @@ describe("setupBackgroundWidget", () => {
 		expect(lines.every((line) => visibleWidth(line) <= 44)).toBe(true);
 	});
 
+	it("hides the command when the session has an explicit name", () => {
+		const setWidget = vi.fn();
+		const ctx = { hasUI: true, ui: { setWidget } };
+		const sessionManager = {
+			onChange: vi.fn(() => () => {}),
+			list: vi.fn(() => [{
+				id: "oak-6680-ci-watch",
+				name: "oak-6680-ci-watch",
+				explicitName: true,
+				command: "while true; do gh pr view 15236; sleep 30; done",
+				startedAt: new Date(),
+				session: { exited: false },
+			}]),
+		} satisfies Parameters<typeof setupBackgroundWidget>[1];
+
+		setupBackgroundWidget(ctx, sessionManager);
+		const factory = setWidget.mock.calls[0][1] as (tui: unknown, theme: unknown) => { render(width: number): string[] };
+		const widget = factory(
+			{ terminal: { columns: 120, rows: 24 }, requestRender() {} },
+			{ fg: (_color: string, text: string) => text },
+		);
+
+		const [line] = widget.render(120);
+		expect(line).toContain("oak-6680-ci-watch");
+		expect(line).not.toContain("while true");
+	});
+
+	it("shows the command when the session has no explicit name", () => {
+		const setWidget = vi.fn();
+		const ctx = { hasUI: true, ui: { setWidget } };
+		const sessionManager = {
+			onChange: vi.fn(() => () => {}),
+			list: vi.fn(() => [{
+				id: "calm-otter",
+				name: "npm test",
+				explicitName: false,
+				command: "npm test",
+				startedAt: new Date(),
+				session: { exited: false },
+			}]),
+		} satisfies Parameters<typeof setupBackgroundWidget>[1];
+
+		setupBackgroundWidget(ctx, sessionManager);
+		const factory = setWidget.mock.calls[0][1] as (tui: unknown, theme: unknown) => { render(width: number): string[] };
+		const widget = factory(
+			{ terminal: { columns: 120, rows: 24 }, requestRender() {} },
+			{ fg: (_color: string, text: string) => text },
+		);
+
+		expect(widget.render(120)[0]).toContain("npm test");
+	});
+
 	it("disappears when every background session has completed", () => {
 		const setWidget = vi.fn();
 		const ctx = { hasUI: true, ui: { setWidget } };

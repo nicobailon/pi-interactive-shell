@@ -7,6 +7,7 @@ import { OutputSourceStore, type OutputCapture, type OutputSourceRead, type Outp
 export interface BackgroundSession {
 	id: string;
 	name: string;
+	explicitName?: boolean;
 	command: string;
 	reason?: string;
 	session: PtyTerminalSession;
@@ -312,6 +313,7 @@ export class ShellSessionManager {
 		const entry: BackgroundSession = {
 			id,
 			name: name || deriveSessionName(command),
+			explicitName: Boolean(name),
 			command,
 			reason,
 			session,

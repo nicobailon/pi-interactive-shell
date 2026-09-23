@@ -9,6 +9,8 @@ type BackgroundWidgetContext = Pick<ExtensionContext, "hasUI"> & {
 };
 type BackgroundWidgetSession = {
 	id: string;
+	name?: string;
+	explicitName?: boolean;
 	command: string;
 	reason?: string;
 	startedAt: Date;
@@ -65,7 +67,8 @@ export function setupBackgroundWidget(
 						const monitorState = coordinator?.getMonitorSessionState(s.id);
 						const dot = monitorState ? theme.fg("accent", "◆") : theme.fg("accent", "●");
 						const id = theme.fg("dim", s.id);
-						const cmd = s.command.replace(/\s+/g, " ").trim();
+						const hasExplicitName = s.explicitName ?? s.name === s.id;
+						const commandText = hasExplicitName ? "" : `  ${s.command.replace(/\s+/g, " ").trim()}`;
 						const reasonText = s.reason?.replace(/\s+/g, " ").trim();
 						const reason = reasonText ? theme.fg("dim", ` · ${reasonText}`) : "";
 						const statusText = monitorState
@@ -74,7 +77,7 @@ export function setupBackgroundWidget(
 						const status = monitorState ? theme.fg("accent", statusText) : theme.fg("success", statusText);
 						const duration = theme.fg("dim", formatDuration(Date.now() - s.startedAt.getTime()));
 						const strategy = monitorState ? theme.fg("dim", ` · ${monitorState.strategy}`) : "";
-						const oneLine = ` ${dot} ${id}  ${status} ${duration}${strategy}  ${cmd}${reason}`;
+						const oneLine = ` ${dot} ${id}  ${status} ${duration}${strategy}${commandText}${reason}`;
 						lines.push(truncateToWidth(oneLine, cols, "…"));
 					}
 					if (sessions.length > visibleSessions.length) {
