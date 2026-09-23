@@ -29,7 +29,7 @@
     "semantic-supervisor.ts",
     "semantic-events.ts",
     "semantic-actions.ts",
-    "semantic-permissions.ts",
+    "launch-policy.ts",
     "semantic-policy.ts",
     "semantic-corpus.ts",
     "semantic-evaluator.ts",

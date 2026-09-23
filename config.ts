@@ -4,7 +4,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { KeyId, OverlayAnchor } from "@earendil-works/pi-tui";
 import { validateRedactionPatterns } from "./terminal-observation.ts";
 import { DEFAULT_JEV_MODEL } from "./semantic-policy.ts";
-import { compileSemanticPermissions, type CompiledSemanticPermissions } from "./semantic-permissions.ts";
+import { compileLaunchPolicy, type LaunchPolicy } from "./launch-policy.ts";
 
 /** A spawn agent is any key configured in `spawn.commands`, including the built-in defaults. */
 export type SpawnAgent = string;
@@ -45,6 +45,8 @@ export interface InteractiveShellConfig {
 	handsFreeUpdateMaxChars: number;
 	handsFreeMaxTotalChars: number;
 	minQueryIntervalSeconds: number;
+	/** Present only when the user's global config defines `launchPolicy`. */
+	launchPolicy?: LaunchPolicy;
 	jev?: JevConfig;
 }
 
@@ -57,8 +59,6 @@ export interface JevConfig {
 	maxRecentChars: number;
 	redactionPatterns: readonly string[];
 	diagnostics: JevDiagnosticsConfig;
-	semanticPermissions: CompiledSemanticPermissions;
-	launchPermissionsEnabled: boolean;
 }
 
 export interface JevDiagnosticsConfig {
@@ -76,8 +76,6 @@ const DEFAULT_JEV_CONFIG: JevConfig = {
 	maxRecentChars: 4_000,
 	redactionPatterns: [],
 	diagnostics: { enabled: false, retentionDays: 14, maxBytes: 20_000_000 },
-	semanticPermissions: compileSemanticPermissions([]),
-	launchPermissionsEnabled: false,
 };
 
 const DEFAULT_SPAWN_CONFIG: SpawnConfig = {
@@ -141,6 +139,13 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 	const projectJev = isPlainObject(projectConfig.jev) ? projectConfig.jev : {};
 	// Transmission can only be enabled by the user's global config. Project config may only narrow limits/redaction.
 	const jev = resolveJevConfig(globalJev, projectJev);
+	// A repository must not be able to allow launches the user has not approved.
+	if (projectConfig.launchPolicy !== undefined) throw new Error("Project config cannot define launchPolicy; it is global-only.");
+	let launchPolicy: LaunchPolicy | undefined;
+	if (globalConfig.launchPolicy !== undefined) {
+		try { launchPolicy = compileLaunchPolicy(globalConfig.launchPolicy); }
+		catch (error) { throw new Error(`Invalid global launchPolicy: ${error instanceof Error ? error.message : "invalid rules"}`); }
+	}
 
 	return {
 		...merged,
@@ -210,15 +215,12 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 			5,
 			300,
 		),
+		launchPolicy,
 		jev,
 	};
 }
 
 function resolveJevConfig(globalValue: Record<string, unknown>, projectValue: Record<string, unknown>): JevConfig {
-	if (projectValue.semanticPermissions !== undefined) throw new Error("Project config cannot define trusted semantic permissions.");
-	let semanticPermissions: CompiledSemanticPermissions;
-	try { semanticPermissions = compileSemanticPermissions(globalValue.semanticPermissions ?? []); }
-	catch (error) { throw new Error(`Invalid global Jev semantic permissions: ${error instanceof Error ? error.message : "invalid rules"}`); }
 	if (globalValue.diagnostics !== undefined && !isPlainObject(globalValue.diagnostics)) throw new Error("Invalid global Jev diagnostics configuration.");
 	const diagnostics = isPlainObject(globalValue.diagnostics) ? globalValue.diagnostics : {};
 	const globalPatterns = resolveRedactionPatterns(globalValue.redactionPatterns, "global");
@@ -245,8 +247,6 @@ function resolveJevConfig(globalValue: Record<string, unknown>, projectValue: Re
 		maxViewportLines: Math.min(globalViewportLines, clampInt(projectValue.maxViewportLines, globalViewportLines, 5, 80)),
 		maxRecentChars: Math.min(globalRecentChars, clampInt(projectValue.maxRecentChars, globalRecentChars, 500, 8_000)),
 		redactionPatterns,
-		semanticPermissions,
-		launchPermissionsEnabled: Object.hasOwn(globalValue, "semanticPermissions"),
 		diagnostics: {
 			enabled: diagnostics.enabled === true,
 			retentionDays: clampInt(diagnostics.retentionDays, DEFAULT_JEV_CONFIG.diagnostics.retentionDays, 1, 90),
