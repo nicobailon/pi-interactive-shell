@@ -881,7 +881,6 @@ function appendWorktreeNotice(text: string, worktreePath: string | undefined): s
 }
 
 export default function interactiveShellExtension(pi: ExtensionAPI) {
-	coordinator.bindExtensionApi(pi);
 	const startupConfig = loadConfig(process.cwd());
 	const supportsDeferredTools = typeof pi.getActiveTools === "function" && typeof pi.setActiveTools === "function";
 	const deferToolLoading = startupConfig.defer && supportsDeferredTools;
@@ -956,6 +955,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			return;
 		}
 		try {
+			const epoch = coordinator.getRuntimeEpoch();
 			const result = await ctx.ui.custom<InteractiveShellResult>(
 				(tui, theme, _kb, done) =>
 					new InteractiveShellOverlay(tui, theme, {
@@ -967,7 +967,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					}, config, done),
 				createOverlayUiOptions(config),
 			);
-			if (spawn.spawn.worktreePath) {
+			// A /reload while the overlay was open leaves this command ctx stale.
+			if (spawn.spawn.worktreePath && coordinator.isRuntimeEpochCurrent(epoch)) {
 				ctx.ui.notify(`Worktree left in place: ${spawn.spawn.worktreePath}`, "info");
 			}
 			emitTransferredOutput(result);
@@ -1467,6 +1468,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", (_event, ctx) => {
+		// Bind here, not in the factory: during load and /reload, pi's action methods throw until session_start.
 		coordinator.bindExtensionApi(pi);
 		if (deferToolLoading) {
 			const activeTools = pi.getActiveTools().filter((name) => name !== TOOL_NAME);

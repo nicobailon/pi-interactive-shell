@@ -98,6 +98,7 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 
 	const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> | void }>();
 	const shortcuts = new Map<string, { handler: (ctx: any) => Promise<void> | void }>();
+	const handlers = new Map<string, (...args: any[]) => unknown>();
 	let nextCustomResult: any = { exitCode: 0, backgrounded: false, cancelled: false };
 
 	const pi = {
@@ -110,12 +111,13 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 		registerTool: vi.fn((tool: any) => {
 			registeredTool = tool;
 		}),
-		on: vi.fn(),
+		on: vi.fn((event: string, handler: (...args: any[]) => unknown) => handlers.set(event, handler)),
 		events: { emit: vi.fn() },
 		sendMessage: vi.fn(),
 	};
 
 	extension(pi as any);
+	handlers.get("session_start")?.({ reason: "startup" }, { hasUI: false, ui: { onTerminalInput: () => () => {} } });
 
 	const notify = vi.fn();
 	const custom = vi.fn(async (factory: (tui: any, theme: any, kb: any, done: (result: unknown) => void) => unknown) => {

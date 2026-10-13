@@ -7,6 +7,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 ### Fixed
 - Strict OpenAI-compatible gateways no longer reject the `interactive_shell` tool schema with `invalid_tools`. Semantic action patterns now contain real control characters instead of `\uXXXX` escape text. Thanks to [@Phoenix0531-sudo](https://github.com/Phoenix0531-sudo) for [#83](https://github.com/nicobailon/pi-interactive-shell/pull/83).
 - Pi no longer crashes when a hands-free or dispatch session that kept running through `/reload` later sends an update, finishes, or transfers output. Thanks to [@masonc15](https://github.com/masonc15) for [#82](https://github.com/nicobailon/pi-interactive-shell/issues/82).
+- Session updates that arrive while `/reload` is still loading extensions now wait for the reloaded session instead of failing the extension load or crashing Pi. A `/spawn --worktree` overlay that outlives `/reload` no longer reports a stale-context error when it closes. Found while reviewing [#82](https://github.com/nicobailon/pi-interactive-shell/issues/82) ([#85](https://github.com/nicobailon/pi-interactive-shell/issues/85)).
 
 ## [0.17.0] - 2026-09-23
 

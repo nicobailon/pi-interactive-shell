@@ -204,16 +204,18 @@ async function setupHarness(options: { detectorStdout?: string; diagnostics?: bo
 	}));
 
 	const extensionModule = await import("../index.ts");
+	const handlers = new Map<string, (...args: any[]) => unknown>();
 	extensionModule.default({
 		registerShortcut: vi.fn(),
 		registerCommand: vi.fn(),
 		registerTool: vi.fn((definition: any) => {
 			toolDef = definition;
 		}),
-		on: vi.fn(),
+		on: vi.fn((event: string, handler: (...args: any[]) => unknown) => handlers.set(event, handler)),
 		events: { emit: eventsEmit },
 		sendMessage,
 	} as any);
+	handlers.get("session_start")?.({ reason: "startup" }, { hasUI: false, ui: { onTerminalInput: () => () => {} } });
 
 	return {
 		toolDef,
