@@ -6,6 +6,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ### Fixed
 - Strict OpenAI-compatible gateways no longer reject the `interactive_shell` tool schema with `invalid_tools`. Semantic action patterns now contain real control characters instead of `\uXXXX` escape text. Thanks to [@Phoenix0531-sudo](https://github.com/Phoenix0531-sudo) for [#83](https://github.com/nicobailon/pi-interactive-shell/pull/83).
+- Pi no longer crashes when a hands-free or dispatch session that kept running through `/reload` later sends an update, finishes, or transfers output. Thanks to [@masonc15](https://github.com/masonc15) for [#82](https://github.com/nicobailon/pi-interactive-shell/issues/82).
 
 ## [0.17.0] - 2026-09-23
 

@@ -145,7 +145,7 @@ async function setupHarness(options: { headlessConstructionError?: string; monit
 		InteractiveShellCoordinator: class MockCoordinator {
 			bindExtensionApi = vi.fn();
 			unbindExtensionApi = vi.fn();
-			runWithExtensionApi = vi.fn((task) => task({ sendMessage: vi.fn(), events: { emit: vi.fn() } }));
+			runWithExtensionApi = vi.fn((task) => task({ sendMessage, events: { emit: vi.fn() } }));
 			clearPendingApiTasks = vi.fn();
 			markAgentHandledCompletion = vi.fn();
 			consumeAgentHandledCompletion = vi.fn(() => false);
