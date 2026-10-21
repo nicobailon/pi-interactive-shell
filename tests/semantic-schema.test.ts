@@ -11,7 +11,6 @@ describe("semantic tool schema bounds", () => {
 	it("validates current text and key action shapes", () => {
 		expect(Value.Check(toolParameters, actionParams(validText))).toBe(true);
 		expect(Value.Check(toolParameters, actionParams(validKeys))).toBe(true);
-		expect(Value.Check(toolParameters, actionParams({ ...validText, description: "visible\u2028" }))).toBe(true);
 		expect(Value.Check(toolParameters, params({ goal: "observe", minIntervalMs: 250, quietIntervalMs: 2000, watches: [{ id: "build.ready", condition: "build is visibly ready", threshold: 0.8 }] }))).toBe(true);
 	});
 
@@ -19,6 +18,13 @@ describe("semantic tool schema bounds", () => {
 		expect(JSON.stringify(toolParameters)).not.toMatch(/\(\?(?:[=!]|<[=!])/);
 		// Strict gateways (e.g. RE2-based) reject `\uXXXX` escape text inside patterns.
 		expect(JSON.stringify(toolParameters)).not.toMatch(/"pattern":"[^"]*\\\\u/);
+		// xAI rejects raw control characters in patterns, and llama.cpp grammars need anchored patterns.
+		const patterns = [...JSON.stringify(toolParameters).matchAll(/"pattern":("(?:[^"\\]|\\.)*")/g)].map((match) => JSON.parse(match[1]!) as string);
+		expect(patterns.length).toBeGreaterThan(0);
+		for (const pattern of patterns) {
+			expect(pattern).not.toMatch(/[\u0000-\u001f\u007f\u2028\u2029]/);
+			expect(pattern.startsWith("^") && pattern.endsWith("$")).toBe(true);
+		}
 	});
 
 	it("accepts only fixed diagnostic incident fields", () => {
@@ -31,22 +37,17 @@ describe("semantic tool schema bounds", () => {
 	it.each([
 		["goal length", params({ goal: "x".repeat(1001) })],
 		["watch id", params({ watches: [{ id: "bad id", condition: "visible" }] })],
-		["blank condition", params({ watches: [{ id: "safe", condition: "   " }] })],
+		["empty condition", params({ watches: [{ id: "safe", condition: "" }] })],
 		["watch threshold", params({ watches: [{ id: "safe", condition: "visible", threshold: 1.01 }] })],
 		["interval low", params({ minIntervalMs: 249 })], ["interval integer", params({ minIntervalMs: 250.5 })],
 		["quiet interval low", params({ quietIntervalMs: 249 })], ["quiet interval high", params({ quietIntervalMs: 60001 })],
 		["removed dynamic choices", params({ goal: "choose a release", dynamicChoices: { enabled: true } })],
 		["session budget", actionParams(validText, { maxActions: 11 })], ["session budget integer", actionParams(validText, { maxActions: 1.5 })],
 		["action id", actionParams({ ...validText, id: "bad id" })], ["description blank", actionParams({ ...validText, description: "" })],
-		["description whitespace", actionParams({ ...validText, description: "   " })],
-		["description length", actionParams({ ...validText, description: "x".repeat(501) })], ["description control", actionParams({ ...validText, description: "bad\ntext" })],
-		["description null", actionParams({ ...validText, description: "\u0000" })],
-		["description leading line separator", actionParams({ ...validText, description: "\u2028visible" })],
+		["description length", actionParams({ ...validText, description: "x".repeat(501) })],
 		["text empty", actionParams({ ...validText, input: "" })], ["text length", actionParams({ ...validText, input: "x".repeat(2001) })],
-		["text control", actionParams({ ...validText, input: "yes\n" })], ["text shell metachar", actionParams({ ...validText, input: "yes; exit" })],
 		["keys empty", actionParams({ ...validKeys, inputKeys: [] })], ["key empty", actionParams({ ...validKeys, inputKeys: [""] })],
 		["keys length", actionParams({ ...validKeys, inputKeys: Array(33).fill("down") })],
-		["key newline", actionParams({ ...validKeys, inputKeys: ["down\n"] })], ["key control", actionParams({ ...validKeys, inputKeys: ["down\u007f"] })],
 		["key item length", actionParams({ ...validKeys, inputKeys: ["x".repeat(65)] })],
 		["unknown watch property", params({ watches: [{ id: "safe", condition: "visible", extra: true }] })],
 		["unknown semantic property", params({ attention: true, extra: true })],
@@ -71,6 +72,6 @@ describe("semantic tool schema bounds", () => {
 		expect(actions.properties.maxActions).toMatchObject({ type: "integer", minimum: 1, maximum: 10 });
 		expect(actions.properties.items).toMatchObject({ minItems: 1, maxItems: 10 });
 		expect(actions.properties.items.items.anyOf).toHaveLength(2);
-		expect(actions.properties.items.items.anyOf[1].properties.inputKeys.items).toMatchObject({ minLength: 1, maxLength: 64, pattern: expect.any(String) });
+		expect(actions.properties.items.items.anyOf[1].properties.inputKeys.items).toMatchObject({ minLength: 1, maxLength: 64 });
 	});
 });

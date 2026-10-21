@@ -4,6 +4,9 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+- xAI's Responses API and llama.cpp servers no longer reject requests that include the `interactive_shell` tool. The tool definition no longer sends regex patterns those providers cannot read, and the extension still rejects the same invalid semantic action and watch values when the tool runs. Thanks to [@ianbmacdonald](https://github.com/ianbmacdonald) for [#89](https://github.com/nicobailon/pi-interactive-shell/issues/89) and [@jeffreysmattson](https://github.com/jeffreysmattson) for [#87](https://github.com/nicobailon/pi-interactive-shell/issues/87).
+
 ## [0.17.1] - 2026-10-13
 
 ### Highlights

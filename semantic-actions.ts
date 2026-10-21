@@ -45,7 +45,7 @@ export function compileSemanticActions(config: unknown): SemanticActionRegistry 
 		if (typeof id !== "string" || !SEMANTIC_SAFE_ID.test(id) || ["observe_again", "notify_pi", "stop_automation"].includes(id)) throw new Error("Semantic action id is unsafe or reserved");
 		if (ids.has(id)) throw new Error(`Duplicate semantic action id: ${id}`);
 		ids.add(id);
-		if (typeof description !== "string" || !description.trim() || description.length > 500 || hasControls(description)) throw new Error(`Invalid semantic action description: ${id}`);
+		if (typeof description !== "string" || !description.trim() || description.length > 500 || hasControls(description) || /[\u2028\u2029]/.test(description)) throw new Error(`Invalid semantic action description: ${id}`);
 		if (FORBIDDEN_INTENT.test(`${id} ${description}`)) throw new Error(`Forbidden semantic action intent: ${id}`);
 		const input = raw.input;
 		const inputKeys = raw.inputKeys;

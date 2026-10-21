@@ -73,6 +73,9 @@ describe("authorized semantic action compilation", () => {
 		["hex", { ...text, inputHex: ["03"] }], ["paste", { ...text, inputPaste: "x" }],
 		["duplicate", [text, text]], ["unsafe id", { ...text, id: "bad id" }], ["reserved id", { ...text, id: "notify_pi" }],
 		["control text", { ...text, input: "yes\n" }], ["unknown key", { ...keys, inputKeys: ["wat"] }],
+		["blank description", { ...text, description: "   " }], ["control description", { ...text, description: "bad\ntext" }],
+		["null description", { ...text, description: "\u0000" }], ["line separator description", { ...text, description: "\u2028visible" }],
+		["newline key", { ...keys, inputKeys: ["down\n"] }], ["control key", { ...keys, inputKeys: ["down\u007f"] }],
 		["ctrl-c", { ...keys, inputKeys: ["ctrl+c"] }], ["ctrl-z", { ...keys, inputKeys: ["ctrl+z"] }],
 		["unsupported ctrl digit", { ...keys, inputKeys: ["ctrl+1"] }], ["unsupported ctrl symbol", { ...keys, inputKeys: ["ctrl+@"] }],
 		["unsupported shift digit", { ...keys, inputKeys: ["shift+1"] }], ["unsupported combined digit alias", { ...keys, inputKeys: ["c-m-1"] }],
@@ -84,7 +87,7 @@ describe("authorized semantic action compilation", () => {
 		["hidden credential text", { ...text, description: "Choose the ordinary response", input: "password=hunter2" }],
 		["hidden payment text", { ...text, description: "Choose the ordinary response", input: "credit card 4111111111111111" }],
 		["generic opaque token", { ...text, description: "Choose the ordinary response", input: "a94f17c92b6d43e88a10304d56ef7781" }],
-		["shell metacharacters", { ...text, description: "Choose the ordinary response", input: "yes && exit" }],
+		["shell metacharacters", { ...text, description: "Choose the ordinary response", input: "yes; please" }],
 		["empty", { ...text, input: "" }], ["oversized", { ...text, input: "x".repeat(2001) }],
 		["cooldown", { ...text, cooldownMs: -1 }], ["item budget", { ...text, maxExecutions: 11 }],
 	] as Array<[string, unknown]>)("rejects %s", (_label, item) => {

@@ -452,6 +452,12 @@ describe("monitor mode", () => {
 		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
 		expect(rejected.isError).toBe(true);
 		expect(rejected.content[0].text).toContain("exactly one input form");
+
+		const blankWatch = await invalid.toolDef.execute("blank-watch", {
+			command: "agent", mode: "monitor", monitor: { strategy: "semantic", semantic: { watches: [{ id: "ready", condition: "   " }] } },
+		}, undefined, undefined, { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any);
+		expect(blankWatch.isError).toBe(true);
+		expect(blankWatch.content[0].text).toContain("non-empty safe id and condition");
 	});
 
 	it("routes semantic-enabled background dispatch through structured history and persistence", async () => {

@@ -8,9 +8,6 @@ export const ENABLE_TOOL_LABEL = "Enable Interactive Shell";
 export const ENABLE_TOOL_DESCRIPTION = "Enable the interactive_shell tool for interactive CLI coding agents, overlay supervision, background dispatch, and event-driven monitoring. Call this when interactive_shell is not available; it becomes callable on the next turn.";
 export const enableToolParameters = Type.Object({});
 
-const SEMANTIC_NONCONTROL_PATTERN = "^[^\u0000-\u001F\u007F\u2028\u2029]*[^\\s\u0000-\u001F\u007F][^\u0000-\u001F\u007F]*$";
-const SEMANTIC_TEXT_PATTERN = "^[^\u0000-\u001F\u007F;&|`$<>]+$";
-
 export const TOOL_DESCRIPTION = `Run an interactive CLI in an overlay or managed background session.
 
 Use interactive_shell for CLIs that need typed input, user approval, or live supervision, including coding-agent TUIs and auth flows. Use bash for non-interactive shell commands.
@@ -183,7 +180,7 @@ export const toolParameters = Type.Object({
 				attention: Type.Optional(Type.Boolean({ description: "Emit built-in semantic attention events for clear input, approval, result, or intervention states (default: false)." })),
 				watches: Type.Optional(Type.Array(Type.Object({
 					id: Type.String({ minLength: 1, maxLength: 64, pattern: SEMANTIC_SAFE_ID_PATTERN }),
-					condition: Type.String({ pattern: "\\S", description: "Nonblank visible condition. Runtime also rejects duplicate watch IDs." }),
+					condition: Type.String({ minLength: 1, description: "Nonblank visible condition. Runtime also rejects duplicate watch IDs." }),
 					threshold: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
 				}, { additionalProperties: false }))),
 				minIntervalMs: Type.Optional(Type.Integer({ minimum: 250, maximum: 60000, description: "Minimum interval between coalesced semantic requests (250-60000ms)." })),
@@ -195,15 +192,15 @@ export const toolParameters = Type.Object({
 					items: Type.Array(Type.Union([
 						Type.Object({
 							id: Type.String({ minLength: 1, maxLength: 64, pattern: SEMANTIC_SAFE_ID_PATTERN }),
-							description: Type.String({ minLength: 1, maxLength: 500, pattern: SEMANTIC_NONCONTROL_PATTERN, description: "Runtime additionally rejects reserved IDs and forbidden credential/lifecycle intent." }),
-							input: Type.String({ minLength: 1, maxLength: 2000, pattern: SEMANTIC_TEXT_PATTERN, description: "Exact text. Runtime additionally rejects credential/lifecycle intent and opaque token shapes." }),
+							description: Type.String({ minLength: 1, maxLength: 500, description: "Runtime additionally rejects control characters, reserved IDs and forbidden credential/lifecycle intent." }),
+							input: Type.String({ minLength: 1, maxLength: 2000, description: "Exact text. Runtime additionally rejects control characters, shell metacharacters, credential/lifecycle intent and opaque token shapes." }),
 							submit: Type.Optional(Type.Boolean()), cooldownMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 86400000 })),
 							maxExecutions: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })),
 						}, { additionalProperties: false }),
 						Type.Object({
 							id: Type.String({ minLength: 1, maxLength: 64, pattern: SEMANTIC_SAFE_ID_PATTERN }),
-							description: Type.String({ minLength: 1, maxLength: 500, pattern: SEMANTIC_NONCONTROL_PATTERN, description: "Runtime additionally rejects reserved IDs and forbidden credential/lifecycle intent." }),
-							inputKeys: Type.Array(Type.String({ minLength: 1, maxLength: 64, pattern: SEMANTIC_NONCONTROL_PATTERN }), { minItems: 1, maxItems: 32, description: "Strict named keys (1-64 characters each, no controls). Runtime rejects unknown names and effective dangerous bytes." }),
+							description: Type.String({ minLength: 1, maxLength: 500, description: "Runtime additionally rejects control characters, reserved IDs and forbidden credential/lifecycle intent." }),
+							inputKeys: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { minItems: 1, maxItems: 32, description: "Strict named keys (1-64 characters each, no controls). Runtime rejects unknown names and effective dangerous bytes." }),
 							cooldownMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 86400000 })),
 							maxExecutions: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })),
 						}, { additionalProperties: false }),
