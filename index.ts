@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, isKeyRepeat, matchesKey } from "@earendil-works/pi-tui";
 import { InteractiveShellOverlay } from "./overlay-component.ts";
@@ -30,6 +31,8 @@ import {
 	TOOL_NAME,
 	TOOL_LABEL,
 	TOOL_DESCRIPTION,
+	TOOL_PROMPT_GUIDELINES,
+	TOOL_PROMPT_SNIPPET,
 	toolParameters,
 	type ToolParams,
 } from "./tool-schema.ts";
@@ -63,14 +66,18 @@ const coordinator = runtimeGlobal[COORDINATOR_KEY] ??= new InteractiveShellCoord
 coordinator.ensureReloadState?.();
 const SIDE_CHAT_SHORTCUT = "alt+/";
 
-/** Logs of finished headless sessions, so a late query by sessionId can point at the output instead of only failing. */
-const finishedSessionLogs = new Map<string, string>();
+/** Logs of finished headless sessions, so a late query by sessionId can point at the output instead of only failing.
+ * Kept on globalThis like the coordinator: completion callbacks from before a /reload write into the same map. */
+const FINISHED_LOGS_KEY = "__piInteractiveShellFinishedLogsV1" as const;
+const logsGlobal = globalThis as typeof globalThis & Partial<Record<typeof FINISHED_LOGS_KEY, Map<string, string>>>;
+const finishedSessionLogs = logsGlobal[FINISHED_LOGS_KEY] ??= new Map<string, string>();
 
 function saveCompletionLog(id: string): CompletionLog | undefined {
 	const background = sessionManager.get(id);
 	if (!background) return undefined;
 	const log = writeCompletionLog(background.session, id);
 	if ("path" in log) finishedSessionLogs.set(id, log.path);
+	else finishedSessionLogs.delete(id);
 	return log;
 }
 
@@ -1528,6 +1535,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		coordinator.clearPendingApiTasks();
 		releaseSessionManagerSingleton(sessionManager);
 		Reflect.deleteProperty(runtimeGlobal, COORDINATOR_KEY);
+		Reflect.deleteProperty(logsGlobal, FINISHED_LOGS_KEY);
 	});
 
 	pi.registerTool({
@@ -1537,13 +1545,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		...(deferToolLoading
 			? {}
 			: {
-				promptSnippet: "Run interactive CLIs, coding agents, and auth flows in an overlay",
-				promptGuidelines: [
-					"Use interactive_shell for CLIs that need typed input, user approval, or live supervision; use bash for non-interactive commands.",
-					"Use interactive_shell with mode='dispatch' for fire-and-forget coding-agent delegation.",
-					"Use interactive_shell with submit=true when sending slash commands or prompts to an existing session.",
-					"Load the interactive-shell skill for detailed interactive_shell mode, query, spawn, attach, and monitor recipes.",
-				],
+				promptSnippet: TOOL_PROMPT_SNIPPET,
+				promptGuidelines: TOOL_PROMPT_GUIDELINES,
 			}),
 		parameters: toolParameters,
 
@@ -1908,7 +1911,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				const session = sessionManager.getActive(sessionId);
 				if (!session) {
 					return {
-						content: [{ type: "text", text: finishedSessionLogs.has(sessionId)
+						content: [{ type: "text", text: existsSync(finishedSessionLogs.get(sessionId) ?? "")
 							? `Session ${sessionId} has finished and can no longer be queried. Its result was in the completion message. Full output: ${finishedSessionLogs.get(sessionId)}`
 							: `Session not found or no longer active: ${sessionId}` }],
 						isError: true,

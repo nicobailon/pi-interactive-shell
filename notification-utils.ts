@@ -7,10 +7,11 @@ const QUIET_RELAUNCH_HINT = "If the command can be silent (tests, builds, CI wat
 
 export type CompletionLog = { path: string } | { error: string };
 
-function describeCompletionLog(sessionId: string, log: CompletionLog | undefined): string {
-	if (log && "path" in log) return `Full output: ${log.path}`;
-	const attach = `Attach to review full output: interactive_shell({ attach: "${sessionId}" })`;
-	return log ? `Could not save the full output (${log.error}). ${attach}` : attach;
+// No log means the session already left the manager, so attach would fail too.
+function describeCompletionLog(sessionId: string, log: CompletionLog | undefined): string | undefined {
+	if (!log) return undefined;
+	if ("path" in log) return `Full output: ${log.path}`;
+	return `Could not save the full output (${log.error}). Attach to review it: interactive_shell({ attach: "${sessionId}" })`;
 }
 
 /** Launch-time hint for dispatches that will auto-close on quiet; sent in the tool result, not the tool definition. */
@@ -25,7 +26,8 @@ export function buildDispatchNotification(sessionId: string, info: HeadlessCompl
 	}
 	if (info.cancelled && info.completionOutput?.lines.length) parts.push("\n\nOutput captured at cancellation:");
 	appendTailBlock(parts, info.completionOutput?.lines, BRIEF_TAIL_LINES);
-	parts.push(`\n\n${describeCompletionLog(sessionId, log)}`);
+	const logLine = describeCompletionLog(sessionId, log);
+	if (logLine) parts.push(`\n\n${logLine}`);
 	return parts.join("");
 }
 

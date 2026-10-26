@@ -14,7 +14,7 @@ describe("notification utilities", () => {
 		}, "5m 0s");
 		expect(text).toContain("Session calm-reef completed successfully (5m 0s). 6 lines of output.");
 		expect(text).toContain("2\n3\n4\n5\n6");
-		expect(text).toContain('Attach to review full output: interactive_shell({ attach: "calm-reef" })');
+		expect(text).not.toContain("attach");
 	});
 
 	it("distinguishes quiet auto-close from a killed dispatch session", () => {

@@ -48,7 +48,10 @@ export function writeCompletionLog(session: PtyTerminalSession, sessionId: strin
 		for (const name of readdirSync(dir)) {
 			if (!name.startsWith("session-") || !name.endsWith(".log")) continue;
 			const file = join(dir, name);
-			if (now - statSync(file).mtimeMs > COMPLETION_LOG_TTL_MS) rmSync(file, { force: true });
+			// Another Pi process may prune the same file first; a failed prune must not block this write.
+			try {
+				if (now - statSync(file).mtimeMs > COMPLETION_LOG_TTL_MS) rmSync(file, { force: true });
+			} catch {}
 		}
 		const { lines } = session.getTailLines({ lines: Number.MAX_SAFE_INTEGER, ansi: false });
 		while (lines.length && !lines[lines.length - 1].trim()) lines.pop();

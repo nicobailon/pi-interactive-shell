@@ -9,11 +9,11 @@ description: Run interactive CLIs and coding-agent TUIs (pi, Claude Code, Codex,
 
 ```
 mode         overlay   how you hear back                   use for
-dispatch     yes*      one wake-up: tail + full-log path   delegated agents, test suites, CI watches
+dispatch     yes*      one wake-up: tail (+ log if *)      delegated agents, test suites, CI watches
 monitor      no        one wake-up per trigger match       PR/CI gates, log watchers
 hands-free   yes       you query; wake-up on exit/takeover an agent you will steer
 interactive  yes       the user drives; you can send input user-driven TUIs, auth flows
-* background: true runs dispatch headless; the user can /attach to watch
+* background: true runs dispatch headless (the wake-up adds a full-output log path); the user can /attach to watch
 ```
 
 ## If the tool is missing

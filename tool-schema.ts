@@ -6,6 +6,13 @@ export const TOOL_LABEL = "Interactive Shell";
 export const ENABLE_TOOL_NAME = "enable_interactive_shell";
 export const ENABLE_TOOL_LABEL = "Enable Interactive Shell";
 export const ENABLE_TOOL_DESCRIPTION = "Enable the interactive_shell tool for interactive CLI coding agents, overlay supervision, background dispatch, and event-driven monitoring. Call this when interactive_shell is not available; it becomes callable on the next turn.";
+export const TOOL_PROMPT_SNIPPET = "Run interactive CLIs, coding agents, and auth flows in an overlay";
+export const TOOL_PROMPT_GUIDELINES = [
+	"Use interactive_shell for CLIs that need typed input, user approval, or live supervision; use bash for non-interactive commands.",
+	"Use interactive_shell with mode='dispatch' for fire-and-forget coding-agent delegation.",
+	"Use interactive_shell with submit=true when sending slash commands or prompts to an existing session.",
+	"Load the interactive-shell skill for detailed interactive_shell mode, query, spawn, attach, and monitor recipes.",
+];
 export const enableToolParameters = Type.Object({});
 
 export const TOOL_DESCRIPTION = `Run an interactive CLI in an overlay or managed background session.
