@@ -27,7 +27,7 @@ interactive_shell({ sessionId: "calm-reef", kill: true })  // output captured at
 - **Rate limit.** Queries of a running session are limited to one per 60 seconds. An early query waits out the limit, or returns as soon as the session ends. The user is watching the overlay live; you only check in.
 - **Takeover.** When the user types into a monitored hands-free or dispatch session, they own it until they press Ctrl+G to return control.
 - **Auto-exit.** For a single task, `handsFree: { autoExitOnQuiet: true }` ends supervision after ~8s of quiet (after the startup grace period). Tell the agent to save results to a file, since the session closes on its own. Leave it off (the hands-free default) for multi-turn work.
-- **Update timing.** `settings: { updateInterval, quietThreshold }` changes how often hands-free updates arrive mid-session.
+- **Wake-ups.** Hands-free sends no progress updates while the session runs; you hear back only when it exits, is killed, or the user takes over or hands back control. Query to see progress.
 
 ## Reading output
 
@@ -36,7 +36,7 @@ Queries return the rendered screen, not the raw stream, so spinners and redraws 
 ## Handoff
 
 - **Transfer (Ctrl+T).** The user presses Ctrl+T in the overlay and the session output (default 200 lines, 20KB; `transferLines`, `transferMaxChars`) arrives as your context.
-- **Tail preview.** The tool result includes the last 30 lines by default.
+- **Tail preview.** A blocking interactive `attach` returns the last 30 lines when the overlay closes.
 - **Snapshot.** `handoffSnapshot: { enabled: true, lines: 200 }` writes the transcript to `~/.pi/agent/cache/interactive-shell/snapshot-*.log`.
 - **Artifact.** For complex work, tell the agent to write a handoff file: what it did, files changed, errors, next steps.
 

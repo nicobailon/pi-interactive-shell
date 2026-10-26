@@ -764,7 +764,7 @@ Write a plan
 
 ### Installing the Templates
 
-Install the package first for the extension and core `pi-interactive-shell` skill:
+Install the package first for the extension and core `interactive-shell` skill:
 
 ```bash
 pi install npm:pi-interactive-shell

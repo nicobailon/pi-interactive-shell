@@ -144,12 +144,12 @@ function encodeKeyToken(token: string): string {
 	if (!normalized) return "";
 
 	// Check for direct match in named keys
-	if (NAMED_KEYS[normalized]) {
+	if (Object.hasOwn(NAMED_KEYS, normalized)) {
 		return NAMED_KEYS[normalized];
 	}
 
 	// Check for ctrl+key
-	if (CTRL_KEYS[normalized]) {
+	if (Object.hasOwn(CTRL_KEYS, normalized)) {
 		return CTRL_KEYS[normalized];
 	}
 
@@ -188,7 +188,7 @@ function encodeKeyToken(token: string): string {
 	}
 
 	// Check if base key is a named key that supports modifiers
-	const baseSeq = NAMED_KEYS[rest];
+	const baseSeq = Object.hasOwn(NAMED_KEYS, rest) ? NAMED_KEYS[rest] : undefined;
 	if (baseSeq && MODIFIABLE_KEYS.has(rest) && (ctrl || alt || shift)) {
 		const mod = xtermModifier(shift, alt, ctrl);
 		if (mod > 1) {

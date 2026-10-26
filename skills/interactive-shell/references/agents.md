@@ -2,7 +2,7 @@
 
 ## Structured spawn
 
-For Pi, Codex, Claude, Cursor, and user-defined agents, structured `spawn` uses the same resolver and config defaults as the `/spawn` command, the agent's native startup prompt form, and Pi-only fork and worktree support:
+For Pi, Codex, Claude, Cursor, and user-defined agents, structured `spawn` uses the same resolver and config defaults as the `/spawn` command, the agent's native startup prompt form, worktree support, and Pi-only fork:
 
 ```js
 interactive_shell({ spawn: { agent: "pi" }, mode: "interactive" })

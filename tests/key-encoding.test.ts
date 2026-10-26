@@ -22,6 +22,7 @@ describe("translateInput", () => {
 	it("rejects unknown key names and hex bytes instead of typing them", () => {
 		expect(() => translateInput({ keys: ["pagedwn"] })).toThrow('Unknown key "pagedwn" in inputKeys. Did you mean pagedown');
 		expect(() => translateInput({ keys: ["ctrl+foo"] })).toThrow('Unknown key "ctrl+foo"');
+		expect(() => translateInput({ keys: ["constructor"] })).toThrow('Unknown key "constructor"');
 		expect(() => translateInput({ hex: ["\\x1b"] })).toThrow('Invalid inputHex byte "\\x1b"');
 	});
 

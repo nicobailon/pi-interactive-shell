@@ -9,9 +9,9 @@ description: Run interactive CLIs and coding-agent TUIs (pi, Claude Code, Codex,
 
 ```
 mode         overlay   how you hear back                   use for
-dispatch     yes*      one wake-up with the output tail    delegated agents, test suites, CI watches
+dispatch     yes*      one wake-up with the last 5 lines   delegated agents, test suites, CI watches
 monitor      no        one wake-up per trigger match       PR/CI gates, log watchers
-hands-free   yes       you query; quiet-time updates       an agent you will steer
+hands-free   yes       you query; wake-up on exit/takeover an agent you will steer
 interactive  yes       the user drives; you can send input user-driven TUIs, auth flows
 * background: true runs dispatch headless; the user can /attach to watch
 ```
@@ -23,9 +23,9 @@ When `interactive_shell` is unavailable, call `enable_interactive_shell` first. 
 ## Hot shapes
 
 ```js
-// Finite command, headless; the wake-up brings the tail of its output
+// Finite command, headless. The wake-up shows only the last 5 lines, so print the verdict last and keep the full log
 interactive_shell({
-  command: "set -o pipefail; npm test > /tmp/unit.log 2>&1; s=$?; tail -60 /tmp/unit.log; exit $s",
+  command: "npm test > /tmp/unit.log 2>&1; s=$?; tail -5 /tmp/unit.log; exit $s",
   cwd: "/abs/repo", mode: "dispatch", background: true, name: "unit-tests",
   timeout: 1800000, handsFree: { autoExitOnQuiet: false }, reason: "Run unit tests",
 })
@@ -45,25 +45,25 @@ interactive_shell({ spawn: { agent: "pi", prompt: "Fix the failing tests in src/
 interactive_shell({ command: 'claude "Review the diff on this branch"', mode: "dispatch", background: true })
 
 // Live sessions
-interactive_shell({ sessionId, outputLines: 50 })                 // rendered screen; default 20 lines, 5KB
-interactive_shell({ sessionId, input: "/compact", submit: true })
-interactive_shell({ sessionId, inputKeys: ["down", "down", "enter"] })
-interactive_shell({ sessionId, inputPaste: "multi\nline text" })   // bracketed paste
-interactive_shell({ sessionId, kill: true })
+interactive_shell({ sessionId: "calm-reef", outputLines: 50 })   // rendered screen; default 20 lines, 5KB
+interactive_shell({ sessionId: "calm-reef", input: "/compact", submit: true })
+interactive_shell({ sessionId: "calm-reef", inputKeys: ["down", "down", "enter"] })
+interactive_shell({ sessionId: "calm-reef", inputPaste: "multi\nline text" })   // bracketed paste
+interactive_shell({ sessionId: "calm-reef", kill: true })
 interactive_shell({ listBackground: true })
 interactive_shell({ dismissBackground: "unit-tests" })            // or true for all
 ```
 
-`inputKeys` takes named keys (`up`, `enter`, `escape`, `tab`, `space`, `backspace`, `delete`, `home`, `end`, `pageup`, `pagedown`, `f1`–`f12`, `kp0`–`kp9`) or single characters, with `ctrl+`/`alt+`/`shift+` (or `c-`/`m-`/`s-`) prefixes. Unknown names are rejected with suggestions.
+`inputKeys` takes named keys (`up`, `enter`, `escape`, `tab`, `space`, `backspace`, `delete`, `home`, `end`, `pageup`, `pagedown`, `f1`–`f12`, `kp0`–`kp9`) or single characters, with `ctrl+`/`alt+`/`shift+` (or `c-`/`m-`/`s-`) prefixes. Unknown names are rejected with suggestions. One call can combine `input`, `inputPaste`, and `inputKeys`; they are sent as text, then paste, then keys.
 
 `monitor.strategy` is `stream` (match output lines), `poll-diff` (rerun `command` every `poll.intervalMs`, match changes), `file-watch` (watch `fileWatch.path`; omit `command`), or `semantic` (Jev, below). Read past events with `{ monitorEvents: true, monitorSessionId }` and state with `{ monitorStatus: true, monitorSessionId }`.
 
 ## Rules
 
 - **Wait for the wake-up.** After launching dispatch or monitor, end the turn. Don't poll, sleep, or query it.
-- **Quiet auto-close.** Dispatch stops supervising after ~8s without output (after a 15s grace) and tags the wake-up `completionReason: "auto-close-quiet"`. That is not a verdict: the command may still be running or may have failed. For anything that can go quiet (tests, builds, `gh run watch`), set `handsFree: { autoExitOnQuiet: false }` and a hard `timeout`. Monitor never auto-closes on quiet.
+- **Quiet auto-close.** Dispatch stops supervising after ~8s without output (after a 15s grace) and tags the wake-up `completionReason: "auto-close-quiet"`. That is not a verdict: the command may still be running or may have failed. For anything that can go quiet (tests, builds, `gh run watch`), set `handsFree: { autoExitOnQuiet: false }` and a hard `timeout`. Monitor doesn't auto-close on quiet unless you set `autoExitOnQuiet: true`.
 - **Gate watchers.** For a provider-agnostic external gate watcher, use `mode: "monitor"` with a hard `timeout` and triggers on explicit end lines such as `ready`, `blocked`, and `stale-head`. The watcher must exit only after printing one.
-- **Finished sessions are gone.** After the completion wake-up, `sessionId` queries return "not found". When you need more than the tail, have the command write a log file and read it.
+- **Finished sessions are gone.** After a background dispatch, monitor, or hands-free session finishes, `sessionId` queries return "not found". When you need more than the 5-line tail, have the command write a log file and read it.
 - **Prompt goes in the command.** `reason` is only overlay header text. `command: 'claude "Review the codebase"'` starts the agent working; `command: "claude", reason: "Review"` leaves it idle.
 - **Submitting.** For editor-based TUIs like pi, raw `input` only types text. It does not submit the prompt. Use `submit: true` or `inputKeys: ["enter"]`, not a trailing `\n`.
 - **No TUIs in bash.** Agent CLIs hang in bash, even for `--help`. Capture one with `interactive_shell({ command: "pi --help", mode: "hands-free", timeout: 5000 })`. Headless one-shots (`claude -p`, `codex exec`, `pi -p`) are fine in bash.
@@ -75,7 +75,9 @@ interactive_shell({ dismissBackground: "unit-tests" })            // or true for
 
 ## Look up the rest
 
-- Hands-free supervision, takeover (Ctrl+G), transfer (Ctrl+T), snapshots, incremental reads, `settings`, `attach`, interactive mode → [references/foreground.md](references/foreground.md)
+Read the matching reference before using any parameter it names.
+
+- Hands-free supervision, takeover (Ctrl+G), transfer (Ctrl+T), snapshots, incremental reads, `attach`, interactive mode → [references/foreground.md](references/foreground.md)
 - Structured `spawn`, `/spawn`, custom agents, per-agent CLI flags → [references/agents.md](references/agents.md)
 - Recoverable selected output for a finite headless dispatch (`outputSelection`, `sourceId`) → [references/output-selection.md](references/output-selection.md)
 - Jev semantic monitoring, actions, diagnostics, incidents, and `launchPolicy` → [references/jev.md](references/jev.md)
