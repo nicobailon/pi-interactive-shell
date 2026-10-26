@@ -74,7 +74,7 @@ interactive_shell({ dismissBackground: "unit-tests" })            // or true for
 
 ## Look up the rest
 
-Read the matching reference before using any parameter it names.
+Read the matching reference before using any parameter it names. The tool's schema may list only common fields; the fields these references name are still accepted as written.
 
 - Hands-free supervision, takeover (Ctrl+G), transfer (Ctrl+T), snapshots, incremental reads, `attach`, interactive mode → [references/foreground.md](references/foreground.md)
 - Structured `spawn`, `/spawn`, custom agents, per-agent CLI flags → [references/agents.md](references/agents.md)

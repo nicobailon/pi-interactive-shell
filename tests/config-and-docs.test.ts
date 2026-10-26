@@ -207,11 +207,13 @@ describe("config + docs parity", () => {
 		const toolSchema = readFileSync("tool-schema.ts", "utf-8");
 
 		expect(defaults.defer).toBe(false);
+		expect(defaults.toolSchema).toBe("lean");
 		expect(defaults.launchPolicy).toBeUndefined();
 		expect(defaults.handsFreeQuietThreshold).toBe(8000);
 		expect(defaults.autoExitGracePeriod).toBe(15000);
 		expect(defaults.overlayAnchor).toBe("center");
 		expect(readme).toContain(`"defer": ${defaults.defer}`);
+		expect(readme).toContain(`"toolSchema": "${defaults.toolSchema}"`);
 		expect(readme).toContain("enable_interactive_shell");
 		expect(readme).toContain(`"overlayAnchor": "${defaults.overlayAnchor}"`);
 		expect(defaults.focusShortcut).toBe("alt+shift+f");

@@ -380,6 +380,74 @@ export const toolParameters = Type.Object({
 /** Parsed tool parameters type, derived from the schema so the two cannot drift. */
 export type ToolParams = Static<typeof toolParameters>;
 
+export const LEAN_TOOL_DESCRIPTION = `Run a CLI in a terminal that Pi supervises: an overlay for interactive programs and logins, a headless dispatch that wakes you when it finishes, or a monitor that wakes you when output matches. Every launch returns a sessionId at once. Use bash for ordinary commands.
+
+Advanced fields (Jev supervision, saved output sources, monitor history, raw hex input, handoff snapshots) are accepted but not listed; the interactive-shell skill documents them.`;
+
+// The default advertised schema: common fields only. It must accept every value the full schema accepts at
+// each listed path and must never set additionalProperties, so undeclared advanced fields reach
+// prepareArguments, which validates against the full schema.
+export const leanToolParameters = Type.Object({
+	command: Type.Optional(Type.String({ description: "CLI command to run. Put an agent's prompt in the command." })),
+	spawn: Type.Optional(Type.Object({
+		agent: Type.Optional(Type.String({ description: "Configured agent key (pi, claude, codex, cursor, ...)." })),
+		prompt: Type.Optional(Type.String({ description: "Startup prompt." })),
+		worktree: Type.Optional(Type.Boolean({ description: "Run in a new git worktree." })),
+		mode: Type.Optional(Type.Union([Type.Literal("fresh"), Type.Literal("fork")], { description: "'fork' is pi-only." })),
+	}, { description: "Launch a configured coding agent instead of command." })),
+	mode: Type.Optional(Type.Union([
+		Type.Literal("interactive"),
+		Type.Literal("hands-free"),
+		Type.Literal("dispatch"),
+		Type.Literal("monitor"),
+	], { description: "interactive (default): user drives. hands-free: you query it. dispatch: one wake-up when it ends. monitor: a wake-up per trigger match." })),
+	background: Type.Optional(Type.Boolean({ description: "Run dispatch or monitor without an overlay; with sessionId, move an open overlay to the background." })),
+	cwd: Type.Optional(Type.String({ description: "Working directory." })),
+	name: Type.Optional(Type.String({ description: "Session name, used in the sessionId." })),
+	reason: Type.Optional(Type.String({ description: "Overlay header text; not passed to the command." })),
+	timeout: Type.Optional(Type.Number({ description: "Stop supervising after N ms and attempt termination." })),
+	handsFree: Type.Optional(Type.Object({
+		autoExitOnQuiet: Type.Optional(Type.Boolean({ description: "End the session when output goes quiet. Default true for dispatch, false otherwise." })),
+		quietThreshold: Type.Optional(Type.Number({ description: "Quiet time in ms (default 8000)." })),
+		updateMode: Type.Optional(Type.Union([Type.Literal("on-quiet"), Type.Literal("interval")], { description: "When hands-free updates arrive (default on-quiet)." })),
+		updateInterval: Type.Optional(Type.Number({ description: "Max ms between updates (default 60000)." })),
+	})),
+	monitor: Type.Optional(Type.Object({
+		strategy: Type.Optional(Type.Union([
+			Type.Literal("stream"),
+			Type.Literal("poll-diff"),
+			Type.Literal("file-watch"),
+			Type.Literal("semantic"),
+		], { description: "stream (default) matches output lines; the skill covers the others." })),
+		triggers: Type.Optional(Type.Array(Type.Object({
+			id: Type.String({ description: "Name reported in the wake-up." }),
+			regex: Type.Optional(Type.String({ description: "Regex, plain or /re/flags." })),
+			literal: Type.Optional(Type.String({ description: "Plain substring." })),
+		}), { description: "Wake on a match; each trigger needs id and one of regex or literal." })),
+		persistence: Type.Optional(Type.Object({
+			stopAfterFirstEvent: Type.Optional(Type.Boolean()),
+			maxEvents: Type.Optional(Type.Number()),
+		})),
+		throttle: Type.Optional(Type.Object({
+			dedupeExactLine: Type.Optional(Type.Boolean({ description: "Skip repeated identical lines (default true)." })),
+		})),
+	}, { description: "Required for mode='monitor'." })),
+	sessionId: Type.Optional(Type.String({ description: "Existing session to query, send input to, kill, or background." })),
+	outputLines: Type.Optional(Type.Number({ description: "Lines to return (default 20, max 200)." })),
+	outputMaxChars: Type.Optional(Type.Number({ description: "Max chars to return (default 5KB, max 50KB)." })),
+	input: Type.Optional(Type.String({ description: "Text to type; does not press Enter." })),
+	submit: Type.Optional(Type.Boolean({ description: "Press Enter after the input." })),
+	inputKeys: Type.Optional(Type.Array(Type.String(), { description: "Named keys, e.g. enter, up, ctrl+c." })),
+	inputPaste: Type.Optional(Type.String({ description: "Paste multi-line text without running each line." })),
+	kill: Type.Optional(Type.Boolean({ description: "End the session (with sessionId)." })),
+	attach: Type.Optional(Type.String({ description: "Reopen a background session in an overlay." })),
+	listBackground: Type.Optional(Type.Boolean({ description: "List background sessions." })),
+	dismissBackground: Type.Optional(Type.Union([Type.Boolean(), Type.String()], { description: "Dismiss all background sessions (true) or one (its id)." })),
+	monitorStatus: Type.Optional(Type.Boolean({ description: "Monitor state (with monitorSessionId or sessionId)." })),
+	monitorEvents: Type.Optional(Type.Boolean({ description: "Monitor event history (with monitorSessionId or sessionId)." })),
+	monitorSessionId: Type.Optional(Type.String({ description: "Monitor session for monitorStatus or monitorEvents." })),
+});
+
 const fullValidator = Compile(toolParameters);
 
 // Same rule as Pi's own pre-validation: a null on an optional property that does not accept null means "absent".

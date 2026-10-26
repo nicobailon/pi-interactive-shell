@@ -28,6 +28,8 @@ import {
 	ENABLE_TOOL_LABEL,
 	ENABLE_TOOL_NAME,
 	enableToolParameters,
+	LEAN_TOOL_DESCRIPTION,
+	leanToolParameters,
 	TOOL_NAME,
 	TOOL_LABEL,
 	TOOL_DESCRIPTION,
@@ -906,6 +908,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 	const startupConfig = loadConfig(process.cwd());
 	const supportsDeferredTools = typeof pi.getActiveTools === "function" && typeof pi.setActiveTools === "function";
 	const deferToolLoading = startupConfig.defer && supportsDeferredTools;
+	const fullToolSchema = startupConfig.toolSchema === "full";
 	if (startupConfig.defer && !supportsDeferredTools) {
 		console.error("pi-interactive-shell: deferred loading requires Pi's active-tool APIs; keeping interactive_shell active");
 	}
@@ -1542,14 +1545,16 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: TOOL_NAME,
 		label: TOOL_LABEL,
-		description: TOOL_DESCRIPTION,
+		description: fullToolSchema ? TOOL_DESCRIPTION : LEAN_TOOL_DESCRIPTION,
 		...(deferToolLoading
 			? {}
 			: {
 				promptSnippet: TOOL_PROMPT_SNIPPET,
 				promptGuidelines: TOOL_PROMPT_GUIDELINES,
 			}),
-		parameters: toolParameters,
+		// The lean schema is only what the model sees; prepareArguments enforces the full contract, so the
+		// cast keeps execute typed against ToolParams.
+		parameters: fullToolSchema ? toolParameters : leanToolParameters as unknown as typeof toolParameters,
 		prepareArguments: validateToolArguments,
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {

@@ -120,7 +120,6 @@ describe("deferred interactive_shell loading", () => {
 
 		expect([...harness.tools.keys()]).toEqual(["interactive_shell"]);
 		expect(tool.description.length).toBeLessThan(900);
-		expect(tool.description).toContain("Query output defaults to 20 rendered lines and 5KB");
 		expect(tool.promptSnippet).toBe("Run interactive CLIs, coding agents, and auth flows in an overlay");
 		expect(tool.promptGuidelines).toEqual([
 			"Use interactive_shell for CLIs that need typed input, user approval, or live supervision; use bash for non-interactive commands.",

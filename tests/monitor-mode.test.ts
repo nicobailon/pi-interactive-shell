@@ -24,7 +24,7 @@ type DetectorLaunchCapture = {
 	stdin: string;
 } | null;
 
-async function setupHarness(options: { detectorStdout?: string; diagnostics?: boolean; agentDir?: string; launchRules?: readonly LaunchPolicyRule[]; backgroundLines?: string[] } = {}) {
+async function setupHarness(options: { detectorStdout?: string; diagnostics?: boolean; agentDir?: string; launchRules?: readonly LaunchPolicyRule[]; backgroundLines?: string[]; toolSchema?: "lean" | "full" } = {}) {
 	let toolDef: any;
 	let monitorOptions: MonitorOptionsCapture = null;
 	let detectorLaunch: DetectorLaunchCapture = null;
@@ -118,6 +118,7 @@ async function setupHarness(options: { detectorStdout?: string; diagnostics?: bo
 				handsFreeMaxTotalChars: 100000,
 				minQueryIntervalSeconds: 60,
 				launchPolicy: options.launchRules === undefined ? undefined : compileLaunchPolicy(options.launchRules),
+				toolSchema: options.toolSchema ?? "lean",
 				jev: { enabled: true, model: "jev-1.13.0", requestTimeoutMs: 1000, maxRetries: 0, maxViewportLines: 20, maxRecentChars: 1000, redactionPatterns: [], diagnostics: { enabled: options.diagnostics === true, retentionDays: 14, maxBytes: 1_000_000 } },
 			})),
 		};
@@ -248,6 +249,17 @@ describe("monitor mode", () => {
 		vi.doUnmock("../session-manager.ts");
 		vi.doUnmock("../jev-client.ts");
 		vi.doUnmock("../spawn.ts");
+	});
+
+	it("advertises the lean schema by default and the full schema when configured", async () => {
+		const lean = (await setupHarness()).toolDef;
+		let schema = await import("../tool-schema.ts");
+		expect(lean.parameters).toBe(schema.leanToolParameters);
+		expect(lean.description).toBe(schema.LEAN_TOOL_DESCRIPTION);
+		const full = (await setupHarness({ toolSchema: "full" })).toolDef;
+		schema = await import("../tool-schema.ts");
+		expect(full.parameters).toBe(schema.toolParameters);
+		expect(full.description).toBe(schema.TOOL_DESCRIPTION);
 	});
 
 	it("tells the agent about quiet auto-close at launch and where the full output of a finished dispatch is", async () => {

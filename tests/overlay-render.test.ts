@@ -3,6 +3,7 @@ import type { InteractiveShellConfig } from "../config.ts";
 
 const config: InteractiveShellConfig = {
 	defer: false,
+	toolSchema: "lean",
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 60,

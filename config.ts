@@ -20,6 +20,7 @@ export interface SpawnConfig {
 
 export interface InteractiveShellConfig {
 	defer: boolean;
+	toolSchema: "lean" | "full";
 	exitAutoCloseDelay: number;
 	overlayWidthPercent: number;
 	overlayHeightPercent: number;
@@ -98,6 +99,7 @@ const DEFAULT_SPAWN_CONFIG: SpawnConfig = {
 
 const DEFAULT_CONFIG: InteractiveShellConfig = {
 	defer: false,
+	toolSchema: "lean",
 	exitAutoCloseDelay: 10,
 	overlayWidthPercent: 95,
 	overlayHeightPercent: 60,
@@ -150,6 +152,7 @@ export function loadConfig(cwd: string): InteractiveShellConfig {
 	return {
 		...merged,
 		defer: merged.defer === true,
+		toolSchema: merged.toolSchema === "full" ? "full" : "lean",
 		exitAutoCloseDelay: clampInt(merged.exitAutoCloseDelay, DEFAULT_CONFIG.exitAutoCloseDelay, 0, 60),
 		overlayWidthPercent: clampPercent(merged.overlayWidthPercent, DEFAULT_CONFIG.overlayWidthPercent),
 		overlayHeightPercent: clampInt(merged.overlayHeightPercent, DEFAULT_CONFIG.overlayHeightPercent, 20, 90),

@@ -463,7 +463,7 @@ Quoted prompt text plus `--hands-free` or `--dispatch` turns `/spawn` into a mon
 
 ## Deferred tool loading
 
-`interactive_shell` is active by default. Set `"defer": true` to keep its large tool definition out of the initial model request:
+`interactive_shell` is active by default. Set `"defer": true` to keep its tool definition out of the initial model request:
 
 ```json
 {
@@ -476,6 +476,10 @@ Pi then exposes the small `enable_interactive_shell` loader. When a task needs t
 Each reloaded, new, resumed, or forked session starts with `interactive_shell` inactive again. Pi versions without the active-tool API print a warning and keep the tool active. A CLI `--tools` allowlist must include both `enable_interactive_shell` and `interactive_shell`; deferred activation cannot override an allowlist that excludes the target tool.
 
 Deferred mode omits `interactive_shell`'s `promptSnippet`; the same operating guidance remains in the tool description. This keeps the system-prompt prefix stable when Pi uses native deferred loading.
+
+### Tool schema size
+
+The tool definition is sent with every model request. By default it lists only the fields agents use day to day (running and querying sessions, input, dispatch, hands-free, stream monitors, spawn, attach, kill), which cuts it from 18,644 to about 4,700 characters (about 4,660 to 1,170 tokens). Advanced fields (Jev supervision, saved output sources, monitor history, raw hex input, handoff snapshots) are not listed but still work exactly as before: every call is checked against the full schema when the tool runs. Set `"toolSchema": "full"` to send the complete definition instead.
 
 ## Optional Jev semantic supervision
 
@@ -652,11 +656,12 @@ are not interactive-shell transports. Pi's legacy WSL `bash.exe` uses
 stdin-only command transport and is rejected for interactive PTYs; select Git
 Bash instead.
 
-Deferred loading and shortcut settings are pinned at startup. If you change `defer`, `focusShortcut`, or `spawn.shortcut`, reload or restart Pi to apply them.
+Deferred loading, tool schema, and shortcut settings are pinned at startup. If you change `defer`, `toolSchema`, `focusShortcut`, or `spawn.shortcut`, reload or restart Pi to apply them.
 
 ```json
 {
   "defer": false,
+  "toolSchema": "lean",
   "overlayWidthPercent": 95,
   "overlayHeightPercent": 60,
   "overlayAnchor": "center",
@@ -705,6 +710,7 @@ Deferred loading and shortcut settings are pinned at startup. If you change `def
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `defer` | `false` | Start each session with only `enable_interactive_shell`; the full tool loads on demand |
+| `toolSchema` | "lean" | `lean` lists only common fields in the tool definition; `full` lists every field. Both accept every field |
 | `overlayWidthPercent` | 95 | Overlay width (10-100%) |
 | `overlayHeightPercent` | 60 | Overlay height (20-90%) |
 | `overlayAnchor` | "center" | Overlay position: `center`, `top-left`, `top-center`, `top-right`, `left-center`, `right-center`, `bottom-left`, `bottom-center`, `bottom-right` |
