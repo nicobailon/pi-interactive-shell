@@ -56,7 +56,7 @@ interactive_shell({ dismissBackground: "unit-tests" })            // or true for
 
 `inputKeys` takes named keys (`up`, `enter`, `escape`, `tab`, `space`, `backspace`, `delete`, `home`, `end`, `pageup`, `pagedown`, `f1`–`f12`, `kp0`–`kp9`) or single characters, with `ctrl+`/`alt+`/`shift+` (or `c-`/`m-`/`s-`) prefixes. Unknown names are rejected with suggestions. One call can combine `input`, `inputPaste`, and `inputKeys`; they are sent as text, then paste, then keys.
 
-`monitor.strategy` is `stream` (match output lines), `poll-diff` (rerun `command` every `poll.intervalMs`, match changes), `file-watch` (watch `fileWatch.path`; omit `command`), or `semantic` (Jev, below). Read past events with `{ monitorEvents: true, monitorSessionId }` and state with `{ monitorStatus: true, monitorSessionId }`.
+`monitor.strategy` is `stream` (match output lines), `poll-diff` (rerun `command` every `poll.intervalMs`, match changes), `file-watch` (watch `fileWatch.path`; omit `command`), or `semantic` (Jev, below). Read events or state with `{ monitorEvents: true, monitorSessionId }` or `monitorStatus: true`. More options: [references/monitors.md](references/monitors.md).
 
 ## Rules
 
@@ -74,7 +74,7 @@ interactive_shell({ dismissBackground: "unit-tests" })            // or true for
 
 ## Look up the rest
 
-Read the matching reference before using any parameter it names. The tool's schema may list only common fields; the fields these references name are still accepted as written.
+Read the matching reference before using any parameter it names; those parameters work even when the tool schema omits them.
 
 - Hands-free supervision, takeover (Ctrl+G), transfer (Ctrl+T), snapshots, incremental reads, `attach`, interactive mode → [references/foreground.md](references/foreground.md)
 - Structured `spawn`, `/spawn`, custom agents, per-agent CLI flags → [references/agents.md](references/agents.md)
