@@ -3,15 +3,29 @@ import type { HeadlessCompletionInfo } from "./headless-monitor.ts";
 import { formatDurationMs } from "./types.ts";
 
 const BRIEF_TAIL_LINES = 5;
+const QUIET_RELAUNCH_HINT = "If the command can be silent (tests, builds, CI watches), relaunch it with handsFree: { autoExitOnQuiet: false } and a timeout.";
 
-export function buildDispatchNotification(sessionId: string, info: HeadlessCompletionInfo, duration: string): string {
+export type CompletionLog = { path: string } | { error: string };
+
+function describeCompletionLog(sessionId: string, log: CompletionLog | undefined): string {
+	if (log && "path" in log) return `Full output: ${log.path}`;
+	const attach = `Attach to review full output: interactive_shell({ attach: "${sessionId}" })`;
+	return log ? `Could not save the full output (${log.error}). ${attach}` : attach;
+}
+
+/** Launch-time hint for dispatches that will auto-close on quiet; sent in the tool result, not the tool definition. */
+export function buildQuietAutoCloseLaunchHint(quietThresholdMs: number, gracePeriodMs: number): string {
+	return `Auto-closes after ${quietThresholdMs / 1000}s without output (after a ${gracePeriodMs / 1000}s grace period), which suits agent TUIs that go idle. If this command can be silent (tests, builds, CI watches), kill it and relaunch with handsFree: { autoExitOnQuiet: false } and a timeout.`;
+}
+
+export function buildDispatchNotification(sessionId: string, info: HeadlessCompletionInfo, duration: string, log?: CompletionLog): string {
 	const parts = [buildDispatchStatusLine(sessionId, info, duration)];
 	if (info.completionOutput && info.completionOutput.totalLines > 0) {
 		parts.push(` ${info.completionOutput.totalLines} lines of output.`);
 	}
 	if (info.cancelled && info.completionOutput?.lines.length) parts.push("\n\nOutput captured at cancellation:");
 	appendTailBlock(parts, info.completionOutput?.lines, BRIEF_TAIL_LINES);
-	parts.push(`\n\nAttach to review full output: interactive_shell({ attach: "${sessionId}" })`);
+	parts.push(`\n\n${describeCompletionLog(sessionId, log)}`);
 	return parts.join("");
 }
 
@@ -57,7 +71,7 @@ export function buildMonitorEventNotification(event: MonitorEventPayload): strin
 	].join("\n");
 }
 
-export function buildMonitorLifecycleNotification(state: MonitorSessionState): string {
+export function buildMonitorLifecycleNotification(state: MonitorSessionState, log?: CompletionLog): string {
 	const reason = state.terminalReason ?? "stopped";
 	let headline: string;
 	if (reason === "stream-ended") {
@@ -83,6 +97,7 @@ export function buildMonitorLifecycleNotification(state: MonitorSessionState): s
 	if (state.signal !== undefined) {
 		details.push(`Signal: ${state.signal}`);
 	}
+	if (log) details.push("path" in log ? `Full output: ${log.path}` : `Could not save the full output (${log.error}).`);
 
 	return details.join("\n");
 }
@@ -158,7 +173,7 @@ export function buildIdlePromptWarning(command: string, reason: string | undefin
 
 function buildDispatchStatusLine(sessionId: string, info: HeadlessCompletionInfo, duration: string): string {
 	if (info.timedOut) return `Session ${sessionId} cancelled after timeout (${duration}). Local supervision stopped; termination was attempted and subprocess exit is not confirmed.`;
-	if (info.completionReason === "auto-close-quiet") return `Session ${sessionId} auto-closed after quiet (${duration}). Local supervision stopped; termination was attempted and subprocess exit is not confirmed. This is not a terminal command verdict.`;
+	if (info.completionReason === "auto-close-quiet") return `Session ${sessionId} auto-closed after quiet (${duration}). Local supervision stopped; termination was attempted and subprocess exit is not confirmed. This is not a terminal command verdict. ${QUIET_RELAUNCH_HINT}`;
 	if (info.cancelled) return `Session ${sessionId} cancelled (${duration}). Termination was attempted; subprocess exit is not confirmed.`;
 	if (info.exitCode === 0) return `Session ${sessionId} completed successfully (${duration}).`;
 	return `Session ${sessionId} exited with code ${info.exitCode} (${duration}).`;
@@ -166,7 +181,7 @@ function buildDispatchStatusLine(sessionId: string, info: HeadlessCompletionInfo
 
 function buildResultStatusLine(sessionId: string, result: InteractiveShellResult): string {
 	if (result.timedOut) return `Session ${sessionId} cancelled after timeout. Local supervision stopped; termination was attempted and subprocess exit is not confirmed.`;
-	if (result.completionReason === "auto-close-quiet") return `Session ${sessionId} auto-closed after quiet. Local supervision stopped; termination was attempted and subprocess exit is not confirmed. This is not a terminal command verdict.`;
+	if (result.completionReason === "auto-close-quiet") return `Session ${sessionId} auto-closed after quiet. Local supervision stopped; termination was attempted and subprocess exit is not confirmed. This is not a terminal command verdict. ${QUIET_RELAUNCH_HINT}`;
 	if (result.cancelled) return `Session ${sessionId} cancelled. Termination was attempted; subprocess exit is not confirmed.`;
 	if (result.exitCode === 0) return `Session ${sessionId} completed successfully.`;
 	return `Session ${sessionId} exited with code ${result.exitCode}.`;

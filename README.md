@@ -148,10 +148,10 @@ Step 9 of 10
 Step 10 of 10
 All tasks completed.
 
-Attach to review full output: interactive_shell({ attach: "calm-reef" })
+Full output: ~/.pi/agent/cache/interactive-shell/session-calm-reef-<time>.log
 ```
 
-The notification includes a brief tail (last 5 lines) and a reattach instruction. The PTY is preserved for 5 minutes so the agent can attach to review full scrollback.
+The notification includes a brief tail (last 5 lines) and the path to the session's full terminal output, saved when a headless dispatch or monitor finishes. Saved logs older than 24 hours are deleted when the next one is written. A later query by `sessionId` points to the same file.
 
 Dispatch defaults `autoExitOnQuiet: true` — the session gets a 15s startup grace period, then auto-closes after output goes silent (8s by default). The completion notification and details set `completionReason: "auto-close-quiet"`; this is not a terminal command verdict. Tune the grace period with `handsFree: { gracePeriod: 60000 }` or opt out entirely with `handsFree: { autoExitOnQuiet: false }`.
 

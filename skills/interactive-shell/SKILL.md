@@ -9,7 +9,7 @@ description: Run interactive CLIs and coding-agent TUIs (pi, Claude Code, Codex,
 
 ```
 mode         overlay   how you hear back                   use for
-dispatch     yes*      one wake-up with the last 5 lines   delegated agents, test suites, CI watches
+dispatch     yes*      one wake-up: tail + full-log path   delegated agents, test suites, CI watches
 monitor      no        one wake-up per trigger match       PR/CI gates, log watchers
 hands-free   yes       you query; wake-up on exit/takeover an agent you will steer
 interactive  yes       the user drives; you can send input user-driven TUIs, auth flows
@@ -23,9 +23,9 @@ When `interactive_shell` is unavailable, call `enable_interactive_shell` first. 
 ## Hot shapes
 
 ```js
-// Finite command, headless. The wake-up shows only the last 5 lines, so print the verdict last and keep the full log
+// Finite command, headless; the wake-up brings the tail and the path to the full output
 interactive_shell({
-  command: "npm test > /tmp/unit.log 2>&1; s=$?; tail -5 /tmp/unit.log; exit $s",
+  command: "npm test",
   cwd: "/abs/repo", mode: "dispatch", background: true, name: "unit-tests",
   timeout: 1800000, handsFree: { autoExitOnQuiet: false }, reason: "Run unit tests",
 })
@@ -63,7 +63,6 @@ interactive_shell({ dismissBackground: "unit-tests" })            // or true for
 - **Wait for the wake-up.** After launching dispatch or monitor, end the turn. Don't poll, sleep, or query it.
 - **Quiet auto-close.** Dispatch stops supervising after ~8s without output (after a 15s grace) and tags the wake-up `completionReason: "auto-close-quiet"`. That is not a verdict: the command may still be running or may have failed. For anything that can go quiet (tests, builds, `gh run watch`), set `handsFree: { autoExitOnQuiet: false }` and a hard `timeout`. Monitor doesn't auto-close on quiet unless you set `autoExitOnQuiet: true`.
 - **Gate watchers.** For a provider-agnostic external gate watcher, use `mode: "monitor"` with a hard `timeout` and triggers on explicit end lines such as `ready`, `blocked`, and `stale-head`. The watcher must exit only after printing one.
-- **Finished sessions are gone.** After a background dispatch, monitor, or hands-free session finishes, `sessionId` queries return "not found". When you need more than the 5-line tail, have the command write a log file and read it.
 - **Prompt goes in the command.** `reason` is only overlay header text. `command: 'claude "Review the codebase"'` starts the agent working; `command: "claude", reason: "Review"` leaves it idle.
 - **Submitting.** For editor-based TUIs like pi, raw `input` only types text. It does not submit the prompt. Use `submit: true` or `inputKeys: ["enter"]`, not a trailing `\n`.
 - **No TUIs in bash.** Agent CLIs hang in bash, even for `--help`. Capture one with `interactive_shell({ command: "pi --help", mode: "hands-free", timeout: 5000 })`. Headless one-shots (`claude -p`, `codex exec`, `pi -p`) are fine in bash.

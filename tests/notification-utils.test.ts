@@ -25,6 +25,7 @@ describe("notification utilities", () => {
 			autoClosedOnQuiet: true,
 		}, "30s");
 		expect(text).toContain("Session calm-reef auto-closed after quiet (30s). Local supervision stopped; termination was attempted and subprocess exit is not confirmed. This is not a terminal command verdict.");
+		expect(text).toContain("relaunch it with handsFree: { autoExitOnQuiet: false } and a timeout.");
 		expect(text).not.toContain("was killed");
 		expect(text).not.toContain("completed successfully");
 	});

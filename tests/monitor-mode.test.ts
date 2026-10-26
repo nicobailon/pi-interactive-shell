@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { compileLaunchPolicy, type LaunchPolicyRule } from "../launch-policy.ts";
@@ -24,7 +24,7 @@ type DetectorLaunchCapture = {
 	stdin: string;
 } | null;
 
-async function setupHarness(options: { detectorStdout?: string; diagnostics?: boolean; agentDir?: string; launchRules?: readonly LaunchPolicyRule[] } = {}) {
+async function setupHarness(options: { detectorStdout?: string; diagnostics?: boolean; agentDir?: string; launchRules?: readonly LaunchPolicyRule[]; backgroundLines?: string[] } = {}) {
 	let toolDef: any;
 	let monitorOptions: MonitorOptionsCapture = null;
 	let detectorLaunch: DetectorLaunchCapture = null;
@@ -189,7 +189,10 @@ async function setupHarness(options: { detectorStdout?: string; diagnostics?: bo
 			list: vi.fn(() => []),
 			add: vi.fn(() => "monitor-1"),
 			take: vi.fn(() => undefined),
-			get: vi.fn(() => undefined),
+			get: vi.fn(() => options.backgroundLines && {
+				session: { getTailLines: () => ({ lines: options.backgroundLines, totalLinesInBuffer: options.backgroundLines?.length, truncatedByChars: false }) },
+			}),
+			recordOutputCompletion: vi.fn(),
 			restore: vi.fn(),
 			remove: vi.fn(),
 			scheduleCleanup: vi.fn(),
@@ -245,6 +248,32 @@ describe("monitor mode", () => {
 		vi.doUnmock("../session-manager.ts");
 		vi.doUnmock("../jev-client.ts");
 		vi.doUnmock("../spawn.ts");
+	});
+
+	it("tells the agent about quiet auto-close at launch and where the full output of a finished dispatch is", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "interactive-shell-log-"));
+		const lines = Array.from({ length: 12 }, (_, i) => `test line ${i + 1}`);
+		try {
+			const harness = await setupHarness({ agentDir, backgroundLines: lines });
+			const ctx = { hasUI: false, cwd: "/tmp/project", ui: {}, sessionManager: { getSessionFile: () => undefined } } as any;
+			const launched = await harness.toolDef.execute("launch", { command: "npm test", mode: "dispatch", background: true }, undefined, undefined, ctx);
+			expect(launched.content[0].text).toContain("Auto-closes after 8s without output");
+			expect(launched.content[0].text).toContain("handsFree: { autoExitOnQuiet: false }");
+			const quietOff = await harness.toolDef.execute("launch-2", { command: "npm test", mode: "dispatch", background: true, handsFree: { autoExitOnQuiet: false } }, undefined, undefined, ctx);
+			expect(quietOff.content[0].text).not.toContain("Auto-closes");
+
+			harness.getMonitorCompleteCallback()?.({ exitCode: 1, completionReason: "exited", completionOutput: { lines: lines.slice(-5), totalLines: 12, truncated: true } });
+			const notification = harness.sendMessage.mock.calls.find(([message]) => message.customType === "interactive-shell-transfer")?.[0];
+			const logPath = /Full output: (\S+)/.exec(notification?.content ?? "")?.[1];
+			expect(logPath?.startsWith(join(agentDir, "cache", "interactive-shell"))).toBe(true);
+			expect(readFileSync(logPath!, "utf-8")).toBe(`${lines.join("\n")}\n`);
+
+			const late = await harness.toolDef.execute("late-query", { sessionId: "monitor-1" }, undefined, undefined, ctx);
+			expect(late.isError).toBe(true);
+			expect(late.content[0].text).toContain(`has finished and can no longer be queried. Its result was in the completion message. Full output: ${logPath}`);
+		} finally {
+			rmSync(agentDir, { recursive: true, force: true });
+		}
 	});
 
 	it("requires monitor object when mode is monitor", async () => {

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { InteractiveShellConfig } from "./config.ts";
@@ -35,6 +35,29 @@ export function captureTransferOutput(
 		totalLines: result.totalLinesInBuffer,
 		truncated: result.lines.length < result.totalLinesInBuffer || result.truncatedByChars,
 	};
+}
+
+const COMPLETION_LOG_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Saves a finished headless session's terminal buffer so the agent can read past the brief completion tail. */
+export function writeCompletionLog(session: PtyTerminalSession, sessionId: string): { path: string } | { error: string } {
+	try {
+		const dir = join(getAgentDir(), "cache", "interactive-shell");
+		mkdirSync(dir, { recursive: true });
+		const now = Date.now();
+		for (const name of readdirSync(dir)) {
+			if (!name.startsWith("session-") || !name.endsWith(".log")) continue;
+			const file = join(dir, name);
+			if (now - statSync(file).mtimeMs > COMPLETION_LOG_TTL_MS) rmSync(file, { force: true });
+		}
+		const { lines } = session.getTailLines({ lines: Number.MAX_SAFE_INTEGER, ansi: false });
+		while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+		const path = join(dir, `session-${sessionId}-${new Date(now).toISOString().replace(/[:.]/g, "-")}.log`);
+		writeFileSync(path, `${lines.join("\n")}\n`, { encoding: "utf-8" });
+		return { path };
+	} catch (error) {
+		return { error: error instanceof Error ? error.message : String(error) };
+	}
 }
 
 export function maybeBuildHandoffPreview(
