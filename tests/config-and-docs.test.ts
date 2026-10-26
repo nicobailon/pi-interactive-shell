@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// The skill's documented contract spans SKILL.md and the references it links.
+const readSkill = () => ["skills/interactive-shell/SKILL.md", ...readdirSync("skills/interactive-shell/references").map((file) => `skills/interactive-shell/references/${file}`)]
+	.map((path) => readFileSync(path, "utf-8"))
+	.join("\n");
 
 async function loadConfigModule(agentDir: string) {
 	vi.resetModules();
@@ -198,7 +203,7 @@ describe("config + docs parity", () => {
 		const { loadConfig } = await loadConfigModule(root);
 		const defaults = loadConfig(join(root, "project"));
 		const readme = readFileSync("README.md", "utf-8");
-		const skill = readFileSync("skills/pi-interactive-shell/SKILL.md", "utf-8");
+		const skill = readSkill();
 		const toolSchema = readFileSync("tool-schema.ts", "utf-8");
 
 		expect(defaults.defer).toBe(false);
@@ -278,7 +283,7 @@ describe("config + docs parity", () => {
 		const lock = JSON.parse(readFileSync("package-lock.json", "utf-8")) as { packages: Record<string, { version?: string }> };
 		expect(lock.packages["node_modules/re2js"]?.version).toBe("2.8.6");
 		const readme = readFileSync("README.md", "utf-8");
-		const skill = readFileSync("skills/pi-interactive-shell/SKILL.md", "utf-8");
+		const skill = readSkill();
 		for (const docs of [readme, skill]) {
 			expect(docs).toMatch(/optional/i);
 			expect(docs).toContain("off by default");

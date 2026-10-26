@@ -223,8 +223,29 @@ function encodeKeyToken(token: string): string {
 		return baseSeq;
 	}
 
-	// Unknown key, return as literal
-	return token;
+	const close = Object.keys(NAMED_KEYS)
+		.map((name) => ({ name, distance: editDistance(name, rest) }))
+		.filter(({ distance }) => distance <= 2)
+		.sort((a, b) => a.distance - b.distance)
+		.slice(0, 3)
+		.map(({ name }) => name);
+	throw new Error(
+		`Unknown key "${token}" in inputKeys.${close.length ? ` Did you mean ${close.join(", ")}?` : ""} ` +
+		"Use a named key (up, enter, escape, tab, space, backspace, delete, home, end, pageup, pagedown, f1-f12, kp0-kp9) " +
+		"or a single character, optionally prefixed with ctrl+/alt+/shift+ (or c-/m-/s-). Send text with input.",
+	);
+}
+
+function editDistance(a: string, b: string): number {
+	let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+	for (let i = 1; i <= a.length; i++) {
+		const row = [i];
+		for (let j = 1; j <= b.length; j++) {
+			row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+		}
+		prev = row;
+	}
+	return prev[b.length];
 }
 
 const SEMANTIC_DANGEROUS_KEYS = new Set([
@@ -239,8 +260,9 @@ export function encodeSemanticActionKeys(keys: readonly string[]): string {
 		if (typeof raw !== "string" || raw !== raw.trim() || !raw) throw new Error("Semantic action keys must be non-empty canonical names");
 		const key = raw.toLowerCase();
 		if (SEMANTIC_DANGEROUS_KEYS.has(key)) throw new Error(`Dangerous semantic action key: ${raw}`);
+		if (!isKnownSemanticKey(key)) throw new Error(`Unknown semantic action key: ${raw}`);
 		const encoded = encodeKeyToken(key);
-		if (!isKnownSemanticKey(key) || !encoded || encoded === raw) throw new Error(`Unknown semantic action key: ${raw}`);
+		if (!encoded || encoded === raw) throw new Error(`Unknown semantic action key: ${raw}`);
 		if ([...encoded].some((char) => FORBIDDEN_SEMANTIC_BYTES.has(char.charCodeAt(0)))) throw new Error("Dangerous semantic action key");
 		result += encoded;
 	}
@@ -285,12 +307,8 @@ export function translateInput(input: InputSpec): string {
 		for (const raw of input.hex) {
 			const trimmed = raw.trim().toLowerCase();
 			const normalized = trimmed.startsWith("0x") ? trimmed.slice(2) : trimmed;
-			if (/^[0-9a-f]{1,2}$/.test(normalized)) {
-				const value = Number.parseInt(normalized, 16);
-				if (!Number.isNaN(value) && value >= 0 && value <= 0xff) {
-					result += String.fromCharCode(value);
-				}
-			}
+			if (!/^[0-9a-f]{1,2}$/.test(normalized)) throw new Error(`Invalid inputHex byte "${raw}": use one byte from 0x00 to 0xff, for example "0x1b".`);
+			result += String.fromCharCode(Number.parseInt(normalized, 16));
 		}
 	}
 

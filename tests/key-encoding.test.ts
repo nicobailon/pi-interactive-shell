@@ -19,6 +19,12 @@ describe("translateInput", () => {
 		expect(translateInput({ keys: ["ctrl+alt+delete", "s-up"] })).toBe("\x1b[3;7~\x1b[1;2A");
 	});
 
+	it("rejects unknown key names and hex bytes instead of typing them", () => {
+		expect(() => translateInput({ keys: ["pagedwn"] })).toThrow('Unknown key "pagedwn" in inputKeys. Did you mean pagedown');
+		expect(() => translateInput({ keys: ["ctrl+foo"] })).toThrow('Unknown key "ctrl+foo"');
+		expect(() => translateInput({ hex: ["\\x1b"] })).toThrow('Invalid inputHex byte "\\x1b"');
+	});
+
 	it("rejects semantic modifier combinations that cannot be faithfully encoded", () => {
 		for (const key of ["ctrl+1", "c-1", "ctrl+@", "c-@", "shift+1", "s-1", "ctrl+alt+1", "c-m-1"]) {
 			expect(() => encodeSemanticActionKeys([key]), key).toThrow("Unknown semantic action key");

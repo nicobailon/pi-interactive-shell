@@ -30,7 +30,7 @@ Works with any CLI: `vim`, `htop`, `psql`, `ssh`, `docker logs -f`, `npm run dev
 pi install npm:pi-interactive-shell
 ```
 
-The `interactive-shell` skill is automatically symlinked to `~/.pi/agent/skills/interactive-shell/`.
+The package ships an `interactive-shell` skill that teaches agents when and how to use each mode. If you load the extension from a local folder instead of a package, link `skills/interactive-shell` into `~/.pi/agent/skills/` yourself.
 
 **Requires:** Node.js. PTY support uses `zigpty` prebuilt binaries (no `node-gyp` toolchain required on supported platforms).
 

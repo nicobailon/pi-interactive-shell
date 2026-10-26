@@ -4,6 +4,10 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Changed
+- The bundled skill is now named `interactive-shell`, the name the tool's own description tells agents to load. It is about a fifth of its old size and leads with the calls agents make most: headless test runs, CI and PR gate monitors, and session cleanup. Details for hands-free supervision, agent launching, selected output, and Jev live in reference files that load only when needed.
+- Unknown `inputKeys` names and malformed `inputHex` bytes now return an error that suggests valid keys. Before, an unknown key name was typed into the terminal as text, and a bad hex byte was silently dropped.
+
 ### Fixed
 - xAI's Responses API and llama.cpp servers no longer reject requests that include the `interactive_shell` tool. The tool definition no longer sends regex patterns those providers cannot read, and the extension still rejects the same invalid semantic action and watch values when the tool runs. Thanks to [@ianbmacdonald](https://github.com/ianbmacdonald) for [#89](https://github.com/nicobailon/pi-interactive-shell/issues/89) and [@jeffreysmattson](https://github.com/jeffreysmattson) for [#87](https://github.com/nicobailon/pi-interactive-shell/issues/87).
 
