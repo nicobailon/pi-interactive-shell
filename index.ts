@@ -35,6 +35,7 @@ import {
 	TOOL_PROMPT_SNIPPET,
 	toolParameters,
 	type ToolParams,
+	validateToolArguments,
 } from "./tool-schema.ts";
 import { HeadlessDispatchMonitor } from "./headless-monitor.ts";
 import type {
@@ -1549,6 +1550,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				promptGuidelines: TOOL_PROMPT_GUIDELINES,
 			}),
 		parameters: toolParameters,
+		prepareArguments: validateToolArguments,
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
 			const result = await runTool(params, onUpdate, ctx);

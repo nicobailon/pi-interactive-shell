@@ -1,4 +1,6 @@
-import { Type, type Static } from "typebox";
+import { Type, type Static, type TSchema } from "typebox";
+import { Compile } from "typebox/compile";
+import { Value } from "typebox/value";
 import { SEMANTIC_SAFE_ID_PATTERN } from "./semantic-policy.ts";
 
 export const TOOL_NAME = "interactive_shell";
@@ -377,3 +379,40 @@ export const toolParameters = Type.Object({
 
 /** Parsed tool parameters type, derived from the schema so the two cannot drift. */
 export type ToolParams = Static<typeof toolParameters>;
+
+const fullValidator = Compile(toolParameters);
+
+// Same rule as Pi's own pre-validation: a null on an optional property that does not accept null means "absent".
+function dropOptionalNulls(value: unknown, schema: TSchema): void {
+	const { items, properties, required = [] } = schema as { items?: TSchema; properties?: Record<string, TSchema>; required?: string[] };
+	if (Array.isArray(value)) {
+		if (items) for (const item of value) dropOptionalNulls(item, items);
+		return;
+	}
+	if (typeof value !== "object" || value === null || !properties) return;
+	const object = value as Record<string, unknown>;
+	for (const [key, property] of Object.entries(properties)) {
+		if (!(key in object)) continue;
+		if (object[key] === null && !required.includes(key) && !Value.Check(property, null)) delete object[key];
+		else dropOptionalNulls(object[key], property);
+	}
+}
+
+/**
+ * Validates raw tool arguments against the full schema, whatever schema is advertised to the model.
+ * Mirrors Pi's validation steps (null cleanup, conversion, check) and error format; registered as
+ * `prepareArguments`, so a throw reaches the model as an error tool result.
+ */
+export function validateToolArguments(raw: unknown): ToolParams {
+	const clone = structuredClone(raw);
+	dropOptionalNulls(clone, toolParameters);
+	const args = Value.Convert(toolParameters, clone);
+	if (fullValidator.Check(args)) return args;
+	const errors = fullValidator.Errors(args).map((error) => {
+		const base = error.instancePath.replace(/^\//, "").replace(/\//g, ".");
+		const missing = error.keyword === "required" ? (error.params as { requiredProperties?: string[] }).requiredProperties?.[0] : undefined;
+		const path = missing ? (base ? `${base}.${missing}` : missing) : base || "root";
+		return `  - ${path}: ${error.message}`;
+	});
+	throw new Error(`Validation failed for tool "${TOOL_NAME}":\n${errors.join("\n") || "Unknown validation error"}\n\nReceived arguments:\n${JSON.stringify(raw, null, 2)}`);
+}
