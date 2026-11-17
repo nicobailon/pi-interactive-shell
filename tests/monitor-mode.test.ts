@@ -219,7 +219,7 @@ async function setupHarness(options: { detectorStdout?: string; diagnostics?: bo
 		events: { emit: eventsEmit },
 		sendMessage,
 	} as any);
-	handlers.get("session_start")?.({ reason: "startup" }, { hasUI: false, ui: { onTerminalInput: () => () => {} } });
+	handlers.get("session_start")?.({ reason: "startup" }, { hasUI: false, sessionManager: { getSessionId: () => "pi-session" }, ui: { onTerminalInput: () => () => {} } });
 
 	return {
 		toolDef,

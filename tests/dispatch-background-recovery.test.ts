@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 async function setupHarness(options: { headlessConstructionError?: string; monitorInstallError?: string; generatedSessionId?: string; onMonitorDispose?: () => void; sourceText?: string; jevEnabled?: boolean; providerEvaluate?: (request: any) => unknown } = {}) {
-	Reflect.deleteProperty(globalThis, "__piInteractiveShellCoordinatorV1");
+	Reflect.deleteProperty(globalThis, "__piInteractiveShellCoordinatorsV2");
 	const unregisterActive = vi.fn();
 	let backgroundSession: any;
 	let existingMonitor: any;

@@ -10,7 +10,7 @@ type Harness = {
 };
 
 async function setupHarness(): Promise<Harness> {
-	Reflect.deleteProperty(globalThis, "__piInteractiveShellCoordinatorV1");
+	Reflect.deleteProperty(globalThis, "__piInteractiveShellCoordinatorsV2");
 	let coordinatorInstance: any;
 	let inputHandler: ((data: string) => { consume?: boolean; data?: string } | undefined) | undefined;
 	const terminalInputUnsubscribe = vi.fn();
@@ -125,6 +125,7 @@ async function setupHarness(): Promise<Harness> {
 	expect(sessionShutdown).toBeDefined();
 
 	sessionStart({}, {
+		sessionManager: { getSessionId: () => "pi-session" },
 		ui: {
 			notify,
 			onTerminalInput: vi.fn((handler: any) => {

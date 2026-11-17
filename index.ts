@@ -61,12 +61,17 @@ import { classifySemanticEvents } from "./semantic-events.ts";
 import { SEMANTIC_SAFE_ID, SEMANTIC_THRESHOLDS } from "./semantic-policy.ts";
 import { createSemanticDiagnosticsSession, getSemanticDiagnosticRunId, recordSemanticIncident, summarizeSemanticDiagnostics, type SemanticDeliveryDiagnostic, type SemanticDiagnosticEventType } from "./semantic-diagnostics.ts";
 
-const COORDINATOR_KEY = "__piInteractiveShellCoordinatorV1" as const;
-const runtimeGlobal = globalThis as typeof globalThis & Partial<Record<typeof COORDINATOR_KEY, InteractiveShellCoordinator>>;
-const retainedCoordinator = runtimeGlobal[COORDINATOR_KEY];
-if (retainedCoordinator) Object.setPrototypeOf(retainedCoordinator, InteractiveShellCoordinator.prototype);
-const coordinator = runtimeGlobal[COORDINATOR_KEY] ??= new InteractiveShellCoordinator();
-coordinator.ensureReloadState?.();
+const COORDINATORS_KEY = "__piInteractiveShellCoordinatorsV2" as const;
+const LEGACY_COORDINATOR_KEY = "__piInteractiveShellCoordinatorV1" as const;
+const runtimeGlobal = globalThis as typeof globalThis
+	& Partial<Record<typeof COORDINATORS_KEY, Map<string, InteractiveShellCoordinator>>>
+	& Partial<Record<typeof LEGACY_COORDINATOR_KEY, InteractiveShellCoordinator>>;
+const coordinators = runtimeGlobal[COORDINATORS_KEY] ??= new Map<string, InteractiveShellCoordinator>();
+for (const retained of [...coordinators.values(), runtimeGlobal[LEGACY_COORDINATOR_KEY]]) {
+	if (!retained) continue;
+	Object.setPrototypeOf(retained, InteractiveShellCoordinator.prototype);
+	retained.ensureReloadState?.();
+}
 const SIDE_CHAT_SHORTCUT = "alt+/";
 
 /** Logs of finished headless sessions, so a late query by sessionId can point at the output instead of only failing.
@@ -87,7 +92,7 @@ function saveCompletionLog(id: string): CompletionLog | undefined {
 /** Overlay options for ctx.ui.custom, derived from pi so width/anchor stay in sync with the host. */
 type CustomUiOptions = NonNullable<Parameters<ExtensionUIContext["custom"]>[1]>;
 
-function scheduleMonitorHistoryCleanup(sessionId: string, delayMs = 5 * 60 * 1000): void {
+function scheduleMonitorHistoryCleanup(coordinator: InteractiveShellCoordinator, sessionId: string, delayMs = 5 * 60 * 1000): void {
 	const attempt = () => {
 		const stillInUse = Boolean(coordinator.getMonitor(sessionId))
 			|| Boolean(sessionManager.getActive(sessionId))
@@ -108,6 +113,7 @@ function describeShellResolutionError(error: unknown): string {
 }
 
 function makeMonitorCompletionCallback(
+	coordinator: InteractiveShellCoordinator,
 	id: string,
 	startTime: number,
 ): (info: HeadlessCompletionInfo) => void {
@@ -134,7 +140,7 @@ function makeMonitorCompletionCallback(
 		}
 		sessionManager.unregisterActive(id, false);
 		coordinator.deleteMonitor(id);
-		scheduleMonitorHistoryCleanup(id);
+		scheduleMonitorHistoryCleanup(coordinator, id);
 		sessionManager.scheduleCleanup(id, 5 * 60 * 1000);
 	};
 }
@@ -148,6 +154,7 @@ function resolveMonitorTerminalReason(info: HeadlessCompletionInfo, override?: M
 }
 
 function makeStructuredMonitorCompletionCallback(
+	coordinator: InteractiveShellCoordinator,
 	id: string,
 ): (info: HeadlessCompletionInfo) => void {
 	return (info) => {
@@ -170,7 +177,7 @@ function makeStructuredMonitorCompletionCallback(
 		}
 		sessionManager.unregisterActive(id, false);
 		coordinator.deleteMonitor(id);
-		scheduleMonitorHistoryCleanup(id);
+		scheduleMonitorHistoryCleanup(coordinator, id);
 		sessionManager.scheduleCleanup(id, 5 * 60 * 1000);
 	};
 }
@@ -230,7 +237,7 @@ function validateSemanticIncident(incident: NonNullable<ToolParams["semanticInci
 	}
 }
 
-function compileSemanticRuntime(sessionId: string, mode: "hands-free" | "dispatch" | "monitor", semantic: SemanticConfig | undefined, config: InteractiveShellConfig) {
+function compileSemanticRuntime(coordinator: InteractiveShellCoordinator, sessionId: string, mode: "hands-free" | "dispatch" | "monitor", semantic: SemanticConfig | undefined, config: InteractiveShellConfig) {
 	if (!semantic) return { ok: true as const, runtime: undefined };
 	let actionRegistry;
 	try { actionRegistry = compileSemanticActions(semantic.actions); }
@@ -718,6 +725,7 @@ async function runDetectorCommand(
 }
 
 function makeMonitorEventCallback(
+	coordinator: InteractiveShellCoordinator,
 	sessionId: string,
 	config: CompiledMonitorConfig,
 	shellConfig: ResolvedShellConfig,
@@ -806,6 +814,7 @@ function describeInput(input: InputSpec | undefined): string {
 }
 
 function registerHeadlessActive(
+	coordinator: InteractiveShellCoordinator,
 	id: string,
 	command: string,
 	reason: string | undefined,
@@ -835,7 +844,7 @@ function registerHeadlessActive(
 				return;
 			}
 			coordinator.disposeMonitor(id);
-			scheduleMonitorHistoryCleanup(id);
+			scheduleMonitorHistoryCleanup(coordinator, id);
 			sessionManager.remove(id);
 			sessionManager.unregisterActive(id, true);
 		},
@@ -849,7 +858,7 @@ function registerHeadlessActive(
 }
 
 // Overlay sessions survive /reload, so their callbacks must reach the currently bound API.
-function makeNonBlockingUpdateHandler(): (update: HandsFreeUpdate) => void {
+function makeNonBlockingUpdateHandler(coordinator: InteractiveShellCoordinator): (update: HandsFreeUpdate) => void {
 	return (update) => {
 		coordinator.runWithExtensionApi((activePi) => {
 			activePi.events.emit("interactive-shell:update", update);
@@ -866,6 +875,7 @@ function makeNonBlockingUpdateHandler(): (update: HandsFreeUpdate) => void {
 }
 
 function emitTransferredOutput(
+	coordinator: InteractiveShellCoordinator,
 	result: InteractiveShellResult,
 	fallbackSessionId?: string,
 ): void {
@@ -913,6 +923,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		console.error("pi-interactive-shell: deferred loading requires Pi's active-tool APIs; keeping interactive_shell active");
 	}
 	let terminalInputCleanup: (() => void) | null = null;
+	let owner: string | undefined;
+	let coordinator = new InteractiveShellCoordinator();
 	const loadRuntimeConfig = (cwd: string): InteractiveShellConfig => {
 		const config = loadConfig(cwd);
 		return {
@@ -988,6 +1000,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 						cwd: spawn.spawn.cwd,
 						shellConfig,
 						reason: spawn.spawn.reason,
+						owner,
 						onUnfocus: () => coordinator.unfocusOverlay(),
 					}, config, done),
 				createOverlayUiOptions(config),
@@ -996,7 +1009,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			if (spawn.spawn.worktreePath && coordinator.isRuntimeEpochCurrent(epoch)) {
 				ctx.ui.notify(`Worktree left in place: ${spawn.spawn.worktreePath}`, "info");
 			}
-			emitTransferredOutput(result);
+			emitTransferredOutput(coordinator, result);
 		} finally {
 			coordinator.endOverlay();
 		}
@@ -1155,14 +1168,14 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			}
 
 			const id = generateSessionId(name);
-			const semanticRuntime = compileSemanticRuntime(id, "monitor", compiled.semanticConfig, config);
+			const semanticRuntime = compileSemanticRuntime(coordinator, id, "monitor", compiled.semanticConfig, config);
 			if (!semanticRuntime.ok) return { content: [{ type: "text", text: semanticRuntime.error }], isError: true };
 			const session = new PtyTerminalSession(
 				{ command: monitorCommand, shellConfig, cwd: effectiveCwd, cols: 120, rows: 40, scrollback: config.scrollbackLines },
 			);
 			const startTime = Date.now();
 			if (semanticRuntime.runtime) coordinator.registerSemanticSession(id, new Date(startTime));
-			sessionManager.add(sessionCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
+			sessionManager.add(sessionCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime), owner });
 
 			coordinator.registerMonitorSession(id, compiled.publicConfig, new Date(startTime));
 			const monitorRunner = new HeadlessDispatchMonitor(session, config, {
@@ -1172,10 +1185,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				timeout,
 				startedAt: startTime,
 				monitor: compiled.runtime,
-				onMonitorEvent: makeMonitorEventCallback(id, compiled, shellConfig, effectiveCwd),
+				onMonitorEvent: makeMonitorEventCallback(coordinator, id, compiled, shellConfig, effectiveCwd),
 				semantic: semanticRuntime.runtime,
-			}, makeStructuredMonitorCompletionCallback(id));
-			registerHeadlessActive(id, sessionCommand, effectiveReason, session, monitorRunner, startTime, config, "monitoring");
+			}, makeStructuredMonitorCompletionCallback(coordinator, id));
+			registerHeadlessActive(coordinator, id, sessionCommand, effectiveReason, session, monitorRunner, startTime, config, "monitoring");
 
 			return {
 				content: [{ type: "text", text: appendWorktreeNotice(`Monitor started in background (id: ${id}).\nStrategy: ${compiled.publicConfig.strategy ?? "stream"}\n${compiled.semanticConfig ? describeSemanticMonitor(compiled.semanticConfig) : `Triggers: ${(compiled.publicConfig.triggers ?? []).map((trigger) => trigger.id).join(", ") || "(none)"}`}\nYou'll be notified when a configured event emits.`, spawnWorktreePath) }],
@@ -1198,7 +1211,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				: undefined;
 			if (semanticDelivery && !semanticDelivery.ok) return { content: [{ type: "text", text: semanticDelivery.error }], isError: true };
 			const semanticCompiled = semanticDelivery?.ok ? semanticDelivery.compiled : undefined;
-			const semanticRuntime = compileSemanticRuntime(id, "dispatch", semanticCompiled?.semanticConfig, config);
+			const semanticRuntime = compileSemanticRuntime(coordinator, id, "dispatch", semanticCompiled?.semanticConfig, config);
 			if (!semanticRuntime.ok) return { content: [{ type: "text", text: semanticRuntime.error }], isError: true };
 			const source = captureGoal ? sessionManager.beginOutputCapture(id, captureGoal, launchCommand) : undefined;
 			let session: PtyTerminalSession;
@@ -1214,7 +1227,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			const startTime = Date.now();
 			if (semanticRuntime.runtime) coordinator.registerSemanticSession(id, new Date(startTime));
 			if (semanticCompiled) coordinator.registerMonitorSession(id, semanticCompiled.publicConfig, new Date(startTime));
-			sessionManager.add(launchCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime) });
+			sessionManager.add(launchCommand, session, name, effectiveReason, { id, noAutoCleanup: true, startedAt: new Date(startTime), owner });
 
 			const dispatchMonitor = new HeadlessDispatchMonitor(session, config, {
 				autoExitOnQuiet: handsFree?.autoExitOnQuiet !== false,
@@ -1223,10 +1236,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				timeout,
 				startedAt: startTime,
 				monitor: semanticCompiled?.runtime,
-				onMonitorEvent: semanticCompiled ? makeMonitorEventCallback(id, semanticCompiled, shellConfig, effectiveCwd) : undefined,
+				onMonitorEvent: semanticCompiled ? makeMonitorEventCallback(coordinator, id, semanticCompiled, shellConfig, effectiveCwd) : undefined,
 				semantic: semanticRuntime.runtime,
-			}, makeMonitorCompletionCallback(id, startTime));
-			registerHeadlessActive(id, launchCommand, effectiveReason, session, dispatchMonitor, startTime, config);
+			}, makeMonitorCompletionCallback(coordinator, id, startTime));
+			registerHeadlessActive(coordinator, id, launchCommand, effectiveReason, session, dispatchMonitor, startTime, config);
 
 			return {
 				content: [{ type: "text", text: appendWorktreeNotice(`Session dispatched in background (id: ${id}).\nYou'll be notified when it completes. User can /attach ${id} to watch.${handsFree?.autoExitOnQuiet === undefined && !spawnAgent ? `\n${buildQuietAutoCloseLaunchHint(handsFree?.quietThreshold ?? config.handsFreeQuietThreshold, handsFree?.gracePeriod ?? config.autoExitGracePeriod)}` : ""}`, spawnWorktreePath) }],
@@ -1241,7 +1254,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				: undefined;
 			if (foregroundSemanticDelivery && !foregroundSemanticDelivery.ok) return { content: [{ type: "text", text: foregroundSemanticDelivery.error }], isError: true };
 			const foregroundSemanticCompiled = foregroundSemanticDelivery?.ok ? foregroundSemanticDelivery.compiled : undefined;
-			const foregroundSemanticRuntime = compileSemanticRuntime(generatedSessionId, effectiveMode === "hands-free" ? "hands-free" : "dispatch", foregroundSemanticCompiled?.semanticConfig, config);
+			const foregroundSemanticRuntime = compileSemanticRuntime(coordinator, generatedSessionId, effectiveMode === "hands-free" ? "hands-free" : "dispatch", foregroundSemanticCompiled?.semanticConfig, config);
 			if (!foregroundSemanticRuntime.ok) return { content: [{ type: "text", text: foregroundSemanticRuntime.error }], isError: true };
 			if (!coordinator.beginOverlay()) {
 				return {
@@ -1287,6 +1300,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 							shellConfig,
 							name,
 							reason: effectiveReason,
+							owner,
 							mode: effectiveMode,
 							sessionId: generatedSessionId,
 							startedAt: overlayStartTime,
@@ -1308,7 +1322,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 										startedAt: overlayStartTime,
 										deferLifecycle: true,
 										monitor: foregroundSemanticCompiled.runtime,
-										onMonitorEvent: makeMonitorEventCallback(generatedSessionId, foregroundSemanticCompiled, shellConfig, effectiveCwd),
+										onMonitorEvent: makeMonitorEventCallback(coordinator, generatedSessionId, foregroundSemanticCompiled, shellConfig, effectiveCwd),
 										semantic: foregroundSemanticRuntime.runtime,
 									}, () => {});
 									coordinator.setMonitor(generatedSessionId, foregroundSemanticMonitor);
@@ -1344,7 +1358,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 							} : undefined,
 							onUnfocus: () => coordinator.unfocusOverlay(),
 							onHandsFreeUpdate: effectiveMode === "hands-free"
-								? makeNonBlockingUpdateHandler()
+								? makeNonBlockingUpdateHandler(coordinator)
 								: undefined,
 							handoffPreviewEnabled: handoffPreview?.enabled,
 							handoffPreviewLines: handoffPreview?.lines,
@@ -1362,7 +1376,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				throw error;
 			}
 
-			setupDispatchCompletion(overlayPromise, config, {
+			setupDispatchCompletion(coordinator, overlayPromise, config, {
 				id: generatedSessionId,
 				mode: effectiveMode,
 				command: launchCommand,
@@ -1412,6 +1426,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 						shellConfig,
 						name,
 						reason: effectiveReason,
+						owner,
 						mode,
 						sessionId: generatedSessionId,
 						handsFreeUpdateMode: handsFree?.updateMode,
@@ -1494,6 +1509,10 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 	pi.on("session_start", (_event, ctx) => {
 		// Bind here, not in the factory: during load and /reload, pi's action methods throw until session_start.
+		owner = ctx.sessionManager.getSessionId();
+		coordinator = coordinators.get(owner) ?? runtimeGlobal[LEGACY_COORDINATOR_KEY] ?? new InteractiveShellCoordinator();
+		Reflect.deleteProperty(runtimeGlobal, LEGACY_COORDINATOR_KEY);
+		coordinators.set(owner, coordinator);
 		coordinator.bindExtensionApi(pi);
 		if (deferToolLoading) {
 			const activeTools = pi.getActiveTools().filter((name) => name !== TOOL_NAME);
@@ -1534,11 +1553,15 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 		coordinator.clearBackgroundWidget();
 		coordinator.unbindExtensionApi(pi);
 		if (event.reason === "reload") return;
-		sessionManager.killAll();
+		if (owner !== undefined) coordinators.delete(owner);
+		const lastSession = coordinators.size === 0;
+		if (lastSession) sessionManager.killAll();
+		else if (owner !== undefined) sessionManager.killAllOwnedBy(owner);
 		coordinator.disposeAllMonitors();
 		coordinator.clearPendingApiTasks();
+		if (!lastSession) return;
 		releaseSessionManagerSingleton(sessionManager);
-		Reflect.deleteProperty(runtimeGlobal, COORDINATOR_KEY);
+		Reflect.deleteProperty(runtimeGlobal, COORDINATORS_KEY);
 		Reflect.deleteProperty(logsGlobal, FINISHED_LOGS_KEY);
 	});
 
@@ -2169,6 +2192,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 								cwd: cwd ?? ctx.cwd,
 								name: bgSession.name,
 								reason: bgSession.reason ?? reason,
+								owner: bgSession.owner,
 								startedAt: attachStartTime,
 								handsFreeUpdateMode: handsFree?.updateMode,
 								handsFreeUpdateInterval: handsFree?.updateInterval,
@@ -2181,7 +2205,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 								autoExitGracePeriod: handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 								onUnfocus: () => coordinator.unfocusOverlay(),
 								onHandsFreeUpdate: mode === "hands-free"
-									? makeNonBlockingUpdateHandler()
+									? makeNonBlockingUpdateHandler(coordinator)
 									: undefined,
 								handoffPreviewEnabled: handoffPreview?.enabled,
 								handoffPreviewLines: handoffPreview?.lines,
@@ -2200,7 +2224,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				}
 
 				if (isNonBlocking) {
-					setupDispatchCompletion(overlayPromise, config, {
+					setupDispatchCompletion(coordinator, overlayPromise, config, {
 						id: reattachSessionId,
 						mode: mode!,
 						command: bgSession.command,
@@ -2433,7 +2457,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 					createOverlayUiOptions(config),
 				);
 
-				emitTransferredOutput(result, targetId);
+				emitTransferredOutput(coordinator, result, targetId);
 
 				if (monitor && !monitor.disposed) {
 					if (!result.backgrounded) {
@@ -2512,6 +2536,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 }
 
 function setupDispatchCompletion(
+	coordinator: InteractiveShellCoordinator,
 	overlayPromise: Promise<InteractiveShellResult>,
 	config: InteractiveShellConfig,
 	ctx: {
@@ -2540,7 +2565,7 @@ function setupDispatchCompletion(
 			gracePeriod: ctx.handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 			timeout: monitorTimeout,
 			startedAt: startTime,
-		}, makeMonitorCompletionCallback(bgId, startTime));
+		}, makeMonitorCompletionCallback(coordinator, bgId, startTime));
 	};
 	const reportSemanticTransitionFailure = (sessionId: string): void => {
 		coordinator.setSemanticSessionStatus(sessionId, "stopped");
@@ -2554,11 +2579,11 @@ function setupDispatchCompletion(
 		});
 	};
 	const activateExistingMonitor = (monitor: HeadlessDispatchMonitor, bgId: string, bgSession: NonNullable<ReturnType<typeof sessionManager.get>>, autoExitOnQuiet: boolean, monitorTimeout?: number): void => {
-		monitor.activateBackgroundLifecycle({ autoExitOnQuiet, timeout: monitorTimeout, onComplete: makeMonitorCompletionCallback(bgId, bgSession.startedAt.getTime()) });
+		monitor.activateBackgroundLifecycle({ autoExitOnQuiet, timeout: monitorTimeout, onComplete: makeMonitorCompletionCallback(coordinator, bgId, bgSession.startedAt.getTime()) });
 		monitor.resumeSemantic();
 		coordinator.setSemanticSessionStatus(id, "running");
 		coordinator.deleteMonitor(id);
-		registerHeadlessActive(bgId, command, reason, bgSession.session, monitor, bgSession.startedAt.getTime(), config);
+		registerHeadlessActive(coordinator, bgId, command, reason, bgSession.session, monitor, bgSession.startedAt.getTime(), config);
 	};
 	const finalizeForegroundSemantic = (result: InteractiveShellResult): void => {
 		if (!ctx.semantic) return;
@@ -2581,14 +2606,14 @@ function setupDispatchCompletion(
 		const wasAgentInitiated = coordinator.consumeAgentHandledCompletion(id);
 
 		if (result.transferred) {
-			emitTransferredOutput(result, id);
+			emitTransferredOutput(coordinator, result, id);
 			sessionManager.unregisterActive(id, true);
 			coordinator.setSemanticSessionStatus(id, "stopped");
 			if (coordinator.getMonitorSessionState(id)) {
 				coordinator.finalizeMonitorSession(id, { exitCode: result.exitCode, signal: result.signal }, "stopped");
 			}
 			coordinator.disposeMonitor(id);
-			scheduleMonitorHistoryCleanup(id);
+			scheduleMonitorHistoryCleanup(coordinator, id);
 			return;
 		}
 
@@ -2605,7 +2630,7 @@ function setupDispatchCompletion(
 			if (ctx.semantic && bgSession) {
 				reportSemanticTransitionFailure(id);
 				const monitor = createBackgroundMonitor(bgId, bgSession, ctx.handsFree?.autoExitOnQuiet === true);
-				registerHeadlessActive(bgId, command, reason, bgSession.session, monitor, bgSession.startedAt.getTime(), config);
+				registerHeadlessActive(coordinator, bgId, command, reason, bgSession.session, monitor, bgSession.startedAt.getTime(), config);
 				return;
 			}
 		}
@@ -2652,8 +2677,8 @@ function setupDispatchCompletion(
 					gracePeriod: ctx.handsFree?.gracePeriod ?? config.autoExitGracePeriod,
 					timeout: remainingTimeout,
 					startedAt: bgStartTime,
-				}, makeMonitorCompletionCallback(bgId, bgStartTime));
-			registerHeadlessActive(bgId, command, reason, bgSession.session, monitor, bgStartTime, config);
+				}, makeMonitorCompletionCallback(coordinator, bgId, bgStartTime));
+			registerHeadlessActive(coordinator, bgId, command, reason, bgSession.session, monitor, bgStartTime, config);
 			return;
 		}
 

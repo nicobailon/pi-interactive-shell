@@ -11,6 +11,7 @@ export interface BackgroundSession {
 	reason?: string;
 	session: PtyTerminalSession;
 	startedAt: Date;
+	owner?: string;
 }
 
 export type ActiveSessionStatus = "running" | "monitoring" | "user-takeover" | "exited" | "killed" | "backgrounded";
@@ -55,6 +56,7 @@ export interface ActiveSession {
 	id: string;
 	command: string;
 	reason?: string;
+	owner?: string;
 	write: (data: string) => void;
 	kill: () => void;
 	background: () => void;
@@ -306,7 +308,7 @@ export class ShellSessionManager {
 		return true;
 	}
 
-	add(command: string, session: PtyTerminalSession, name?: string, reason?: string, options?: { id?: string; noAutoCleanup?: boolean; startedAt?: Date }): string {
+	add(command: string, session: PtyTerminalSession, name?: string, reason?: string, options?: { id?: string; noAutoCleanup?: boolean; startedAt?: Date; owner?: string }): string {
 		const id = options?.id ?? generateSessionId(name);
 		if (options?.id) usedIds.add(id);
 		const entry: BackgroundSession = {
@@ -316,6 +318,7 @@ export class ShellSessionManager {
 			reason,
 			session,
 			startedAt: options?.startedAt ?? new Date(),
+			owner: options?.owner,
 		};
 
 		this.storeBackgroundEntry(entry, options?.noAutoCleanup === true);
@@ -446,16 +449,24 @@ export class ShellSessionManager {
 	}
 
 	killAll(): void {
+		this.killMatching(() => true);
+	}
+
+	killAllOwnedBy(owner: string): void {
+		this.killMatching((id) => (this.activeSessions.get(id)?.owner ?? this.sessions.get(id)?.owner) === owner);
+	}
+
+	private killMatching(matches: (id: string) => boolean): void {
 		// Kill all active hands-free sessions
 		// Collect entries first since kill() may trigger unregisterActive()
-		const activeEntries = Array.from(this.activeSessions.entries());
+		const activeEntries = Array.from(this.activeSessions.entries()).filter(([id]) => matches(id));
 		for (const [, session] of activeEntries) {
 			session.kill();
 		}
 
 		// Active and background maps can share a PtyTerminalSession. Cancel through
 		// the active owner first, then dispose background storage idempotently.
-		const bgIds = Array.from(this.sessions.keys());
+		const bgIds = Array.from(this.sessions.keys()).filter(matches);
 		for (const id of bgIds) {
 			this.remove(id);
 			this.unregisterActive(id, false);

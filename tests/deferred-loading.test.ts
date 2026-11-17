@@ -94,6 +94,7 @@ async function setupHarness(defer: boolean, dynamicApis = true, allowedTools = [
 }
 
 const sessionContext = {
+	sessionManager: { getSessionId: () => "pi-session" },
 	ui: {
 		notify: vi.fn(),
 		onTerminalInput: vi.fn(() => () => {}),

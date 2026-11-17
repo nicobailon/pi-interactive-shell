@@ -117,7 +117,7 @@ async function setupExtensionHarness(configOverrides: SpawnConfigOverrides = {})
 	};
 
 	extension(pi as any);
-	handlers.get("session_start")?.({ reason: "startup" }, { hasUI: false, ui: { onTerminalInput: () => () => {} } });
+	handlers.get("session_start")?.({ reason: "startup" }, { hasUI: false, sessionManager: { getSessionId: () => "pi-session" }, ui: { onTerminalInput: () => () => {} } });
 
 	const notify = vi.fn();
 	const custom = vi.fn(async (factory: (tui: any, theme: any, kb: any, done: (result: unknown) => void) => unknown) => {

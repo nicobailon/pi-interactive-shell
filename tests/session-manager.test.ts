@@ -162,6 +162,29 @@ describe("ShellSessionManager", () => {
 		expect(activeKill).toHaveBeenCalledTimes(1);
 	});
 
+	it("killAllOwnedBy ends only the shells that Pi session started", () => {
+		const manager = new ShellSessionManager();
+		const mine = createSession() as any;
+		const theirs = createSession() as any;
+		manager.add("mine", mine, undefined, undefined, { id: "bg-mine", owner: "pi-a" });
+		manager.add("theirs", theirs, undefined, undefined, { id: "bg-theirs", owner: "pi-b" });
+		const headlessKill = vi.fn();
+		manager.registerActive(createActiveSession({ id: "bg-mine", kill: headlessKill }));
+		const overlayKill = vi.fn();
+		manager.registerActive(createActiveSession({ id: "overlay-mine", owner: "pi-a", kill: overlayKill }));
+		const otherKill = vi.fn();
+		manager.registerActive(createActiveSession({ id: "overlay-theirs", owner: "pi-b", kill: otherKill }));
+
+		manager.killAllOwnedBy("pi-a");
+
+		expect(mine.dispose).toHaveBeenCalledTimes(1);
+		expect(headlessKill).toHaveBeenCalledTimes(1);
+		expect(overlayKill).toHaveBeenCalledTimes(1);
+		expect(theirs.dispose).not.toHaveBeenCalled();
+		expect(otherKill).not.toHaveBeenCalled();
+		expect(manager.list().map((session) => session.id)).toEqual(["bg-theirs"]);
+	});
+
 	it.runIf(process.platform !== "win32")("shuts down a shared background and active PTY only once", async () => {
 		vi.useRealTimers();
 		let resolveReady!: () => void;
