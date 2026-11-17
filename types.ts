@@ -239,6 +239,7 @@ export interface InteractiveShellOptions {
 	shellConfig?: ResolvedShellConfig;
 	name?: string;
 	reason?: string;
+	owner?: string;
 	/** Original session start time in ms since epoch, preserved across background/reattach transitions. */
 	startedAt?: number;
 	handoffPreviewEnabled?: boolean;

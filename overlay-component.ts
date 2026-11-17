@@ -454,6 +454,7 @@ export class InteractiveShellOverlay implements Component, Focusable {
 			id: this.sessionId,
 			command: this.options.command,
 			reason: this.options.reason,
+			owner: this.options.owner,
 			write: (data) => this.session.write(data),
 			kill: () => this.killSession(),
 			background: () => this.backgroundSession(),
@@ -681,8 +682,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 		const handoffPreview = this.maybeBuildHandoffPreview("detach");
 		const handoff = this.maybeWriteHandoffSnapshot("detach");
 		const addOptions = this.sessionId
-			? { id: this.sessionId, noAutoCleanup: this.options.mode === "dispatch", startedAt: new Date(this.startTime) }
-			: undefined;
+			? { id: this.sessionId, noAutoCleanup: this.options.mode === "dispatch", startedAt: new Date(this.startTime), owner: this.options.owner }
+			: { owner: this.options.owner };
 		const id = sessionManager.add(this.options.command, this.session, this.options.name, this.options.reason, addOptions);
 		const result: InteractiveShellResult = {
 			exitCode: null,
