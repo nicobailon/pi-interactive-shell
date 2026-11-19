@@ -6,7 +6,7 @@ type SetupOptions = {
 };
 
 async function setupKillHarness(options: SetupOptions = {}) {
-	Reflect.deleteProperty(globalThis, "__piInteractiveShellCoordinatorV1");
+	Reflect.deleteProperty(globalThis, "__piInteractiveShellCoordinatorsV2");
 	const kill = vi.fn();
 	const dispose = vi.fn();
 	const unregisterActive = vi.fn();

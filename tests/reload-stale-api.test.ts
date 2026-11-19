@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const COORDINATOR_KEY = "__piInteractiveShellCoordinatorV1";
+const COORDINATOR_KEY = "__piInteractiveShellCoordinatorsV2";
 const MISSING_DIR = "/nonexistent/pi-interactive-shell-reload-test";
 
 function mockModules(captured: { overlay?: any }) {
@@ -52,7 +52,7 @@ function loadExtensionApi(extension: (pi: any) => void, { start = true } = {}) {
 	extension(pi);
 	const startSession = () => {
 		started = true;
-		handlers.get("session_start")({ reason: "startup" }, { ui: { notify: vi.fn(), onTerminalInput: () => () => {} } });
+		handlers.get("session_start")({ reason: "startup" }, { sessionManager: { getSessionId: () => "pi-session" }, ui: { notify: vi.fn(), onTerminalInput: () => () => {} } });
 	};
 	if (start) startSession();
 	return { pi, handlers, tools, startSession, invalidate: () => { stale = true; } };

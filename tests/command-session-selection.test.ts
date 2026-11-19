@@ -50,13 +50,14 @@ async function setupHarness(initialSessions: MockBackgroundSession[]) {
 	const extension = extensionModule.default;
 
 	const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> | void }>();
+	const handlers = new Map<string, (event: unknown, ctx: any) => void>();
 	const pi = {
 		registerShortcut: vi.fn(),
 		registerCommand: vi.fn((name: string, options: { handler: (args: string, ctx: any) => Promise<void> | void }) => {
 			commands.set(name, options);
 		}),
 		registerTool: vi.fn(),
-		on: vi.fn(),
+		on: vi.fn((event: string, handler: (event: unknown, ctx: any) => void) => { handlers.set(event, handler); }),
 		events: { emit: vi.fn() },
 		sendMessage: vi.fn(),
 	};
@@ -69,20 +70,26 @@ async function setupHarness(initialSessions: MockBackgroundSession[]) {
 		hasUI: true,
 		sessionManager: {
 			getSessionFile: () => "/tmp/project/current.jsonl",
+			getSessionId: () => "pi-session",
 		},
 		ui: {
 			notify,
+			onTerminalInput: () => () => {},
+			setWidget: vi.fn(),
 			custom: vi.fn(),
 			select: vi.fn(async (_title: string, options: string[]): Promise<string | undefined> => options[0]),
 		},
 	};
+
+	handlers.get("session_start")?.({ reason: "startup" }, ctx);
+	const coordinators = (globalThis as typeof globalThis & { __piInteractiveShellCoordinatorsV2: Map<string, import("../runtime-coordinator.ts").InteractiveShellCoordinator> }).__piInteractiveShellCoordinatorsV2;
 
 	return {
 		commands,
 		ctx,
 		notify,
 		sessionManager,
-		coordinator: (globalThis as typeof globalThis & { __piInteractiveShellCoordinatorV1: import("../runtime-coordinator.ts").InteractiveShellCoordinator }).__piInteractiveShellCoordinatorV1,
+		coordinator: coordinators.get("pi-session")!,
 	};
 }
 

@@ -80,6 +80,10 @@ export class InteractiveShellCoordinator {
 		this.outputSelectionCache ??= new Map();
 	}
 
+	isBoundToAnother(pi: ExtensionAPI): boolean {
+		return this.extensionApi !== null && this.extensionApi !== pi;
+	}
+
 	unbindExtensionApi(pi: ExtensionAPI): void {
 		if (this.extensionApi !== pi) return;
 		this.extensionApi = null;
