@@ -35,10 +35,11 @@ async function openPiSession(piSessionId: string, loading: Loading) {
 	const extension = (await import("../index.ts")).default;
 	const handlers = new Map<string, any>();
 	const tools = new Map<string, any>();
+	const commands = new Map<string, any>();
 	let activeTools: string[] = [];
 	const pi = {
 		registerShortcut: vi.fn(),
-		registerCommand: vi.fn(),
+		registerCommand: vi.fn((name: string, options: any) => { commands.set(name, options); }),
 		registerTool: vi.fn((tool: any) => { tools.set(tool.name, tool); activeTools.push(tool.name); }),
 		on: vi.fn((event: string, handler: any) => handlers.set(event, handler)),
 		events: { emit: vi.fn() },
@@ -55,8 +56,19 @@ async function openPiSession(piSessionId: string, loading: Loading) {
 		ui: { notify: vi.fn(), onTerminalInput: () => () => {}, setWidget: vi.fn() },
 	};
 	handlers.get("session_start")({ reason: "startup" }, ctx);
+	const call = async (params: Record<string, unknown>) => {
+		const result = await tools.get("interactive_shell").execute("call", params, undefined, undefined, ctx);
+		return result.content[0].text as string;
+	};
+	const command = async (name: string, args: string) => {
+		ctx.ui.notify.mockClear();
+		await commands.get(name).handler(args, ctx);
+		return ctx.ui.notify.mock.calls.map(([text]) => text as string);
+	};
 	return {
 		pi,
+		call,
+		command,
 		notices: () => pi.sendMessage.mock.calls.map(([message]) => message.customType as string),
 		startInBackground: async (command: string) => {
 			const result = await tools.get("interactive_shell").execute("call", { command, mode: "dispatch", background: true }, undefined, undefined, ctx);
@@ -141,6 +153,80 @@ describe.runIf(process.platform !== "win32").each<Loading>([
 		const reloadedA = await openPiSession("pi-a", loading);
 
 		expect({ a: a.notices(), reloadedA: reloadedA.notices(), b: b.notices() }).toEqual({ a: [], reloadedA: [TRANSFER], b: [] });
+	});
+
+	it("lets a session list, query, kill, dismiss, and attach to only the shells it started", async () => {
+		agentDir = mkdtempSync(join(tmpdir(), "pi-shell-95-"));
+		const a = await openPiSession("pi-a", loading);
+		const b = await openPiSession("pi-b", loading);
+		const shellA = await a.startInBackground("sleep 30.953");
+		await vi.waitFor(() => expect(processAlive("sleep 30.953")).toBe(true));
+
+		expect(await b.call({ listBackground: true })).toBe("No background sessions.");
+		expect(await b.call({ dismissBackground: true })).toBe("No background sessions to dismiss.");
+		expect(await b.call({ dismissBackground: shellA })).toBe(`Background session not found: ${shellA}`);
+		expect(await b.call({ attach: shellA })).toBe(`Background session not found: ${shellA}`);
+		expect(await b.call({ sessionId: shellA })).toBe(`Session not found or no longer active: ${shellA}`);
+		expect(await b.call({ sessionId: shellA, kill: true })).toBe(`Session not found or no longer active: ${shellA}`);
+		expect(await a.call({ sessionId: shellA })).toContain(`Session ${shellA} running`);
+
+		expect(processAlive("sleep 30.953"), "A's shell").toBe(true);
+		expect(await a.call({ listBackground: true })).toContain(shellA);
+		expect(await a.call({ dismissBackground: true })).toBe(`Dismissed session ${shellA}.`);
+		await processEnded("sleep 30.953");
+	});
+
+	it("scopes /attach and /dismiss to the shells the session started", async () => {
+		agentDir = mkdtempSync(join(tmpdir(), "pi-shell-95-"));
+		const a = await openPiSession("pi-a", loading);
+		const b = await openPiSession("pi-b", loading);
+		const shellA = await a.startInBackground("sleep 30.955");
+		await vi.waitFor(() => expect(processAlive("sleep 30.955")).toBe(true));
+
+		expect(await b.command("attach", "")).toEqual(["No background sessions"]);
+		expect(await b.command("dismiss", "")).toEqual(["No background sessions"]);
+
+		await b.startInBackground("sleep 30.956");
+		await vi.waitFor(() => expect(processAlive("sleep 30.956")).toBe(true));
+		expect(await b.command("attach", shellA)).toEqual([`Session not found: ${shellA}`]);
+		expect(await b.command("dismiss", shellA)).toEqual([`Session not found: ${shellA}`]);
+		expect(await b.command("dismiss", "")).toEqual(["Dismissed 1 session"]);
+
+		await processEnded("sleep 30.956");
+		expect(processAlive("sleep 30.955"), "A's shell").toBe(true);
+	});
+
+	it("keeps a shell with no recorded owner visible to every session", async () => {
+		agentDir = mkdtempSync(join(tmpdir(), "pi-shell-95-"));
+		const a = await openPiSession("pi-a", loading);
+		const b = await openPiSession("pi-b", loading);
+		sharedSessionManager().restore({
+			id: "started-before-upgrade", name: "legacy", command: "legacy", startedAt: new Date(),
+			session: { exited: false, setEventHandlers() {}, dispose() {} },
+		}, { noAutoCleanup: true });
+
+		expect(await a.call({ listBackground: true })).toContain("started-before-upgrade");
+		expect(await b.call({ listBackground: true })).toContain("started-before-upgrade");
+	});
+
+	it("leaves a session alone when an older runtime for it shuts down after a newer one took over", async () => {
+		agentDir = mkdtempSync(join(tmpdir(), "pi-shell-95-"));
+		const older = await openPiSession("pi-a", loading);
+		const b = await openPiSession("pi-b", loading);
+		await older.startInBackground("sleep 30.954");
+		await vi.waitFor(() => expect(processAlive("sleep 30.954")).toBe(true));
+		const newer = await openPiSession("pi-a", loading);
+
+		older.shutdown("quit");
+		b.shutdown("quit");
+		await new Promise((resolve) => setTimeout(resolve, 300));
+
+		expect(processAlive("sleep 30.954"), "the session's shell").toBe(true);
+		expect(coordinatorOf("pi-a"), "the session's coordinator").toBeDefined();
+
+		newer.shutdown("quit");
+		await processEnded("sleep 30.954");
+		expect(sharedSessionManager(), "shared state after the last session").toBeUndefined();
 	});
 
 	it("hands the coordinator 0.18 kept for the whole process to the session that reloads into this version", async () => {

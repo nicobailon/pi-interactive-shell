@@ -6,6 +6,7 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ### Fixed
 - In multi-session hosts such as pi-web, closing one Pi session no longer stops another's background sessions, and notifications reach the Pi session that started them. Thanks to [@jaeyeun97](https://github.com/jaeyeun97) for [#95](https://github.com/nicobailon/pi-interactive-shell/issues/95).
+- In such hosts, each Pi session now lists, attaches to, and dismisses only its own background sessions.
 
 ## [0.18.0] - 2026-10-27
 

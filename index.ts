@@ -925,6 +925,9 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 	let terminalInputCleanup: (() => void) | null = null;
 	let owner: string | undefined;
 	let coordinator = new InteractiveShellCoordinator();
+	const isOwn = (session: { owner?: string }): boolean => (session.owner ?? owner) === owner;
+	const ownSessions = () => sessionManager.list().filter(isOwn);
+	const isForeign = (id: string): boolean => sessionManager.list().some((session) => session.id === id && !isOwn(session));
 	const loadRuntimeConfig = (cwd: string): InteractiveShellConfig => {
 		const config = loadConfig(cwd);
 		return {
@@ -1524,7 +1527,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				pi.setActiveTools([...new Set([...activeTools, TOOL_NAME])]);
 			}
 		}
-		coordinator.replaceBackgroundWidgetCleanup(setupBackgroundWidget(ctx, sessionManager, coordinator));
+		coordinator.replaceBackgroundWidgetCleanup(setupBackgroundWidget(ctx, { onChange: (listener) => sessionManager.onChange(listener), list: ownSessions }, coordinator));
 		terminalInputCleanup?.();
 		terminalInputCleanup = ctx.ui.onTerminalInput((data) => {
 			if (!coordinator.isOverlayOpen()) return undefined;
@@ -1550,6 +1553,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 	pi.on("session_shutdown", (event) => {
 		terminalInputCleanup?.();
 		terminalInputCleanup = null;
+		// A newer runtime for this session is live; this shutdown ran late.
+		if (coordinator.isBoundToAnother(pi)) return;
 		coordinator.clearBackgroundWidget();
 		coordinator.unbindExtensionApi(pi);
 		if (event.reason === "reload") return;
@@ -1938,7 +1943,8 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 			// ── Branch 1: Interact with existing session ──
 			if (sessionId) {
-				const session = sessionManager.getActive(sessionId);
+				const active = sessionManager.getActive(sessionId);
+				const session = active && isOwn(active) && !isForeign(sessionId) ? active : undefined;
 				if (!session) {
 					return {
 						content: [{ type: "text", text: existsSync(finishedSessionLogs.get(sessionId) ?? "")
@@ -2125,6 +2131,12 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 			// ── Branch 2: Attach to background session ──
 			if (attach) {
+				if (isForeign(attach)) {
+					return {
+						content: [{ type: "text", text: `Background session not found: ${attach}` }],
+						isError: true,
+					};
+				}
 				if (background) {
 					return {
 						content: [{ type: "text", text: "Cannot attach and background simultaneously." }],
@@ -2275,7 +2287,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 
 			// ── Branch 3: List background sessions ──
 			if (listBackground) {
-				const sessions = sessionManager.list();
+				const sessions = ownSessions();
 				if (sessions.length === 0) {
 					return { content: [{ type: "text", text: "No background sessions." }] };
 				}
@@ -2295,14 +2307,14 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 			// ── Branch 3b: Dismiss background sessions ──
 			if (dismissBackground) {
 				if (typeof dismissBackground === "string") {
-					if (!sessionManager.list().some(s => s.id === dismissBackground)) {
+					if (!ownSessions().some(s => s.id === dismissBackground)) {
 						return { content: [{ type: "text", text: `Background session not found: ${dismissBackground}` }], isError: true };
 					}
 				}
 
 				const targetIds = typeof dismissBackground === "string"
 					? [dismissBackground]
-					: sessionManager.list().map(s => s.id);
+					: ownSessions().map(s => s.id);
 
 				if (targetIds.length === 0) {
 					return { content: [{ type: "text", text: "No background sessions to dismiss." }] };
@@ -2381,13 +2393,17 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			const sessions = sessionManager.list();
+			const sessions = ownSessions();
 			if (sessions.length === 0) {
 				ctx.ui.notify("No background sessions", "info");
 				return;
 			}
 
 			let targetId = args.trim();
+			if (targetId && isForeign(targetId)) {
+				ctx.ui.notify(`Session not found: ${targetId}`, "error");
+				return;
+			}
 			if (!targetId) {
 				const options = sessions.map((s) => {
 					const status = s.session.exited ? "exited" : "running";
@@ -2487,7 +2503,7 @@ export default function interactiveShellExtension(pi: ExtensionAPI) {
 	pi.registerCommand("dismiss", {
 		description: "Dismiss background shell sessions (kill running, remove exited)",
 		handler: async (args, ctx) => {
-			const sessions = sessionManager.list();
+			const sessions = ownSessions();
 			if (sessions.length === 0) {
 				ctx.ui.notify("No background sessions", "info");
 				return;
