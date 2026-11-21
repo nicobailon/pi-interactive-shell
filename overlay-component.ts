@@ -12,6 +12,7 @@ import {
 	type OverlayState,
 	HEADER_LINES,
 	FOOTER_LINES_COMPACT,
+	OVERLAY_SIDE_MARGIN,
 	formatDuration,
 	formatShortcut,
 } from "./types.ts";
@@ -957,7 +958,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 	}
 
 	render(width: number): string[] {
-		width = Math.max(4, width);
+		// One blank column outside each side, so the chat behind the overlay does not run into its border.
+		width = Math.max(4, width - 2 * OVERLAY_SIDE_MARGIN);
 		const th = this.theme;
 		const borderColor = this.focused ? "borderAccent" : "borderMuted";
 		const borderGlyphs = this.focused
@@ -1094,7 +1096,8 @@ export class InteractiveShellOverlay implements Component, Focusable {
 
 		lines.push(border(borderGlyphs.bottomLeft + borderGlyphs.horizontal.repeat(width - 2) + borderGlyphs.bottomRight));
 
-		return lines;
+		const margin = " ".repeat(OVERLAY_SIDE_MARGIN);
+		return lines.map((line) => margin + line + margin);
 	}
 
 	invalidate(): void {

@@ -412,4 +412,31 @@ describe("InteractiveShellOverlay render focus cues", () => {
 		expect(focused).toContain("╔");
 		expect(focused).toContain("╝");
 	});
+
+	it("keeps a blank column outside each side of the border", async () => {
+		const { InteractiveShellOverlay } = await loadOverlay();
+		const session = createExistingSession();
+		const overlay = new InteractiveShellOverlay(
+			{ terminal: { columns: 120, rows: 40 }, requestRender: vi.fn() } as any,
+			{
+				fg: (_color: string, text: string) => text,
+				bg: (_color: string, text: string) => text,
+				bold: (text: string) => text,
+			} as any,
+			{
+				command: "pi",
+				existingSession: session as any,
+			},
+			config,
+			() => {},
+		);
+
+		const lines = overlay.render(80);
+		expect(lines[0]).toMatch(/^ ╭─+╮ $/);
+		expect(lines.at(-1)).toMatch(/^ ╰─+╯ $/);
+		for (const line of lines) {
+			expect(line).toHaveLength(80);
+			expect(line).toMatch(/^ \S.*\S $/);
+		}
+	});
 });
