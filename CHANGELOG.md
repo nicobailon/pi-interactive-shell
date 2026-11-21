@@ -4,6 +4,9 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+- Resizing a terminal session works on systems without `/usr/bin/stty`, such as NixOS and Guix: `stty` is found on `PATH`, then in `/usr/bin` and `/bin`. Before, every resize failed there, so sessions kept their starting size, and each failure printed the whole error object, stack included, over Pi's screen. A resize failure now prints one line, once.
+
 ## [0.18.0] - 2026-10-27
 
 ### Highlights

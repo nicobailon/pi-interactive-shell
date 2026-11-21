@@ -1,5 +1,6 @@
-import { closeSync, openSync, write } from "node:fs";
+import { accessSync, closeSync, constants as fsConstants, openSync, statSync, write } from "node:fs";
 import { constants as osConstants } from "node:os";
+import { delimiter, isAbsolute, join } from "node:path";
 import { spawn as spawnChild, type ChildProcess } from "node:child_process";
 import type { Duplex } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
@@ -7,6 +8,36 @@ import { ReadStream } from "node:tty";
 import { hasNative, open, spawn, type IPty } from "zigpty";
 
 export type PtyExitEvent = { exitCode: number; signal: number };
+
+const STTY_FALLBACKS = ["/usr/bin/stty", "/bin/stty"];
+
+function isExecutableFile(path: string): boolean {
+	try {
+		accessSync(path, fsConstants.X_OK);
+		return statSync(path).isFile();
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * The stty to resize with: the first on PATH, then the usual locations. NixOS, Guix and some
+ * containers have no /usr/bin/stty, so a hard-coded path fails every resize there.
+ */
+export function resolveSttyPath(
+	env: NodeJS.ProcessEnv = process.env,
+	isExecutable: (path: string) => boolean = isExecutableFile,
+): string {
+	const fromPath = (env.PATH ?? "")
+		.split(delimiter)
+		.filter((dir) => dir && isAbsolute(dir))
+		.map((dir) => join(dir, "stty"));
+	return [...fromPath, ...STTY_FALLBACKS].find((candidate) => isExecutable(candidate)) ?? STTY_FALLBACKS[0];
+}
+
+let cachedSttyPath: string | undefined;
+/** A resize failure is reported once per process: it writes over the host TUI. */
+let resizeFailureReported = false;
 
 export interface PtyProcess {
 	readonly pid: number;
@@ -441,8 +472,9 @@ class LinuxPtyProcess implements PtyProcess {
 			const masked = maskedChildStdio(["ignore", "ignore", "pipe"], false);
 			let child: ChildProcess;
 			try {
+				cachedSttyPath ??= resolveSttyPath();
 				child = spawnChild(
-					"/usr/bin/stty",
+					cachedSttyPath,
 					["-F", this.ptyPath, "rows", String(rows), "cols", String(cols)],
 					{ stdio: masked.stdio },
 				);
@@ -469,7 +501,11 @@ class LinuxPtyProcess implements PtyProcess {
 
 	private finishResize(error: Error | null): void {
 		this.resizeProcess = null;
-		if (error && !this.closed) console.error("interactive-shell: PTY resize failed:", error);
+		if (error && !this.closed && !resizeFailureReported) {
+			resizeFailureReported = true;
+			// One line, once: the full error object (stack, spawnargs) lands in the middle of the TUI.
+			console.error(`interactive-shell: PTY resize failed: ${error.message}`);
+		}
 		if (this.pendingResize !== null && !this.closed) this.startNextResize();
 		else this.resolveResizeWaiters();
 	}
