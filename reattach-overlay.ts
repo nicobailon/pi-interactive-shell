@@ -10,6 +10,7 @@ import {
 	type OverlayState,
 	HEADER_LINES,
 	FOOTER_LINES_COMPACT,
+	OVERLAY_SIDE_MARGIN,
 	FOOTER_LINES_DIALOG,
 	formatShortcut,
 } from "./types.ts";
@@ -309,7 +310,8 @@ export class ReattachOverlay implements Component, Focusable {
 	}
 
 	render(width: number): string[] {
-		width = Math.max(4, width);
+		// One blank column outside each side, so the chat behind the overlay does not run into its border.
+		width = Math.max(4, width - 2 * OVERLAY_SIDE_MARGIN);
 		const th = this.theme;
 		const borderColor = this.focused ? "border" : "borderMuted";
 		const border = (s: string) => th.fg(borderColor, s);
@@ -425,7 +427,8 @@ export class ReattachOverlay implements Component, Focusable {
 
 		lines.push(border("╰" + "─".repeat(width - 2) + "╯"));
 
-		return lines;
+		const margin = " ".repeat(OVERLAY_SIDE_MARGIN);
+		return lines.map((line) => margin + line + margin);
 	}
 
 	invalidate(): void {

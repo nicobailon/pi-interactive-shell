@@ -280,6 +280,8 @@ export type OverlayState = "running" | "exited" | "detach-dialog" | "hands-free"
 export const FOOTER_LINES_COMPACT = 2;
 export const FOOTER_LINES_DIALOG = 6;
 export const HEADER_LINES = 4;
+/** Blank columns kept outside each side of an overlay border, so the content behind does not touch it. */
+export const OVERLAY_SIDE_MARGIN = 1;
 
 /** Format milliseconds to human-readable duration */
 export function formatDuration(ms: number): string {

@@ -4,6 +4,9 @@ All notable changes to the `pi-interactive-shell` extension will be documented i
 
 ## [Unreleased]
 
+### Fixed
+- The session overlay keeps one blank column outside each side of its border, so the chat behind it no longer runs straight into the border.
+
 ## [0.18.0] - 2026-10-27
 
 ### Highlights
